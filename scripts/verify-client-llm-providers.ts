@@ -4,12 +4,14 @@ import LLMProviders from "../source/client/core/llm/providers"
 
 let configured = false
 
+let active = false
+
 let received: OllamaCloudConfiguration | null = null
 
 const providers = new LLMProviders({
     async configuration() {
 
-        return { configured }
+        return { configured, active }
     },
     async configure(configuration) {
 
@@ -21,9 +23,17 @@ const providers = new LLMProviders({
 
         configured = false
     },
+    async activate() {
+
+        active = true
+    },
+    async deactivate() {
+
+        active = false
+    },
     async models() {
 
-        return [{ id: "qwen3:latest" }]
+        return active ? [{ provider: "ollama-cloud", id: "qwen3:latest" }] : []
     },
     async *generate() {
 
@@ -37,11 +47,19 @@ assert.equal(providers.all().length, 1)
 
 assert.equal(await providers.ollamaCloud.configured(), false)
 
+assert.equal(await providers.ollamaCloud.active(), false)
+
 await providers.ollamaCloud.configure({ apiKey: "secret" })
 
 assert.deepEqual(received, { apiKey: "secret" })
 
 assert.equal(await providers.ollamaCloud.configured(), true)
+
+assert.deepEqual(await providers.ollamaCloud.models(), [])
+
+await providers.ollamaCloud.activate()
+
+assert.equal(await providers.ollamaCloud.active(), true)
 
 const models = await providers.ollamaCloud.models()
 
@@ -54,6 +72,12 @@ const chunks: string[] = []
 for await (const chunk of models[0]!.generate("Hello")) chunks.push(chunk)
 
 assert.deepEqual(chunks, ["Hello", " world"])
+
+await providers.ollamaCloud.deactivate()
+
+assert.equal(await providers.ollamaCloud.active(), false)
+
+assert.deepEqual(await providers.ollamaCloud.models(), [])
 
 await providers.ollamaCloud.removeConfiguration()
 

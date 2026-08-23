@@ -6,6 +6,8 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
 
     const [configured, setConfigured] = useState<boolean>()
 
+    const [isActive, setActive] = useState<boolean>()
+
     const [models, setModels] = useState<readonly OllamaCloudModel[]>([])
 
     const [apiKey, setApiKey] = useState("")
@@ -22,13 +24,15 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
 
             try {
 
-                const available = await provider.configured()
+                const state = await provider.state()
 
                 if (!active) return
 
-                setConfigured(available)
+                setConfigured(state.configured)
 
-                if (!available) return
+                setActive(state.active)
+
+                if (!state.configured || !state.active) return
 
                 const discovered = await provider.models()
 
@@ -64,13 +68,67 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
 
             await provider.configure({ apiKey: value })
 
+            const state = await provider.state()
+
             setApiKey("")
 
-            setConfigured(true)
+            setConfigured(state.configured)
 
-            const discovered = await provider.models()
+            setActive(state.active)
+
+            const discovered = state.active ? await provider.models() : []
 
             setModels(discovered)
+        } catch (failure) {
+
+            setError(message(failure))
+        } finally {
+
+            setPending(false)
+        }
+    }
+
+    async function activate() {
+
+        if (pending) return
+
+        setPending(true)
+
+        setError("")
+
+        try {
+
+            await provider.activate()
+
+            setActive(true)
+
+            const discovered = configured ? await provider.models() : []
+
+            setModels(discovered)
+        } catch (failure) {
+
+            setError(message(failure))
+        } finally {
+
+            setPending(false)
+        }
+    }
+
+    async function deactivate() {
+
+        if (pending) return
+
+        setPending(true)
+
+        setError("")
+
+        try {
+
+            await provider.deactivate()
+
+            setActive(false)
+
+            setModels([])
         } catch (failure) {
 
             setError(message(failure))
@@ -111,7 +169,12 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
                 <p>{configured === undefined ? "Loading configuration…" : configured ? "Configured" : "Not configured"}</p>
             </div>
 
-            {configured && <button type="button" disabled={pending} onClick={remove}>Remove</button>}
+            {configured && <div className="actions">
+                {isActive
+                    ? <button type="button" disabled={pending} onClick={deactivate}>Deactivate</button>
+                    : <button type="button" disabled={pending} onClick={activate}>Activate</button>}
+                <button type="button" disabled={pending} onClick={remove}>Remove</button>
+            </div>}
         </header>
 
         <form onSubmit={configure}>
@@ -131,7 +194,7 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
             </div>
         </form>
 
-        {configured && <div>
+        {configured && isActive && <div>
             <h3>LLM Models</h3>
             {models.length
                 ? <ul>{models.map(model => <li key={model.id}>{model.id}</li>)}</ul>

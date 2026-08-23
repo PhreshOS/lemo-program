@@ -41,11 +41,20 @@ export default class LLMProviders {
         return new LLMProviders(this.all().filter(provider => provider.identity !== identity))
     }
 
+    public async models(): Promise<readonly LLMModel[]> {
+
+        const models = await Promise.all(this.all()
+            .filter(provider => provider.active)
+            .map(provider => provider.models()))
+
+        return Object.freeze(models.flat())
+    }
+
     public async model(providerIdentity: string, modelIdentity: string): Promise<LLMModel | null> {
 
         const provider = this.get(providerIdentity)
 
-        if (!provider) return null
+        if (!provider?.active) return null
 
         return (await provider.models()).find(model => model.id === modelIdentity) ?? null
     }

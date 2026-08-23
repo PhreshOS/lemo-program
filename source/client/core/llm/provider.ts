@@ -6,5 +6,8 @@ export default interface LLMProvider {
     readonly name: string
 
     configured(): Promise<boolean>
+    active(): Promise<boolean>
+    activate(): Promise<void>
+    deactivate(): Promise<void>
     models(): Promise<readonly LLMModel[]>
 }

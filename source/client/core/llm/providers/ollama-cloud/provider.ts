@@ -21,6 +21,16 @@ export default class OllamaCloudProvider implements LLMProvider {
         return (await this.source.configuration()).configured
     }
 
+    public async active() {
+
+        return (await this.source.configuration()).active
+    }
+
+    public state() {
+
+        return this.source.configuration()
+    }
+
     public async configure(configuration: OllamaCloudConfiguration): Promise<void> {
 
         await this.source.configure(configuration)
@@ -31,9 +41,21 @@ export default class OllamaCloudProvider implements LLMProvider {
         await this.source.removeConfiguration()
     }
 
+    public async activate(): Promise<void> {
+
+        await this.source.activate()
+    }
+
+    public async deactivate(): Promise<void> {
+
+        await this.source.deactivate()
+    }
+
     public async models(): Promise<readonly OllamaCloudModel[]> {
 
-        return Object.freeze((await this.source.models(this.identity)).map(record => this.model(record.id)))
+        return Object.freeze((await this.source.models())
+            .filter(record => record.provider === this.identity)
+            .map(record => this.model(record.id)))
     }
 
     private model(identity: string) {
@@ -59,6 +81,8 @@ export interface OllamaCloudSource {
     configuration(): Promise<OllamaCloudConfigurationState>
     configure(configuration: OllamaCloudConfiguration): Promise<void>
     removeConfiguration(): Promise<void>
-    models(provider: string): Promise<readonly LLMModelRecord[]>
+    activate(): Promise<void>
+    deactivate(): Promise<void>
+    models(): Promise<readonly LLMModelRecord[]>
     generate(provider: string, model: string, input: string): AsyncGenerator<string, void, unknown>
 }

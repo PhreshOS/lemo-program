@@ -2,8 +2,7 @@ import { current } from "@phreshos/client"
 import type {
     LLMGenerationEvent,
     LLMGenerationRequest,
-    LLMModelRecord,
-    LLMModelsRequest
+    LLMModelRecord
 } from "@server/core/llm/model"
 import type {
     OllamaCloudConfiguration,
@@ -36,11 +35,17 @@ const serverSource = {
 
         await current.server.ask("llm-provider.ollama-cloud.remove-configuration")
     },
-    async models(provider: string) {
+    async activate() {
 
-        const request: LLMModelsRequest = { provider }
+        await current.server.ask("llm-provider.ollama-cloud.activate")
+    },
+    async deactivate() {
 
-        return await current.server.ask<readonly LLMModelRecord[]>("llm-models", request)
+        await current.server.ask("llm-provider.ollama-cloud.deactivate")
+    },
+    async models() {
+
+        return await current.server.ask<readonly LLMModelRecord[]>("llm-models")
     },
     async *generate(provider: string, model: string, input: string) {
 

@@ -1,11 +1,15 @@
 import assert from "node:assert/strict"
+import { DatabaseSync } from "node:sqlite"
 import type { ProgramStore } from "@phreshos/core"
 import { ZodError } from "zod"
 import ollamaCloudConfiguration from "../source/server/core/llm/providers/ollama-cloud/configuration"
 import OllamaCloudProvider from "../source/server/core/llm/providers/ollama-cloud/provider"
+import type LLMProvider from "../source/server/core/llm/provider"
+import LLMProviders from "../source/server/core/llm/providers"
 import Application from "../source/server/core/application"
 
 const values = new Map<string, unknown>()
+const database = new DatabaseSync(":memory:")
 
 const store: ProgramStore = {
     async get<Value = unknown>(key: string): Promise<Value | undefined> {
@@ -34,15 +38,21 @@ const store: ProgramStore = {
     }
 }
 
-assert.equal((await Application.init(store)).llmProviders.all().length, 0)
+const unconfigured = await Application.init(store, database)
+
+assert.equal(unconfigured.llmProviders.all().length, 0)
+
+assert.deepEqual(unconfigured.ollamaCloudConfiguration(), { configured: false, active: true })
 
 await store.set("ollama-cloud:config", { apiKey: "secret" })
 
-const application = await Application.init(store)
+const application = await Application.init(store, database)
 
 assert.equal(application.llmProviders.all().length, 1)
 
-assert.equal(application.ollamaCloudConfiguration().configured, true)
+assert.deepEqual(application.ollamaCloudConfiguration(), { configured: true, active: true })
+
+assert.equal(await store.get("ollama-cloud:active"), true)
 
 await application.removeOllamaCloudConfiguration()
 
@@ -52,9 +62,19 @@ await application.configureOllamaCloud({ apiKey: "replacement" })
 
 assert.deepEqual(await store.get("ollama-cloud:config"), { apiKey: "replacement" })
 
+await application.deactivateOllamaCloud()
+
+assert.deepEqual(application.ollamaCloudConfiguration(), { configured: true, active: false })
+
+assert.deepEqual(await application.modelRecords(), [])
+
+await application.activateOllamaCloud()
+
+assert.deepEqual(application.ollamaCloudConfiguration(), { configured: true, active: true })
+
 const requests: string[] = []
 
-const provider = new OllamaCloudProvider({ apiKey: "secret" }, async function (input, init) {
+const provider = new OllamaCloudProvider({ apiKey: "secret" }, true, async function (input, init) {
 
     requests.push(String(input))
 
@@ -98,3 +118,37 @@ assert.deepEqual(requests, [
 assert.throws(() => ollamaCloudConfiguration({}), ZodError)
 
 assert.throws(() => ollamaCloudConfiguration({ apiKey: "secret", host: "https://example.com" }), ZodError)
+
+let inactiveCalled = false
+
+const inactiveProvider: LLMProvider = {
+    identity: "inactive",
+    name: "Inactive",
+    active: false,
+    async models() {
+
+        inactiveCalled = true
+
+        throw new Error("Inactive Provider was called")
+    }
+}
+
+assert.deepEqual(await new LLMProviders([inactiveProvider]).models(), [])
+
+assert.equal(inactiveCalled, false)
+
+const failingProvider: LLMProvider = {
+    identity: "failing",
+    name: "Failing",
+    active: true,
+    async models() {
+
+        throw new Error("Model loading failed")
+    }
+}
+
+await assert.rejects(new LLMProviders([inactiveProvider, failingProvider]).models(), /Model loading failed/)
+
+assert.equal(inactiveCalled, false)
+
+database.close()

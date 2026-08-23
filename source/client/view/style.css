@@ -85,6 +85,11 @@ button {
     gap: 8px;
 }
 
+.actions {
+    display: flex;
+    gap: 8px;
+}
+
 input,
 button {
     min-height: 42px;

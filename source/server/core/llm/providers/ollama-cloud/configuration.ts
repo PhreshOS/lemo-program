@@ -8,6 +8,7 @@ export type OllamaCloudConfiguration = Readonly<z.infer<typeof ollamaCloudConfig
 
 export type OllamaCloudConfigurationState = Readonly<{
     configured: boolean
+    active: boolean
 }>
 
 /** Validates one raw Ollama Cloud configuration from Program storage. */

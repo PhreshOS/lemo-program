@@ -3,15 +3,14 @@ import Application from "@server/core/application"
 import type {
     LLMGenerationEvent,
     LLMGenerationRequest,
-    LLMModelRecord,
-    LLMModelsRequest
+    LLMModelRecord
 } from "@server/core/llm/model"
 
 export default async function view() {
 
     const program = await current.program()
 
-    const application = await Application.init(program.store)
+    const application = await Application.init(program.store, program.database)
 
     current.answer("application.name", () => application.name())
 
@@ -27,12 +26,17 @@ export default async function view() {
         await application.removeOllamaCloudConfiguration()
     })
 
-    current.answer<unknown, readonly LLMModelRecord[]>("llm-models", async function ({ payload }) {
+    current.answer("llm-provider.ollama-cloud.activate", async function () {
 
-        const request = modelsRequest(payload)
-
-        return await application.modelRecords(request.provider)
+        await application.activateOllamaCloud()
     })
+
+    current.answer("llm-provider.ollama-cloud.deactivate", async function () {
+
+        await application.deactivateOllamaCloud()
+    })
+
+    current.answer<unknown, readonly LLMModelRecord[]>("llm-models", () => application.modelRecords())
 
     current.answer<unknown, void>("llm-generate", async function ({ payload }) {
 
@@ -45,17 +49,6 @@ export default async function view() {
 
         current.publish<LLMGenerationEvent>(request.generation, { type: "complete" })
     })
-}
-
-function modelsRequest(value: unknown): LLMModelsRequest {
-
-    if (!record(value)) throw new Error("An LLM Models request must be an object")
-
-    const provider = text(value.provider)
-
-    if (!provider) throw new Error("An LLM Models request requires an LLM Provider")
-
-    return { provider }
 }
 
 function generationRequest(value: unknown): LLMGenerationRequest {

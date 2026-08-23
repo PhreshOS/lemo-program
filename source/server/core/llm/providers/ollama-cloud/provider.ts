@@ -17,7 +17,11 @@ export default class OllamaCloudProvider implements LLMProvider {
     private readonly apiKey: string
     private readonly retainedModels = new Map<string, OllamaCloudModel>()
 
-    public constructor(configuration: OllamaCloudConfiguration, private readonly request: Request = globalThis.fetch) {
+    public constructor(
+        configuration: OllamaCloudConfiguration,
+        public readonly active: boolean,
+        private readonly request: Request = globalThis.fetch
+    ) {
 
         this.apiKey = configuration.apiKey
     }

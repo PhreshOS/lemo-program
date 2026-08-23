@@ -14,12 +14,8 @@ export default interface LLMModel {
 
 /** State from which Client Core reconstructs one LLM Model. */
 export type LLMModelRecord = Readonly<{
-    id: string
-}>
-
-/** Requests the Models currently owned by one initialized LLM Provider. */
-export type LLMModelsRequest = Readonly<{
     provider: string
+    id: string
 }>
 
 /** Requests streamed generation from one initialized LLM Model. */
