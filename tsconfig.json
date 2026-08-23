@@ -1,0 +1,25 @@
+{
+    "compilerOptions": {
+        "moduleResolution": "bundler",
+        "noUnusedParameters": true,
+        "noUnusedLocals": true,
+        "skipLibCheck": true,
+        "module": "ESNext",
+        "target": "ESNext",
+        "jsx": "react-jsx",
+        "strict": true,
+        "noEmit": true,
+        "types": [
+            "@types/node",
+            "vite/client"
+        ],
+        "paths": {
+            "@server/*": [
+                "./source/server/*"
+            ],
+            "@client/*": [
+                "./source/client/*"
+            ]
+        }
+    }
+}
