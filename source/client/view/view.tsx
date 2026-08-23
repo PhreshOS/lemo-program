@@ -1,5 +1,6 @@
 import Application from "@client/core/application"
 import { useEffect, useState } from "react"
+import OllamaCloudConfiguration from "./llm-providers/ollama-cloud"
 import "./style.css"
 
 export default function View() {
@@ -24,5 +25,14 @@ export default function View() {
 
     }, [application])
 
-    return <main>{name || "…"}</main>
+    return <main>
+        <div className="application">
+            <header>
+                <p>PhreshOS Agent</p>
+                <h1>{name || "…"}</h1>
+            </header>
+
+            <OllamaCloudConfiguration provider={application.llmProviders.ollamaCloud} />
+        </div>
+    </main>
 }
