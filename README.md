@@ -36,14 +36,15 @@ Language-model capabilities are explicitly named `LLMProvider` and
 families.
 
 An LLM Provider owns its Models. An LLM Model retains the bidirectional
-relationship to its Provider and owns executable model behavior. Lemo will
-receive an LLM Model for an operation, never its Provider.
+relationship to its Provider and owns executable model behavior. Its generator
+accepts one structured, ordered message request. Lemo receives an LLM Model for
+an operation, never its Provider.
 
 Server Core retains only initialized LLM Providers in `LLMProviders`.
 There is no generic configuration shape.
 
-Ollama Cloud owns its `{ apiKey }` configuration contract, raw HTTP transport,
-Zod schema, raw HTTP transport, model discovery, and LLM Model construction.
+Ollama Cloud owns its `{ apiKey }` configuration contract, Zod schema, raw HTTP
+transport, model discovery, and LLM Model construction.
 The TypeScript configuration contract is derived from that schema. Server Core
 reads its raw value from `ollama-cloud:config` in the Program store and
 constructs the Provider only when that key exists. No environment variable
@@ -74,3 +75,48 @@ instance. Its schema retains Tasks, globally ordered raw operations, their
 original Task and parent relationships, and arbitrary relationships between
 operations. Raw payloads remain JSON without summaries, embeddings, retrieval
 scores, decay values, or inferred semantic structure.
+
+## Tasks
+
+Each submitted input creates an independent Task and returns immediately after
+the Task and its input have been recorded:
+
+```ts
+const task = await lemo.task({ input, model })
+```
+
+Tasks run concurrently and share Lemo's database. A Task is an entity rather
+than a generator. `task.status()`, `task.operations()`, and `task.result()`
+reconstruct durable state from the database. A fresh Lemo Process can recover a
+Task through `lemo.findTask(taskId)` without an in-memory Task registry.
+
+Input, exact Model requests, raw Model events, reconstructed assistant messages,
+tool calls and results, completion, and failure are recorded immediately as an
+unbroken parent chain under the Task identity. Disposable values needed only by
+the active operation may remain local, but no context intended for a later
+cycle is held in Process or Task memory.
+
+## Cycles
+
+A Cycle is an internal, disposable Model operation. It records its start, loads
+the Task's ordered raw operations, constructs a fresh request from those facts
+and `system.md`, records that exact request, and only then invokes the Model.
+Every accepted text or tool-call event and the final assistant message are
+persisted before the Cycle completes. The constructed request is never reused
+by another Cycle.
+
+Ollama Cloud maps this general message request directly to its streaming chat
+API.
+
+## Runtime
+
+Lemo constructs and owns one internal Runtime. A Cycle that returns tool calls
+asks Runtime to execute all independent calls concurrently. Runtime records
+every result, and Task begins another Cycle that reconstructs its context from
+the database. Task completes only when a Cycle requests no tools.
+
+Ordinary tools are not loaded into every Model request. Only the `tools` and
+`docs` discovery tools are initially visible. Tool discovery records which
+tools were loaded, so every later Cycle reconstructs its available definitions
+from the Task operation chain. `time` is the first ordinary, Zod-validated tool
+and owns its implementation and documentation. Memory is not implemented yet.

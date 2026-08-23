@@ -2,6 +2,7 @@ import type {
     OllamaCloudConfiguration,
     OllamaCloudConfigurationState
 } from "@server/core/llm/providers/ollama-cloud/configuration"
+import type { LLMModelEvent, LLMModelRequest } from "@server/core/llm/model"
 import type { LLMModelRecord } from "@server/core/llm/model"
 import OllamaCloudModel from "./model"
 import type LLMProvider from "../../provider"
@@ -67,7 +68,7 @@ export default class OllamaCloudProvider implements LLMProvider {
             model = new OllamaCloudModel(
                 this,
                 identity,
-                input => this.source.generate(this.identity, identity, input)
+                request => this.source.generate(this.identity, identity, request)
             )
 
             this.retainedModels.set(identity, model)
@@ -84,5 +85,5 @@ export interface OllamaCloudSource {
     activate(): Promise<void>
     deactivate(): Promise<void>
     models(): Promise<readonly LLMModelRecord[]>
-    generate(provider: string, model: string, input: string): AsyncGenerator<string, void, unknown>
+    generate(provider: string, model: string, request: LLMModelRequest): AsyncGenerator<LLMModelEvent, void, unknown>
 }

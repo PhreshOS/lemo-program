@@ -3,7 +3,7 @@ import ollamaCloudConfiguration, {
     type OllamaCloudConfigurationState
 } from "./llm/providers/ollama-cloud/configuration"
 import OllamaCloudProvider from "./llm/providers/ollama-cloud/provider"
-import type { LLMModelRecord } from "./llm/model"
+import type { LLMModelRecord, LLMModelRequest } from "./llm/model"
 import { llmProviderActiveKey, llmProviderActiveSchema } from "./llm/provider"
 import LLMProviders from "./llm/providers"
 import Lemo from "./lemo/lemo"
@@ -116,13 +116,13 @@ export default class Application {
             : this.providers.without(OllamaCloudProvider.identity)
     }
 
-    public async *generate(providerIdentity: string, modelIdentity: string, input: string) {
+    public async *generate(providerIdentity: string, modelIdentity: string, request: LLMModelRequest) {
 
         const model = await this.providers.model(providerIdentity, modelIdentity)
 
         if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
 
-        yield* model.generate(input)
+        yield* model.generate(request)
     }
 
     public name() {

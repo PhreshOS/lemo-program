@@ -1,5 +1,6 @@
 import type LLMModel from "../../model"
 import type OllamaCloudProvider from "./provider"
+import type { LLMModelEvent, LLMModelRequest } from "@server/core/llm/model"
 
 /** One local Ollama Cloud Model handle. */
 export default class OllamaCloudModel implements LLMModel {
@@ -7,11 +8,11 @@ export default class OllamaCloudModel implements LLMModel {
     public constructor(
         public readonly provider: OllamaCloudProvider,
         public readonly id: string,
-        private readonly generateText: (input: string) => AsyncGenerator<string, void, unknown>
+        private readonly generateEvents: (request: LLMModelRequest) => AsyncGenerator<LLMModelEvent, void, unknown>
     ) {}
 
-    public generate(input: string) {
+    public generate(request: LLMModelRequest) {
 
-        return this.generateText(input)
+        return this.generateEvents(request)
     }
 }

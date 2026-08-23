@@ -37,9 +37,9 @@ const providers = new LLMProviders({
     },
     async *generate() {
 
-        yield "Hello"
+        yield { type: "text" as const, content: "Hello" }
 
-        yield " world"
+        yield { type: "text" as const, content: " world" }
     }
 })
 
@@ -69,7 +69,10 @@ assert.equal((await providers.ollamaCloud.models())[0], models[0])
 
 const chunks: string[] = []
 
-for await (const chunk of models[0]!.generate("Hello")) chunks.push(chunk)
+for await (const chunk of models[0]!.generate({
+    messages: [{ role: "user", content: "Hello" }],
+    tools: []
+})) if (chunk.type === "text") chunks.push(chunk.content)
 
 assert.deepEqual(chunks, ["Hello", " world"])
 

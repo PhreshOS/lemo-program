@@ -3,7 +3,11 @@ import Application from "@server/core/application"
 import type {
     LLMGenerationEvent,
     LLMGenerationRequest,
-    LLMModelRecord
+    LLMMessage,
+    LLMModelRequest,
+    LLMModelRecord,
+    LLMToolCall,
+    LLMToolDefinition
 } from "@server/core/llm/model"
 
 export default async function view() {
@@ -42,9 +46,9 @@ export default async function view() {
 
         const request = generationRequest(payload)
 
-        for await (const chunk of application.generate(request.provider, request.model, request.input)) {
+        for await (const event of application.generate(request.provider, request.model, request.request)) {
 
-            current.publish<LLMGenerationEvent>(request.generation, { type: "chunk", chunk })
+            current.publish<LLMGenerationEvent>(request.generation, event)
         }
 
         current.publish<LLMGenerationEvent>(request.generation, { type: "complete" })
@@ -61,7 +65,7 @@ function generationRequest(value: unknown): LLMGenerationRequest {
 
     const model = text(value.model)
 
-    const input = typeof value.input === "string" ? value.input : ""
+    const request = modelRequest(value.request)
 
     if (!generation) throw new Error("An LLM generation request requires an identity")
 
@@ -69,9 +73,90 @@ function generationRequest(value: unknown): LLMGenerationRequest {
 
     if (!model) throw new Error("An LLM generation request requires an LLM Model")
 
-    if (!input.trim()) throw new Error("An LLM generation request requires input")
+    return { generation, provider, model, request }
+}
 
-    return { generation, provider, model, input }
+function modelRequest(value: unknown): LLMModelRequest {
+
+    if (!record(value) || !Array.isArray(value.messages) || !value.messages.length) {
+
+        throw new Error("An LLM generation request requires messages")
+    }
+
+    if (!Array.isArray(value.tools)) throw new Error("An LLM generation request requires tools")
+
+    return Object.freeze({
+        messages: Object.freeze(value.messages.map(message)),
+        tools: Object.freeze(value.tools.map(tool))
+    })
+}
+
+function message(value: unknown): LLMMessage {
+
+    if (!record(value)) throw new Error("An LLM message must be an object")
+
+    const role = value.role
+
+    if (role !== "system" && role !== "user" && role !== "assistant" && role !== "tool") {
+
+        throw new Error("An LLM message has an invalid role")
+    }
+
+    if (typeof value.content !== "string") {
+
+        throw new Error("An LLM message requires content")
+    }
+
+    if (role === "tool") {
+
+        const name = text(value.name)
+
+        if (!name) throw new Error("An LLM tool message requires a name")
+
+        return Object.freeze({ role, name, content: value.content })
+    }
+
+    if (role === "assistant" && value.toolCalls !== undefined) {
+
+        if (!Array.isArray(value.toolCalls)) throw new Error("An assistant message has invalid tool calls")
+
+        return Object.freeze({
+            role,
+            content: value.content,
+            toolCalls: Object.freeze(value.toolCalls.map(toolCall))
+        })
+    }
+
+    return Object.freeze({ role, content: value.content })
+}
+
+function tool(value: unknown): LLMToolDefinition {
+
+    if (!record(value)) throw new Error("An LLM tool definition must be an object")
+
+    const name = text(value.name)
+
+    const description = text(value.description)
+
+    if (!name || !description || !record(value.parameters)) {
+
+        throw new Error("An LLM tool definition is invalid")
+    }
+
+    return Object.freeze({ name, description, parameters: Object.freeze({ ...value.parameters }) })
+}
+
+function toolCall(value: unknown): LLMToolCall {
+
+    if (!record(value)) throw new Error("An LLM tool call must be an object")
+
+    const id = text(value.id)
+
+    const name = text(value.name)
+
+    if (!id || !name) throw new Error("An LLM tool call is invalid")
+
+    return Object.freeze({ id, name, input: value.input })
 }
 
 function text(value: unknown) {

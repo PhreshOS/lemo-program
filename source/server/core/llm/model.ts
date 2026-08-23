@@ -8,9 +8,47 @@ export default interface LLMModel {
     /** LLM Provider that owns and supports this Model. */
     readonly provider: LLMProvider
 
-    /** Generates text chunks through this Model. */
-    generate(input: string): AsyncGenerator<string, void, unknown>
+    /** Generates structured events from one complete, ordered Model request. */
+    generate(request: LLMModelRequest): AsyncGenerator<LLMModelEvent, void, unknown>
 }
+
+export type LLMMessage = Readonly<{
+    role: "system" | "user"
+    content: string
+}> | Readonly<{
+    role: "assistant"
+    content: string
+    toolCalls?: readonly LLMToolCall[]
+}> | Readonly<{
+    role: "tool"
+    name: string
+    content: string
+}>
+
+export type LLMModelRequest = Readonly<{
+    messages: readonly LLMMessage[]
+    tools: readonly LLMToolDefinition[]
+}>
+
+export type LLMToolDefinition = Readonly<{
+    name: string
+    description: string
+    parameters: Readonly<Record<string, unknown>>
+}>
+
+export type LLMToolCall = Readonly<{
+    id: string
+    name: string
+    input: unknown
+}>
+
+export type LLMModelEvent = Readonly<{
+    type: "text"
+    content: string
+}> | Readonly<{
+    type: "tool-call"
+    call: LLMToolCall
+}>
 
 /** State from which Client Core reconstructs one LLM Model. */
 export type LLMModelRecord = Readonly<{
@@ -23,13 +61,10 @@ export type LLMGenerationRequest = Readonly<{
     generation: string
     provider: string
     model: string
-    input: string
+    request: LLMModelRequest
 }>
 
 /** One streamed generation fact published by Server Core. */
-export type LLMGenerationEvent = Readonly<{
-    type: "chunk"
-    chunk: string
-}> | Readonly<{
+export type LLMGenerationEvent = LLMModelEvent | Readonly<{
     type: "complete"
 }>

@@ -1,6 +1,7 @@
 import type { OllamaCloudConfiguration } from "./configuration"
 import OllamaCloudModel from "./model"
 import type LLMProvider from "../../provider"
+import type { LLMMessage, LLMModelRequest, LLMToolCall } from "../../model"
 
 const host = "https://ollama.com"
 
@@ -48,7 +49,7 @@ export default class OllamaCloudProvider implements LLMProvider {
 
         if (!model) {
 
-            model = new OllamaCloudModel(this, identity, input => this.generate(identity, input))
+            model = new OllamaCloudModel(this, identity, request => this.generate(identity, request))
 
             this.retainedModels.set(identity, model)
         }
@@ -56,11 +57,16 @@ export default class OllamaCloudProvider implements LLMProvider {
         return model
     }
 
-    private async *generate(model: string, input: string) {
+    private async *generate(model: string, request: LLMModelRequest) {
 
-        const response = await this.fetch("/api/generate", {
+        const response = await this.fetch("/api/chat", {
             method: "POST",
-            body: JSON.stringify({ model, prompt: input, stream: true })
+            body: JSON.stringify({
+                model,
+                messages: request.messages.map(ollamaMessage),
+                tools: request.tools.map(tool => ({ type: "function", function: tool })),
+                stream: true
+            })
         })
 
         if (!response.body) throw new Error("Ollama Cloud returned no generation stream")
@@ -75,9 +81,29 @@ export default class OllamaCloudProvider implements LLMProvider {
 
             if (typeof value.error === "string") throw new Error(value.error)
 
-            if (typeof value.response !== "string") throw new Error(`Ollama Cloud Model "${model}" returned no text`)
+            if (!record(value.message)) throw new Error(`Ollama Cloud Model "${model}" returned no message`)
 
-            if (value.response) yield value.response
+            const message = value.message
+
+            if (message.content !== undefined && typeof message.content !== "string") {
+
+                throw new Error(`Ollama Cloud Model "${model}" returned invalid text`)
+            }
+
+            if (message.content) yield { type: "text" as const, content: message.content }
+
+            if (message.tool_calls !== undefined) {
+
+                if (!Array.isArray(message.tool_calls)) {
+
+                    throw new Error(`Ollama Cloud Model "${model}" returned invalid tool calls`)
+                }
+
+                for (const value of message.tool_calls) {
+
+                    yield { type: "tool-call" as const, call: toolCall(value, model) }
+                }
+            }
         }
     }
 
@@ -150,6 +176,49 @@ function modelIdentity(value: string) {
     if (!identity) throw new Error("Ollama Cloud returned a Model without an identity")
 
     return identity
+}
+
+function ollamaMessage(message: LLMMessage) {
+
+    if (message.role === "assistant" && message.toolCalls?.length) {
+
+        return {
+            role: message.role,
+            content: message.content,
+            tool_calls: message.toolCalls.map(call => ({
+                type: "function",
+                function: { name: call.name, arguments: call.input }
+            }))
+        }
+    }
+
+    if (message.role === "tool") {
+
+        return { role: message.role, tool_name: message.name, content: message.content }
+    }
+
+    return { role: message.role, content: message.content }
+}
+
+function toolCall(value: unknown, model: string): LLMToolCall {
+
+    if (!record(value) || !record(value.function)) {
+
+        throw new Error(`Ollama Cloud Model "${model}" returned an invalid tool call`)
+    }
+
+    const name = value.function.name
+
+    if (typeof name !== "string" || !name.trim()) {
+
+        throw new Error(`Ollama Cloud Model "${model}" returned a tool call without a name`)
+    }
+
+    return Object.freeze({
+        id: typeof value.id === "string" && value.id ? value.id : crypto.randomUUID(),
+        name,
+        input: value.function.arguments
+    })
 }
 
 function record(value: unknown): value is Record<string, unknown> {

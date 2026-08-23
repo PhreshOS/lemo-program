@@ -47,11 +47,11 @@ const serverSource = {
 
         return await current.server.ask<readonly LLMModelRecord[]>("llm-models")
     },
-    async *generate(provider: string, model: string, input: string) {
+    async *generate(provider: string, model: string, request: LLMGenerationRequest["request"]) {
 
         yield* stream(
             "llm-generate",
-            generation => ({ generation, provider, model, input } satisfies LLMGenerationRequest)
+            generation => ({ generation, provider, model, request } satisfies LLMGenerationRequest)
         )
     }
 }
@@ -98,7 +98,7 @@ async function *stream<Request>(operation: string, request: (generation: string)
 
             const event = generationEvent(result.value)
 
-            if (event.type === "chunk") yield event.chunk
+            if (event.type !== "complete") yield event
             else {
 
                 await completion
@@ -117,16 +117,29 @@ async function *stream<Request>(operation: string, request: (generation: string)
 
 function generationEvent(value: unknown): LLMGenerationEvent {
 
-    if (!record(value) || (value.type !== "chunk" && value.type !== "complete")) {
+    if (!record(value) || (value.type !== "text" && value.type !== "tool-call" && value.type !== "complete")) {
 
         throw new Error("Server returned an invalid LLM generation event")
     }
 
-    if (value.type === "chunk") {
+    if (value.type === "text") {
 
-        if (typeof value.chunk !== "string") throw new Error("Server returned an invalid LLM generation chunk")
+        if (typeof value.content !== "string") throw new Error("Server returned invalid LLM text")
 
-        return { type: "chunk", chunk: value.chunk }
+        return { type: "text", content: value.content }
+    }
+
+    if (value.type === "tool-call") {
+
+        if (!record(value.call)) throw new Error("Server returned an invalid LLM tool call")
+
+        const id = typeof value.call.id === "string" ? value.call.id : ""
+
+        const name = typeof value.call.name === "string" ? value.call.name : ""
+
+        if (!id || !name) throw new Error("Server returned an invalid LLM tool call")
+
+        return { type: "tool-call", call: { id, name, input: value.call.input } }
     }
 
     return { type: "complete" }

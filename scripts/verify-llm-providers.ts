@@ -73,6 +73,11 @@ await application.activateOllamaCloud()
 assert.deepEqual(application.ollamaCloudConfiguration(), { configured: true, active: true })
 
 const requests: string[] = []
+const tool = {
+    name: "time",
+    description: "Return time",
+    parameters: { type: "object", properties: {} }
+} as const
 
 const provider = new OllamaCloudProvider({ apiKey: "secret" }, true, async function (input, init) {
 
@@ -85,11 +90,27 @@ const provider = new OllamaCloudProvider({ apiKey: "secret" }, true, async funct
         return Response.json({ models: [{ model: "qwen3:latest" }] })
     }
 
-    assert.equal(init?.body, JSON.stringify({ model: "qwen3:latest", prompt: "Hello", stream: true }))
+    assert.equal(init?.body, JSON.stringify({
+        model: "qwen3:latest",
+        messages: [{ role: "user", content: "Hello" }],
+        tools: [{ type: "function", function: tool }],
+        stream: true
+    }))
 
     return new Response([
-        JSON.stringify({ response: "Hello" }),
-        JSON.stringify({ response: " world" })
+        JSON.stringify({ message: { role: "assistant", content: "Hello" } }),
+        JSON.stringify({ message: { role: "assistant", content: " world" } }),
+        JSON.stringify({
+            message: {
+                role: "assistant",
+                content: "",
+                tool_calls: [{
+                    id: "call-time",
+                    type: "function",
+                    function: { name: "time", arguments: {} }
+                }]
+            }
+        })
     ].join("\n"))
 })
 
@@ -104,15 +125,25 @@ assert.equal(models[0]?.provider, provider)
 assert.equal((await provider.models())[0], models[0])
 
 const chunks: string[] = []
+const calls: unknown[] = []
 
-for await (const chunk of models[0]!.generate("Hello")) chunks.push(chunk)
+for await (const chunk of models[0]!.generate({
+    messages: [{ role: "user", content: "Hello" }],
+    tools: [tool]
+})) {
+
+    if (chunk.type === "text") chunks.push(chunk.content)
+    else calls.push(chunk.call)
+}
 
 assert.deepEqual(chunks, ["Hello", " world"])
+
+assert.deepEqual(calls, [{ id: "call-time", name: "time", input: {} }])
 
 assert.deepEqual(requests, [
     "https://ollama.com/api/tags",
     "https://ollama.com/api/tags",
-    "https://ollama.com/api/generate"
+    "https://ollama.com/api/chat"
 ])
 
 assert.throws(() => ollamaCloudConfiguration({}), ZodError)
