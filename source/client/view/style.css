@@ -61,6 +61,22 @@ p {
         #fffff5;
 }
 
+.startup-state {
+    display: grid;
+    padding: 24px;
+    place-content: center;
+    justify-items: center;
+    gap: 12px;
+    text-align: center;
+}
+
+.startup-state p {
+    max-width: 440px;
+    color: rgb(23 33 43 / 66%);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
 .application {
     position: relative;
     display: grid;
@@ -177,6 +193,30 @@ p {
     font-weight: 650;
 }
 
+.resource-state {
+    display: grid;
+    min-width: 0;
+    padding: 18px;
+    align-content: center;
+    justify-items: start;
+    gap: 8px;
+    color: rgb(23 33 43 / 60%);
+}
+
+.resource-state strong {
+    color: rgb(23 33 43 / 78%);
+    font-size: 13px;
+}
+
+.resource-state small {
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+}
+
+.task-navigation > .resource-state {
+    padding: 12px;
+}
+
 .task-navigation {
     min-height: 0;
     padding: 8px;
@@ -267,6 +307,55 @@ p {
 .task {
     display: grid;
     gap: 16px;
+}
+
+.task-controls {
+    display: grid;
+    min-height: 34px;
+    align-items: center;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+}
+
+.task-controls > span {
+    color: rgb(23 33 43 / 48%);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.task-controls > span[data-status="running"] {
+    color: #197454;
+}
+
+.task-controls > span[data-status="paused"] {
+    color: #8b6515;
+}
+
+.task-controls > span[data-status="failed"],
+.task-controls > span[data-status="cancelled"] {
+    color: #a52735;
+}
+
+.task-controls > div {
+    display: flex;
+    gap: 6px;
+}
+
+.task-controls .quiet {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+}
+
+.task-controls .danger {
+    color: #a52735;
+}
+
+.task-controls > small {
+    width: 100%;
+    grid-column: 1 / -1;
 }
 
 .user-message {
@@ -462,6 +551,63 @@ p {
 
 .failure-message {
     max-width: 100%;
+}
+
+.client-prompt {
+    display: grid;
+    width: min(100%, 680px);
+    padding: 14px;
+    gap: 11px;
+    background: rgb(255 255 255 / 82%);
+    border: 1px solid rgb(23 33 43 / 16%);
+    border-radius: 14px;
+    box-shadow: 0 7px 24px rgb(23 33 43 / 6%);
+}
+
+.client-prompt > header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    font-size: 13px;
+}
+
+.client-prompt > header span {
+    color: #8b6515;
+    font-size: 11px;
+    font-weight: 650;
+}
+
+.client-prompt > p {
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.client-prompt form {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px;
+}
+
+.client-prompt textarea {
+    width: 100%;
+    min-height: 58px;
+    padding: 9px 10px;
+    resize: vertical;
+    background: #fff;
+    border: 1px solid rgb(23 33 43 / 14%);
+    border-radius: 10px;
+    outline: 0;
+    line-height: 1.4;
+}
+
+.client-prompt textarea:focus {
+    border-color: rgb(23 33 43 / 34%);
+}
+
+.client-prompt small {
+    font-size: 12px;
 }
 
 .working {
@@ -660,6 +806,27 @@ p {
 .provider-settings [role="alert"] {
     font-size: 12px;
     line-height: 1.45;
+}
+
+.operation-state {
+    color: rgb(23 33 43 / 60%);
+    font-size: 12px;
+}
+
+.resource-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.resource-error p,
+.resource-error span {
+    overflow-wrap: anywhere;
+}
+
+.resource-error button {
+    flex: 0 0 auto;
 }
 
 @media (max-width: 560px) {

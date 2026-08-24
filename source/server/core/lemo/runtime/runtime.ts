@@ -3,13 +3,17 @@ import type LemoDatabase from "../database"
 import type Memory from "../memory"
 import type { MemoryRecord } from "../memory"
 import type Operation from "../operation"
+import { assertRunning, waitForRun, type TaskRun } from "../executions"
+import type ClientChannel from "@server/core/client-channel"
 import type Tool from "./tool"
 import toolInput from "./tool-input"
+import WaitAnswers, { type WaitAnswerRequest } from "./wait-answers"
 import createDocs from "./tools/docs/docs"
 import endpoints from "./tools/endpoints/endpoints"
 import createMemory from "./tools/memory/memory"
 import programs from "./tools/programs/programs"
 import processes from "./tools/processes/processes"
+import prompt from "./tools/prompt/prompt"
 import services from "./tools/services/services"
 import time from "./tools/time/time"
 import createTools from "./tools/tools/tools"
@@ -21,10 +25,13 @@ const builtIn = new Set(["tools", "docs", "memory"])
 export default class Runtime {
 
     private readonly tools: ReadonlyMap<string, Tool>
+    private readonly answers: WaitAnswers
 
-    public constructor(private readonly memory: Memory) {
+    public constructor(private readonly memory: Memory, client: ClientChannel) {
 
         const catalog: Tool[] = []
+
+        this.answers = new WaitAnswers(client)
 
         const source = () => catalog
 
@@ -35,6 +42,7 @@ export default class Runtime {
             time,
             programs,
             processes,
+            prompt,
             endpoints,
             services,
             windows
@@ -54,18 +62,18 @@ export default class Runtime {
     }
 
     /** Executes independent tool calls concurrently and records each outcome. */
-    public async execute(database: LemoDatabase, task: string, calls: readonly LLMToolCall[]) {
+    public async execute(run: TaskRun, calls: readonly LLMToolCall[]) {
 
-        await Promise.all(calls.map(call => this.executeCall(database, task, call)))
+        await Promise.all(calls.map(call => this.executeCall(run, call)))
     }
 
-    private async executeCall(database: LemoDatabase, task: string, call: LLMToolCall) {
+    private async executeCall(run: TaskRun, call: LLMToolCall) {
 
         const tool = this.tools.get(call.name)
 
         if (!tool) {
 
-            await database.appendToTask(task, "tool.result", {
+            await run.append("tool.result", {
                 call: call.id,
                 name: call.name,
                 ok: false,
@@ -79,7 +87,7 @@ export default class Runtime {
 
         if (!same(input, call.input)) {
 
-            await database.appendToTask(task, "tool.input.normalized", {
+            await run.append("tool.input.normalized", {
                 call: call.id,
                 name: call.name,
                 input
@@ -87,30 +95,40 @@ export default class Runtime {
         }
 
         const context = Object.freeze({
-            task,
+            task: run.task,
             call: call.id,
-            record: (kind: string, payload: unknown) => database.appendToTask(task, `tool.${call.name}.${kind}`, {
+            signal: run.signal,
+            record: (kind: string, payload: unknown) => run.append(`tool.${call.name}.${kind}`, {
                 call: call.id,
                 payload
             }),
             memory: Object.freeze({
-                record: (value: MemoryRecord) => this.memory.record({
-                    task,
-                    tool: call.name,
-                    call: call.id
-                }, value)
-            })
+                record: (value: MemoryRecord) => {
+
+                    assertRunning(run.signal)
+
+                    return this.memory.record({
+                        task: run.task,
+                        tool: call.name,
+                        call: call.id
+                    }, value)
+                }
+            }),
+            waitAnswer: (request: WaitAnswerRequest) => this.answers.wait({
+                task: run.task,
+                call: call.id
+            }, request, run.signal)
         })
 
         let output: unknown
 
         try {
-            output = await tool.execute(input, context)
+            output = await waitForRun(tool.execute(input, context), run.signal)
         } catch (cause) {
 
             const error = cause instanceof Error ? cause : new Error(String(cause))
 
-            await database.appendToTask(task, "tool.result", {
+            await run.append("tool.result", {
                 call: call.id,
                 name: call.name,
                 ok: false,
@@ -120,7 +138,7 @@ export default class Runtime {
             return
         }
 
-        await database.appendToTask(task, "tool.result", {
+        await run.append("tool.result", {
             call: call.id,
             name: call.name,
             ok: true,

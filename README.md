@@ -11,6 +11,8 @@ Lemo follows PhreshOS MVC, meaning Main, View, and Core:
 
 ```text
 source/
+├── libs/
+│   └── react-promise.ts
 ├── client/
 │   ├── main.tsx
 │   ├── view/
@@ -67,7 +69,7 @@ its own integration; it never receives the stored API key.
 Server Core wakes the one enduring Lemo entity through:
 
 ```ts
-const lemo = await Lemo.wakeUp(database)
+const lemo = await Lemo.wakeUp(database, clientChannel)
 ```
 
 Lemo accepts the PhreshOS Program database or a normal Node.js `DatabaseSync`
@@ -87,8 +89,23 @@ const task = await lemo.task({ input, model })
 
 Tasks run concurrently and share Lemo's database. A Task is an entity rather
 than a generator. `task.status()`, `task.operations()`, and `task.result()`
-reconstruct durable state from the database. A fresh Lemo Process can recover a
-Task through `lemo.findTask(taskId)` without an in-memory Task registry.
+reconstruct durable state from the database. Each Task also exposes
+`task.pause()`, `task.continue(model)`, and `task.cancel()`. Pausing is
+reversible, cancellation is terminal, and continuation always starts a fresh
+run reconstructed from durable history. A fresh Lemo Process can recover a Task
+through `lemo.findTask(taskId)` without an in-memory Task registry.
+
+Every run has a durable identity and a disposable `AbortSignal`. Stopping a run
+interrupts Model streaming, Runtime Tools, and pending prompts. Calls left
+unfinished by a pause receive an explicit interrupted Tool result so the next
+Model cycle remains structurally complete. Results arriving from an obsolete
+run cannot advance the Task.
+
+Lemo does not expose a public destruction operation and does not depend on
+shutdown cleanup. During every `Lemo.wakeUp()`, any Task still marked `running`
+is durably changed to `paused` with reason `interrupted` before new work is
+accepted. The same recovery rule therefore covers ordinary stops, crashes, and
+forced termination.
 
 Input, raw Model events, reconstructed assistant messages, tool calls and
 results, completion, and failure are recorded immediately as an unbroken parent
@@ -175,16 +192,80 @@ content, source, and recording method and is immediately associated with its
 Task, tool name, and tool-call identity. Operational bookkeeping remains
 available through the Tool's separate raw `record` capability.
 
+The Server View also composes its paired Client communication handle and passes
+that general capability through Server Core into Lemo. Runtime never exposes
+the raw handle to a Tool. For each call, it combines that handle with the
+current Task identity, Tool-call identity, correlation, timeout, and the
+client-facing prompt value to assemble a Task-bound `waitAnswer` capability in
+the Tool context.
+
+`prompt` is an ordinary discoverable Runtime Tool and is the first consumer of
+`waitAnswer`. Runtime owns its bounded pending queue and first-response
+settlement. The Tool supplies only the prompt content and receives the answer;
+it does not know how the Client is reached or where the prompt is rendered.
+Pausing or cancelling its Task releases the pending prompt immediately.
+
 ## Client Tasks
 
 Client Core exposes Lemo and its authoritative Tasks as local handles. Creating
 a Task uses the selected local LLM Model handle, while Server Core resolves the
-authoritative Model and starts execution. View never communicates with Server
-or Runtime directly.
+authoritative Model and starts execution. Client View composes communication
+sources during initialization but does not coordinate operations.
 
 Each Client Task begins with a validated database snapshot and then applies
 only newly persisted operations. The handoff subscribes before requesting the
 snapshot and deduplicates any overlap, so fast Model output cannot create a
-gap. Reloading View reconstructs completed Tasks from snapshots and reconnects
-running Tasks. Client-side operation history is only a projection; Server
-SQLite remains authoritative.
+gap. Reloading View reconstructs terminal Tasks from snapshots and reconnects
+running or paused Tasks. Client-side `pause()`, `continue()`, and `cancel()`
+operate through the local Task handle; View merely renders their controls and
+state. Client-side operation history is only a projection; Server SQLite
+remains authoritative.
+
+Client Core also owns the minimal prompt contract it requires: receive a
+renderable prompt associated with a Task, expose it as a local entity, and send
+a correlated response. It knows nothing about Runtime, Tools, `waitAnswer`, the
+pending queue, or transport mechanics. View renders each pending prompt only in
+its associated Task and invokes the local prompt entity to respond. Its prompt
+collection has a reversible mount lifecycle: it subscribes before announcing
+readiness, so Runtime can resend every still-pending prompt after a Client
+reload, including under React Strict Mode.
+
+## Async View state
+
+Lemo Client View uses the shared, domain-neutral `usePromise` mechanism for
+every finite asynchronous operation it represents. This remains View state;
+Client and Server Core contracts and authoritative state do not change.
+
+It covers:
+
+- initial Task retrieval;
+- LLM Provider state and LLM Model discovery;
+- Provider configuration mutations;
+- Task creation;
+- Task pause, continue, and cancel controls.
+
+Each dependency-driven read begins in `pending`, becomes `solve` with its real
+value, or becomes `exception` with a visible failure and retry path. An empty
+Task or Model collection is rendered only after a successful read returns an
+empty collection. The View never initializes a resource to an artificial empty
+value while its request is unresolved.
+
+Manual operations use the manual executor and render its pending and exception
+states. Pending state is scoped to the affected control. Task submission does
+not globally disable the composer: newly submitted Tasks remain independent and
+may begin while other Tasks run.
+
+Task and prompt subscriptions remain effects with reversible cleanup because
+they represent live lifecycles rather than finite Promise results. Their events
+update the retained Client Core entities or the corresponding solved View
+resource; they are not converted into one-shot requests.
+
+The reusable hook is copied from the established System implementation into
+`source/libs/react-promise.ts`; it remains local to Lemo and is not part of the
+React SDK. Lemo uses the React SDK's `CurrentProvider` and `useProgram` instead
+of maintaining a second application-name request and enables
+`reactCompilerPreset`. The hook protects against stale
+executions and updates after unmount while exposing explicit pending, solve,
+and exception states. No caller may use a safe executor while leaving its
+exception state unrendered. These mechanisms are applied throughout Lemo View
+wherever they simplify the implementation without changing its semantics.

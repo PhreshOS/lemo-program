@@ -1,63 +1,36 @@
 import type OllamaCloudProvider from "@client/core/llm/providers/ollama-cloud/provider"
-import type OllamaCloudModel from "@client/core/llm/providers/ollama-cloud/model"
-import { useEffect, useState, type FormEvent } from "react"
+import usePromise, { type PromiseWithDependencies } from "@libs/react-promise"
+import { useState, type FormEvent } from "react"
+import {
+    OllamaCloudLoadingError,
+    type OllamaCloudSnapshot
+} from "./ollama-cloud-resource"
 
-export default function OllamaCloudConfiguration({ provider, onModelsChange }: Properties) {
-
-    const [configured, setConfigured] = useState<boolean>()
-
-    const [isActive, setActive] = useState<boolean>()
-
-    const [models, setModels] = useState<readonly OllamaCloudModel[]>([])
+export default function OllamaCloudConfiguration({ provider, resource }: Properties) {
 
     const [apiKey, setApiKey] = useState("")
 
-    const [pending, setPending] = useState(false)
+    const mutation = usePromise(async function (request: Mutation) {
 
-    const [error, setError] = useState("")
+        if (request.action === "configure") await provider.configure({ apiKey: request.apiKey })
 
-    useEffect(function () {
+        if (request.action === "activate") await provider.activate()
 
-        let active = true
+        if (request.action === "deactivate") await provider.deactivate()
 
-        void (async function () {
+        if (request.action === "remove") await provider.removeConfiguration()
 
-            try {
+        return resource.execute()
+    })
 
-                const state = await provider.state()
+    const snapshot = resource.solve
 
-                if (!active) return
+    const configuration = snapshot?.configuration
+        ?? loadingError(resource.exception?.current)?.configuration
 
-                setConfigured(state.configured)
+    const failure = mutation.exception?.current ?? resource.exception?.current
 
-                setActive(state.active)
-
-                if (!state.configured || !state.active) return
-
-                const discovered = await provider.models()
-
-                if (!active) return
-
-                retainModels(discovered)
-            } catch (failure) {
-
-                if (active) setError(message(failure))
-            }
-        })()
-
-        return () => {
-
-            active = false
-        }
-
-    }, [provider, onModelsChange])
-
-    function retainModels(value: readonly OllamaCloudModel[]) {
-
-        setModels(value)
-
-        onModelsChange(value)
-    }
+    const pending = mutation.isPending || resource.isPending
 
     async function configure(event: FormEvent) {
 
@@ -67,124 +40,35 @@ export default function OllamaCloudConfiguration({ provider, onModelsChange }: P
 
         if (!value || pending) return
 
-        setPending(true)
+        const result = await mutation.safeExecute({ action: "configure", apiKey: value })
 
-        setError("")
-
-        try {
-
-            await provider.configure({ apiKey: value })
-
-            const state = await provider.state()
-
-            setApiKey("")
-
-            setConfigured(state.configured)
-
-            setActive(state.active)
-
-            const discovered = state.active ? await provider.models() : []
-
-            retainModels(discovered)
-        } catch (failure) {
-
-            setError(message(failure))
-        } finally {
-
-            setPending(false)
-        }
-    }
-
-    async function activate() {
-
-        if (pending) return
-
-        setPending(true)
-
-        setError("")
-
-        try {
-
-            await provider.activate()
-
-            setActive(true)
-
-            const discovered = configured ? await provider.models() : []
-
-            retainModels(discovered)
-        } catch (failure) {
-
-            setError(message(failure))
-        } finally {
-
-            setPending(false)
-        }
-    }
-
-    async function deactivate() {
-
-        if (pending) return
-
-        setPending(true)
-
-        setError("")
-
-        try {
-
-            await provider.deactivate()
-
-            setActive(false)
-
-            retainModels([])
-        } catch (failure) {
-
-            setError(message(failure))
-        } finally {
-
-            setPending(false)
-        }
-    }
-
-    async function remove() {
-
-        if (pending) return
-
-        setPending(true)
-
-        setError("")
-
-        try {
-
-            await provider.removeConfiguration()
-
-            setConfigured(false)
-
-            retainModels([])
-        } catch (failure) {
-
-            setError(message(failure))
-        } finally {
-
-            setPending(false)
-        }
+        if (result) setApiKey("")
     }
 
     return <section className="provider-settings">
         <header>
             <div>
                 <h2>{provider.name}</h2>
-                <p>{configured === undefined
-                    ? "Loading configuration…"
-                    : configured
-                        ? `${isActive ? "Active" : "Inactive"} · ${models.length} Models`
-                        : "Not configured"}</p>
+                <p>{providerStatus(resource)}</p>
             </div>
 
-            {configured && <div className="actions">
-                {isActive
-                    ? <button type="button" disabled={pending} onClick={deactivate}>Deactivate</button>
-                    : <button type="button" disabled={pending} onClick={activate}>Activate</button>}
-                <button type="button" disabled={pending} onClick={remove}>Remove</button>
+            {configuration?.configured && <div className="actions">
+                {configuration.active
+                    ? <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => void mutation.safeExecute({ action: "deactivate" })}
+                    >Deactivate</button>
+                    : <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => void mutation.safeExecute({ action: "activate" })}
+                    >Activate</button>}
+                <button
+                    type="button"
+                    disabled={pending}
+                    onClick={() => void mutation.safeExecute({ action: "remove" })}
+                >Remove</button>
             </div>}
         </header>
 
@@ -200,13 +84,41 @@ export default function OllamaCloudConfiguration({ provider, onModelsChange }: P
                     onChange={event => setApiKey(event.target.value)}
                 />
                 <button type="submit" disabled={pending || !apiKey.trim()}>
-                    {configured ? "Replace" : "Configure"}
+                    {configuration?.configured ? "Replace" : "Configure"}
                 </button>
             </div>
         </form>
 
-        {error && <p role="alert">{error}</p>}
+        {pending && <p className="operation-state" role="status">Updating LLM Provider…</p>}
+
+        {failure !== undefined && <div className="resource-error" role="alert">
+            <p>{message(failure)}</p>
+            <button type="button" disabled={pending} onClick={() => void resource.safeExecute()}>Retry</button>
+        </div>}
     </section>
+}
+
+function providerStatus(resource: PromiseWithDependencies<OllamaCloudSnapshot>) {
+
+    if (resource.isPending) return "Loading configuration…"
+
+    const configuration = resource.solve?.configuration
+        ?? loadingError(resource.exception?.current)?.configuration
+
+    if (!configuration) return "Configuration unavailable"
+
+    if (!configuration.configured) return "Not configured"
+
+    if (!configuration.active) return "Inactive"
+
+    if (resource.exception) return "Active · Model loading failed"
+
+    return `Active · ${resource.solve?.models.length ?? 0} Models`
+}
+
+function loadingError(value: unknown) {
+
+    return value instanceof OllamaCloudLoadingError ? value : null
 }
 
 function message(value: unknown) {
@@ -214,7 +126,14 @@ function message(value: unknown) {
     return value instanceof Error ? value.message : String(value)
 }
 
+type Mutation = Readonly<{
+    action: "configure"
+    apiKey: string
+}> | Readonly<{
+    action: "activate" | "deactivate" | "remove"
+}>
+
 type Properties = Readonly<{
     provider: OllamaCloudProvider
-    onModelsChange(models: readonly OllamaCloudModel[]): void
+    resource: PromiseWithDependencies<OllamaCloudSnapshot>
 }>

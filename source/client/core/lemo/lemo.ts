@@ -22,9 +22,15 @@ export default class Lemo {
         const snapshots = await this.source.snapshots()
 
         return Object.freeze(await Promise.all(snapshots.map(async snapshot => (
-            snapshot.status === "running"
+            snapshot.status === "running" || snapshot.status === "paused"
                 ? Task.connect(await this.source.open(snapshot.id))
-                : Task.from(snapshot)
+                : Task.from(snapshot, unavailableControl)
         ))))
     }
+}
+
+const unavailableControl = {
+    async pause() { throw new Error("This Task is no longer active") },
+    async cancel() { throw new Error("This Task is no longer active") },
+    async continue() { throw new Error("This Task is no longer active") }
 }

@@ -1,7 +1,7 @@
 import type { OllamaCloudConfiguration } from "./configuration"
 import OllamaCloudModel from "./model"
 import type LLMProvider from "../../provider"
-import type { LLMMessage, LLMModelRequest, LLMToolCall } from "../../model"
+import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMToolCall } from "../../model"
 
 const host = "https://ollama.com"
 
@@ -49,7 +49,7 @@ export default class OllamaCloudProvider implements LLMProvider {
 
         if (!model) {
 
-            model = new OllamaCloudModel(this, identity, request => this.generate(identity, request))
+            model = new OllamaCloudModel(this, identity, (request, execution) => this.generate(identity, request, execution))
 
             this.retainedModels.set(identity, model)
         }
@@ -57,10 +57,11 @@ export default class OllamaCloudProvider implements LLMProvider {
         return model
     }
 
-    private async *generate(model: string, request: LLMModelRequest) {
+    private async *generate(model: string, request: LLMModelRequest, execution?: LLMModelExecution) {
 
         const response = await this.fetch("/api/chat", {
             method: "POST",
+            signal: execution?.signal,
             body: JSON.stringify({
                 model,
                 messages: request.messages.map(ollamaMessage),

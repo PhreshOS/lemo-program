@@ -1,22 +1,36 @@
 import type Application from "@client/core/application"
 import type Task from "@client/core/lemo/task"
 import type OllamaCloudModel from "@client/core/llm/providers/ollama-cloud/model"
+import type Prompt from "@client/core/prompts/prompt"
+import usePromise, { type PromiseWithDependencies } from "@libs/react-promise"
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
+import type { OllamaCloudSnapshot } from "./llm-providers/ollama-cloud-resource"
 
 const visibleTaskLimit = 20
 
-export default function Tasks({ application, models }: Properties) {
+export default function Tasks({ application, models: modelResource }: Properties) {
 
-    const [tasks, setTasks] = useState<readonly Task[]>([])
     const [input, setInput] = useState("")
     const [selectedModel, setSelectedModel] = useState("")
     const [selectedTask, setSelectedTask] = useState("")
-    const [error, setError] = useState("")
     const [revision, render] = useState(0)
     const history = useRef<HTMLDivElement>(null)
-    const submission = useRef(0)
+
+    const taskResource = usePromise(async function () {
+
+        return (await application.lemo.tasks()).slice(-visibleTaskLimit)
+
+    }, [application])
+
+    const creation = usePromise((question: string, model: OllamaCloudModel) => (
+        application.lemo.task({ input: question, model })
+    ))
+
+    const tasks = taskResource.solve ?? []
+
+    const models = modelResource.solve?.models ?? []
 
     const available = useMemo(() => new Map(models.map(model => [modelKey(model), model])), [models])
 
@@ -32,33 +46,24 @@ export default function Tasks({ application, models }: Properties) {
 
     useEffect(function () {
 
-        let active = true
+        if (!taskResource.solve) return
 
-        void application.lemo.tasks().then(value => {
+        setSelectedTask(current => (
+            taskResource.solve.some(task => task.id === current)
+                ? current
+                : taskResource.solve.at(-1)?.id ?? ""
+        ))
 
-            if (!active) return
-
-            const visible = value.slice(-visibleTaskLimit)
-
-            setTasks(visible)
-            setSelectedTask(current => current || visible.at(-1)?.id || "")
-        }).catch(failure => {
-
-            if (active) setError(message(failure))
-        })
-
-        return () => {
-
-            active = false
-        }
-
-    }, [application])
+    }, [taskResource.solve])
 
     useEffect(function () {
 
-        return combine(tasks.map(task => task.subscribe(() => render(value => value + 1))))
+        return combine([
+            application.prompts.subscribe(() => render(value => value + 1)),
+            ...tasks.map(task => task.subscribe(() => render(value => value + 1)))
+        ])
 
-    }, [tasks])
+    }, [application, tasks])
 
     useEffect(function () {
 
@@ -66,31 +71,31 @@ export default function Tasks({ application, models }: Properties) {
 
     }, [selectedTask, revision])
 
-    function submit(event: FormEvent) {
+    async function submit(event: FormEvent) {
 
         event.preventDefault()
 
         const question = input.trim()
 
-        if (!question || !model) return
+        if (!question || !model || !taskResource.solve || creation.isPending) return
 
         setInput("")
 
-        setError("")
+        const task = await creation.safeExecute(question, model)
 
-        const request = ++submission.current
+        if (task) {
 
-        void application.lemo.task({ input: question, model }).then(task => {
+            taskResource.dispatch(current => [
+                ...current.filter(candidate => candidate.id !== task.id),
+                task
+            ].slice(-visibleTaskLimit))
 
-            setTasks(current => [...current.filter(candidate => candidate.id !== task.id), task].slice(-visibleTaskLimit))
+            setSelectedTask(task.id)
 
-            if (request === submission.current) setSelectedTask(task.id)
-        }).catch(failure => {
+            return
+        }
 
-            setError(message(failure))
-
-            setInput(current => current || question)
-        })
+        setInput(current => current || question)
     }
 
     function keyboard(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -106,11 +111,19 @@ export default function Tasks({ application, models }: Properties) {
         <aside className="task-sidebar" aria-label="Tasks">
             <header>
                 <strong>Tasks</strong>
-                <span>{tasks.length}</span>
+                <span>{taskResource.isPending ? "…" : tasks.length}</span>
             </header>
 
             <nav className="task-navigation">
-                {[...tasks].reverse().map(task => <button
+                {taskResource.isPending && <ResourceState title="Loading Tasks…" />}
+
+                {taskResource.exception && <ResourceState
+                    title="Tasks unavailable"
+                    error={taskResource.exception.current}
+                    retry={() => void taskResource.safeExecute()}
+                />}
+
+                {taskResource.solve && [...tasks].reverse().map(task => <button
                     className="task-link"
                     data-status={task.status}
                     aria-current={task.id === selectedTask ? "page" : undefined}
@@ -126,12 +139,23 @@ export default function Tasks({ application, models }: Properties) {
 
         <div className="task-workspace">
             <div className="task-list" ref={history} aria-live="polite">
-                {!currentTask && <div className="empty-state">
+                {taskResource.isPending && <ResourceState title="Loading your Tasks…" />}
+
+                {taskResource.exception && <ResourceState
+                    title="Lemo could not load your Tasks"
+                    error={taskResource.exception.current}
+                    retry={() => void taskResource.safeExecute()}
+                />}
+
+                {taskResource.solve && !currentTask && <div className="empty-state">
                     <strong>What should we work on?</strong>
                     <p>Start a Task below. Every Task runs independently, so you can submit another while Lemo works.</p>
                 </div>}
 
-                {currentTask && <TaskView task={currentTask} />}
+                {taskResource.solve && currentTask && <TaskView
+                    task={currentTask}
+                    prompts={application.prompts.forTask(currentTask.id)}
+                />}
             </div>
 
             <form className="composer" onSubmit={submit}>
@@ -148,10 +172,12 @@ export default function Tasks({ application, models }: Properties) {
                     <select
                         aria-label="LLM Model"
                         value={model ? modelKey(model) : ""}
-                        disabled={!models.length}
+                        disabled={modelResource.isPending || !models.length}
                         onChange={event => setSelectedModel(event.target.value)}
                     >
-                        {!models.length && <option value="">No LLM Models</option>}
+                        {modelResource.isPending && <option value="">Loading LLM Models…</option>}
+                        {modelResource.exception && <option value="">LLM Models unavailable</option>}
+                        {modelResource.solve && !models.length && <option value="">No LLM Models</option>}
                         {models.map(candidate => <option key={modelKey(candidate)} value={modelKey(candidate)}>
                             {candidate.provider.name} · {candidate.id}
                         </option>)}
@@ -159,22 +185,35 @@ export default function Tasks({ application, models }: Properties) {
 
                     <span className="composer-hint">Enter to send · Shift Enter for a new line</span>
 
-                    <button className="primary" type="submit" disabled={!input.trim() || !model}>Send</button>
+                    <button
+                        className="primary"
+                        type="submit"
+                        disabled={!input.trim() || !model || !taskResource.solve || creation.isPending}
+                    >{creation.isPending ? "Starting…" : "Send"}</button>
                 </div>
 
-                {error && <p className="composer-error" role="alert">{error}</p>}
+                {modelResource.exception && <div className="composer-error resource-error" role="alert">
+                    <span>{message(modelResource.exception.current)}</span>
+                    <button type="button" onClick={() => void modelResource.safeExecute()}>Retry Models</button>
+                </div>}
+
+                {creation.exception && <p className="composer-error" role="alert">
+                    {message(creation.exception.current)}
+                </p>}
             </form>
         </div>
     </section>
 }
 
-function TaskView({ task }: Readonly<{ task: Task }>) {
+function TaskView({ task, prompts }: Readonly<{ task: Task; prompts: readonly Prompt[] }>) {
 
     const history = task.operations()
 
     const events = timeline(history)
 
     return <article className="task" data-status={task.status}>
+        <TaskControls task={task} />
+
         {events.map(event => event.type === "user"
             ? <div className="user-message" key={event.key}>{event.content}</div>
             : event.type === "message"
@@ -196,6 +235,8 @@ function TaskView({ task }: Readonly<{ task: Task }>) {
                         <p role="alert">{event.content}</p>
                     </div>)}
 
+        {prompts.map(prompt => <PromptView key={prompt.id} prompt={prompt} />)}
+
         {task.status === "running" && <div className="working" aria-label="Lemo is working">
             <i />
             <i />
@@ -204,6 +245,120 @@ function TaskView({ task }: Readonly<{ task: Task }>) {
 
         {task.error && <p role="alert">{task.error.message}</p>}
     </article>
+}
+
+function TaskControls({ task }: Readonly<{ task: Task }>) {
+
+    const pause = usePromise(() => task.pause())
+
+    const continuation = usePromise(() => task.continue())
+
+    const cancellation = usePromise(() => task.cancel())
+
+    const pending = pause.isPending || continuation.isPending || cancellation.isPending
+
+    const failure = pause.exception?.current
+        ?? continuation.exception?.current
+        ?? cancellation.exception?.current
+
+    return <header className="task-controls">
+        <span data-status={task.status}>{statusLabel(task.status)}</span>
+
+        <div>
+            {task.status === "running" && <button
+                className="quiet"
+                type="button"
+                disabled={pending}
+                onClick={() => void pause.safeExecute()}
+            >{pause.isPending ? "Pausing…" : "Pause"}</button>}
+
+            {task.status === "paused" && <button
+                className="quiet"
+                type="button"
+                disabled={pending}
+                onClick={() => void continuation.safeExecute()}
+            >{continuation.isPending ? "Continuing…" : "Continue"}</button>}
+
+            {(task.status === "running" || task.status === "paused") && <button
+                className="quiet danger"
+                type="button"
+                disabled={pending}
+                onClick={() => void cancellation.safeExecute()}
+            >{cancellation.isPending ? "Cancelling…" : "Cancel"}</button>}
+        </div>
+
+        {failure !== undefined && <small role="alert">{message(failure)}</small>}
+    </header>
+}
+
+function ResourceState({ title, error, retry }: Readonly<{
+    title: string
+    error?: unknown
+    retry?: () => void
+}>) {
+
+    return <div className="resource-state">
+        <strong>{title}</strong>
+        {error !== undefined && <small role="alert">{message(error)}</small>}
+        {retry && <button className="quiet" type="button" onClick={retry}>Retry</button>}
+    </div>
+}
+
+function PromptView({ prompt }: Readonly<{ prompt: Prompt }>) {
+
+    const [content, setContent] = useState("")
+    const [error, setError] = useState("")
+
+    function submit(event: FormEvent) {
+
+        event.preventDefault()
+
+        if (!content.trim() || prompt.isResponding) return
+
+        setError("")
+
+        try {
+            prompt.respond(content)
+        } catch (cause) {
+            setError(message(cause))
+        }
+    }
+
+    return <section className="client-prompt" aria-label="Lemo needs your response">
+        <header>
+            <strong>Lemo needs your response</strong>
+            <span>Waiting</span>
+        </header>
+
+        <p>{prompt.content}</p>
+
+        <form onSubmit={submit}>
+            <textarea
+                rows={2}
+                aria-label="Response"
+                placeholder="Type your response…"
+                value={content}
+                disabled={prompt.isResponding}
+                onChange={event => setContent(event.target.value)}
+                onKeyDown={promptKeyboard}
+            />
+
+            <button className="primary" type="submit" disabled={!content.trim() || prompt.isResponding}>
+                {prompt.isResponding ? "Sending…" : "Respond"}
+            </button>
+        </form>
+
+        {error && <small role="alert">{error}</small>}
+    </section>
+}
+
+function promptKeyboard(event: KeyboardEvent<HTMLTextAreaElement>) {
+
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return
+
+    event.preventDefault()
+
+    event.currentTarget.form?.requestSubmit()
 }
 
 const markdownComponents: Components = {
@@ -338,6 +493,10 @@ function statusLabel(status: Task["status"]) {
 
     if (status === "failed") return "Failed"
 
+    if (status === "paused") return "Paused"
+
+    if (status === "cancelled") return "Cancelled"
+
     return "Completed"
 }
 
@@ -392,5 +551,5 @@ type TimelineEvent = {
 
 type Properties = Readonly<{
     application: Application
-    models: readonly OllamaCloudModel[]
+    models: PromiseWithDependencies<OllamaCloudSnapshot>
 }>

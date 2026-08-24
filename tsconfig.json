@@ -14,6 +14,9 @@
             "vite/client"
         ],
         "paths": {
+            "@libs/*": [
+                "./source/libs/*"
+            ],
             "@server/*": [
                 "./source/server/*"
             ],

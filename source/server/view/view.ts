@@ -12,14 +12,13 @@ import type {
 import type Operation from "@server/core/lemo/operation"
 import type Task from "@server/core/lemo/task"
 import type { TaskSnapshot } from "@server/core/lemo/task"
+import type ClientChannel from "@server/core/client-channel"
 
 export default async function view() {
 
     const program = await current.program()
 
-    const application = await Application.init(program.store, program.database)
-
-    current.answer("application.name", () => application.name())
+    const application = await Application.init(program.store, program.database, clientChannel)
 
     current.answer("llm-provider.ollama-cloud.configuration", () => application.ollamaCloudConfiguration())
 
@@ -70,6 +69,21 @@ export default async function view() {
         return bindTask(task, request.subscription)
     })
 
+    current.answer<unknown, TaskSnapshot>("lemo.task.pause", async function ({ payload }) {
+
+        return (await application.pauseTask(taskIdentity(payload))).snapshot()
+    })
+
+    current.answer<unknown, TaskSnapshot>("lemo.task.cancel", async function ({ payload }) {
+
+        return (await application.cancelTask(taskIdentity(payload))).snapshot()
+    })
+
+    current.answer<unknown, TaskSnapshot>("lemo.task.continue", async function ({ payload }) {
+
+        return (await application.continueTask(taskIdentity(payload))).snapshot()
+    })
+
     current.answer<unknown, void>("llm-generate", async function ({ payload }) {
 
         const request = generationRequest(payload)
@@ -81,6 +95,20 @@ export default async function view() {
 
         current.publish<LLMGenerationEvent>(request.generation, { type: "complete" })
     })
+}
+
+const clientChannel: ClientChannel = {
+    publish(event, payload) {
+
+        current.client.publish(event, payload)
+    },
+    subscribe(event, listener) {
+
+        return current.subscribe(event, value => {
+
+            listener((value as { payload: unknown }).payload)
+        })
+    }
 }
 
 async function bindTask(task: Task, subscription: string): Promise<TaskSnapshot> {
@@ -107,7 +135,9 @@ async function bindTask(task: Task, subscription: string): Promise<TaskSnapshot>
 
         snapshotting = false
 
-        if (snapshot.status === "running") void task.result().then(unsubscribe, unsubscribe)
+        if (snapshot.status === "running" || snapshot.status === "paused") {
+            void task.result().then(unsubscribe, unsubscribe)
+        }
         else unsubscribe()
 
         return snapshot
@@ -117,6 +147,17 @@ async function bindTask(task: Task, subscription: string): Promise<TaskSnapshot>
 
         throw error
     }
+}
+
+function taskIdentity(value: unknown) {
+
+    if (!record(value)) throw new Error("A Lemo Task control request must be an object")
+
+    const task = text(value.task)
+
+    if (!task) throw new Error("A Lemo Task control request requires an identity")
+
+    return task
 }
 
 function taskCreateRequest(value: unknown) {

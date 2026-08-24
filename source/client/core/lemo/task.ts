@@ -7,6 +7,12 @@ export type TaskChannel = Readonly<{
     snapshot: TaskSnapshot
     events: AsyncIterable<unknown>
     close(): void
+}> & TaskControl
+
+export type TaskControl = Readonly<{
+    pause(): Promise<TaskSnapshot>
+    cancel(): Promise<TaskSnapshot>
+    continue(): Promise<TaskSnapshot>
 }>
 
 /** A local handle to one authoritative Server Task. */
@@ -18,22 +24,23 @@ export default class Task {
 
     private constructor(
         public readonly id: string,
-        operations: readonly Operation[]
+        operations: readonly Operation[],
+        private readonly control: TaskControl
     ) {
 
         this.history = [...operations]
     }
 
-    public static from(snapshot: TaskSnapshot) {
+    public static from(snapshot: TaskSnapshot, control: TaskControl) {
 
-        return new Task(snapshot.id, snapshot.operations)
+        return new Task(snapshot.id, snapshot.operations, control)
     }
 
     public static connect(channel: TaskChannel) {
 
-        const task = Task.from(channel.snapshot)
+        const task = Task.from(channel.snapshot, channel)
 
-        if (task.status === "running") void task.follow(channel)
+        if (task.status === "running" || task.status === "paused") void task.follow(channel)
         else channel.close()
 
         return task
@@ -64,6 +71,21 @@ export default class Task {
         }
     }
 
+    public async pause() {
+
+        this.synchronize(await this.control.pause())
+    }
+
+    public async cancel() {
+
+        this.synchronize(await this.control.cancel())
+    }
+
+    public async continue() {
+
+        this.synchronize(await this.control.continue())
+    }
+
     private async follow(channel: TaskChannel) {
 
         try {
@@ -71,7 +93,7 @@ export default class Task {
 
                 this.apply(operation(value))
 
-                if (this.status !== "running") break
+                if (terminal(this.status)) break
             }
         } catch (cause) {
 
@@ -93,6 +115,18 @@ export default class Task {
         this.changed()
     }
 
+    private synchronize(snapshot: TaskSnapshot) {
+
+        if (snapshot.id !== this.id) throw new Error("The Server returned the wrong Lemo Task")
+
+        const operations = new Map(this.history.map(operation => [operation.id, operation]))
+
+        for (const operation of snapshot.operations) operations.set(operation.id, operation)
+
+        this.history = [...operations.values()].sort((left, right) => left.sequence - right.sequence)
+        this.changed()
+    }
+
     private changed() {
 
         for (const subscriber of this.subscribers) subscriber(this)
@@ -101,14 +135,32 @@ export default class Task {
 
 function status(operations: readonly Operation[]): TaskStatus {
 
-    const kind = operations.at(-1)?.kind
+    const kind = [...operations].reverse().find(operation => lifecycle.has(operation.kind))?.kind
 
     if (kind === "task.completed") return "completed"
 
     if (kind === "task.failed") return "failed"
 
+    if (kind === "task.cancelled") return "cancelled"
+
+    if (kind === "task.paused") return "paused"
+
     return "running"
 }
+
+function terminal(status: TaskStatus) {
+
+    return status === "completed" || status === "failed" || status === "cancelled"
+}
+
+const lifecycle = new Set([
+    "task.input",
+    "task.run.started",
+    "task.paused",
+    "task.cancelled",
+    "task.completed",
+    "task.failed"
+])
 
 export function taskSnapshot(value: unknown): TaskSnapshot {
 
@@ -121,7 +173,16 @@ export function taskSnapshot(value: unknown): TaskSnapshot {
 
     const state = value.status
 
-    if (!id || (state !== "running" && state !== "completed" && state !== "failed")) {
+    if (
+        !id
+        || (
+            state !== "running"
+            && state !== "paused"
+            && state !== "cancelled"
+            && state !== "completed"
+            && state !== "failed"
+        )
+    ) {
 
         throw new Error("The Server returned an incomplete Lemo Task")
     }

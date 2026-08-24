@@ -10,6 +10,10 @@ import Application from "../source/server/core/application"
 
 const values = new Map<string, unknown>()
 const database = new DatabaseSync(":memory:")
+const client = {
+    publish() {},
+    subscribe() { return () => {} }
+}
 
 const store: ProgramStore = {
     async get<Value = unknown>(key: string): Promise<Value | undefined> {
@@ -38,7 +42,7 @@ const store: ProgramStore = {
     }
 }
 
-const unconfigured = await Application.init(store, database)
+const unconfigured = await Application.init(store, database, client)
 
 assert.equal(unconfigured.llmProviders.all().length, 0)
 
@@ -46,7 +50,7 @@ assert.deepEqual(unconfigured.ollamaCloudConfiguration(), { configured: false, a
 
 await store.set("ollama-cloud:config", { apiKey: "secret" })
 
-const application = await Application.init(store, database)
+const application = await Application.init(store, database, client)
 
 assert.equal(application.llmProviders.all().length, 1)
 

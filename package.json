@@ -11,7 +11,7 @@
         "dev": "phresh dev",
         "start": "phresh start",
         "pack": "phresh pack",
-        "verify": "node --run check && node --run build && vite-node scripts/verify-llm-providers.ts && vite-node scripts/verify-client-llm-providers.ts && vite-node scripts/verify-client-lemo.ts && vite-node scripts/verify-lemo.ts && vite-node scripts/verify-build.ts"
+        "verify": "node --run check && node --run build && vite-node scripts/verify-llm-providers.ts && vite-node scripts/verify-client-llm-providers.ts && vite-node scripts/verify-client-lemo.ts && vite-node scripts/verify-lemo.ts && vite-node scripts/verify-prompt.ts && vite-node scripts/verify-task-lifecycle.ts && vite-node scripts/verify-build.ts"
     },
     "author": "Zohayr SLILEH",
     "license": "MIT",
@@ -31,6 +31,7 @@
     "dependencies": {
         "@phreshos/client": "^0.1.14",
         "@phreshos/core": "^0.1.11",
+        "@phreshos/react": "^0.1.7",
         "@phreshos/server": "^0.1.12",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
@@ -39,11 +40,14 @@
         "zod": "^4.4.3"
     },
     "devDependencies": {
+        "@babel/core": "^7.29.7",
         "@phreshos/cli": "^0.1.18",
+        "@rolldown/plugin-babel": "^0.2.3",
         "@types/node": "^26.2.0",
         "@types/react": "^19.2.18",
         "@types/react-dom": "^19.2.4",
         "@vitejs/plugin-react": "^6.0.5",
+        "babel-plugin-react-compiler": "^1.0.0",
         "typescript": "^7.0.2",
         "vite": "^8.2.1",
         "vite-node": "^6.0.0"

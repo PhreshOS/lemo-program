@@ -9,6 +9,7 @@ import type LemoDatabase from "./database"
 import type Memory from "./memory"
 import type { MemoryResult } from "./memory"
 import type Operation from "./operation"
+import { assertRunning, waitForRun, type TaskRun } from "./executions"
 import system from "./system.md?raw"
 
 /** One disposable Model cycle reconstructed entirely from durable operations. */
@@ -17,12 +18,13 @@ export default class Cycle {
     public static async run(
         database: LemoDatabase,
         memory: Memory,
-        task: string,
+        run: TaskRun,
         model: LLMModel,
         tools: readonly LLMToolDefinition[]
     ): Promise<CycleResult> {
 
-        const started = await database.appendToTask(task, "cycle.started", {
+        const started = await run.append("cycle.started", {
+            run: run.id,
             model: {
                 provider: model.provider.identity,
                 id: model.id
@@ -30,29 +32,51 @@ export default class Cycle {
         })
 
         try {
-            const operations = await database.operations(task)
+            const operations = await database.operations(run.task)
             const input = taskInput(operations)
-            const snapshot = await memory.recall({ query: input }, { excludeTask: task })
+            const snapshot = await memory.recall({ query: input }, { excludeTask: run.task })
             const request = modelRequest(operations, memorySnapshot(input, snapshot), tools)
 
             let output = ""
             const toolCalls: LLMToolCall[] = []
 
-            for await (const event of model.generate(request)) {
+            const events = model.generate(request, { signal: run.signal })
+            const iterator = events[Symbol.asyncIterator]()
 
-                await database.appendToTask(task, "model.event", event)
+            try {
+                while (true) {
 
-                if (event.type === "text") output += event.content
-                else toolCalls.push(event.call)
+                    const next = await waitForRun(iterator.next(), run.signal)
+
+                    if (next.done) break
+
+                    const event = next.value
+
+                    assertRunning(run.signal)
+
+                    await run.append("model.event", event)
+
+                    if (event.type === "text") output += event.content
+                    else toolCalls.push(event.call)
+                }
+            } finally {
+
+                if (run.signal.aborted) {
+
+                    const closing = iterator.return?.()
+
+                    void closing?.catch(() => {})
+                }
             }
 
-            const message = await database.appendToTask(task, "model.message", {
+            const message = await run.append("model.message", {
                 role: "assistant",
                 content: output,
                 toolCalls
             })
 
-            await database.appendToTask(task, "cycle.completed", {
+            await run.append("cycle.completed", {
+                run: run.id,
                 cycle: started.id,
                 message: message.id
             })
@@ -60,9 +84,12 @@ export default class Cycle {
             return Object.freeze({ output, toolCalls: Object.freeze(toolCalls) })
         } catch (cause) {
 
+            if (run.signal.aborted) throw cause
+
             const error = cause instanceof Error ? cause : new Error(String(cause))
 
-            await database.appendToTask(task, "cycle.failed", {
+            await run.append("cycle.failed", {
+                run: run.id,
                 cycle: started.id,
                 error: errorPayload(error)
             })

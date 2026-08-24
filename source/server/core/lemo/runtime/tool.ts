@@ -1,6 +1,7 @@
 import type { LLMToolDefinition } from "../../llm/model"
 import type { MemoryRecord } from "../memory"
 import type Operation from "../operation"
+import type { WaitAnswerRequest } from "./wait-answers"
 
 /** One Runtime-owned capability exposed to LLM Models. */
 export default interface Tool {
@@ -13,8 +14,10 @@ export default interface Tool {
 export type ToolContext = Readonly<{
     task: string
     call: string
+    signal: AbortSignal
     record(kind: string, payload: unknown): Promise<Operation>
     memory: Readonly<{
         record(value: MemoryRecord): Promise<Operation>
     }>
+    waitAnswer(request: WaitAnswerRequest): Promise<string>
 }>

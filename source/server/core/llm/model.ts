@@ -9,8 +9,12 @@ export default interface LLMModel {
     readonly provider: LLMProvider
 
     /** Generates structured events from one complete, ordered Model request. */
-    generate(request: LLMModelRequest): AsyncGenerator<LLMModelEvent, void, unknown>
+    generate(request: LLMModelRequest, execution?: LLMModelExecution): AsyncGenerator<LLMModelEvent, void, unknown>
 }
+
+export type LLMModelExecution = Readonly<{
+    signal: AbortSignal
+}>
 
 export type LLMMessage = Readonly<{
     role: "system" | "user"

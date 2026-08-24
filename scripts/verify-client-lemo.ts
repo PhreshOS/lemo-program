@@ -3,6 +3,7 @@ import Lemo, { type LemoSource } from "../source/client/core/lemo/lemo"
 import type { TaskSnapshot } from "../source/server/core/lemo/task"
 import type LLMModel from "../source/client/core/llm/model"
 import type LLMProvider from "../source/client/core/llm/provider"
+import Prompts, { type PromptSource } from "../source/client/core/prompts/prompts"
 
 const events = channel()
 
@@ -27,11 +28,11 @@ const source: LemoSource = {
     },
     async create() {
 
-        return { snapshot: initial, events, close: events.close }
+        return channelFor(initial, events)
     },
     async open() {
 
-        return { snapshot: initial, events, close: events.close }
+        return channelFor(initial, events)
     }
 }
 
@@ -112,6 +113,53 @@ assert.equal(tasks.length, 1)
 
 assert.equal(tasks[0]?.status, "completed")
 
+const promptListeners = new Set<(value: unknown) => void>()
+let ready = 0
+
+const promptSource: PromptSource = {
+    open(listener) {
+
+        promptListeners.add(listener)
+
+        return () => { promptListeners.delete(listener) }
+    },
+    release() {
+
+        return () => {}
+    },
+    respond() {},
+    ready() { ready++ }
+}
+
+const prompts = new Prompts(promptSource)
+
+prompts.start()
+
+assert.equal(ready, 1)
+assert.equal(promptListeners.size, 1)
+
+prompts.stop()
+
+assert.equal(promptListeners.size, 0)
+
+prompts.start()
+
+assert.equal(ready, 2)
+assert.equal(promptListeners.size, 1)
+
+for (const listener of promptListeners) listener({
+    id: "prompt-one",
+    task: "task-one",
+    call: "call-one",
+    content: "Continue?",
+    createdAt: 1,
+    expiresAt: 2
+})
+
+assert.equal(prompts.forTask("task-one")[0]?.content, "Continue?")
+
+prompts.stop()
+
 function channel() {
 
     const values: unknown[] = []
@@ -147,6 +195,18 @@ function channel() {
                 }
             }
         }
+    }
+}
+
+function channelFor(snapshot: TaskSnapshot, events: ReturnType<typeof channel>) {
+
+    return {
+        snapshot,
+        events,
+        close: events.close,
+        async pause() { return { ...snapshot, status: "paused" as const } },
+        async cancel() { return { ...snapshot, status: "cancelled" as const } },
+        async continue() { return { ...snapshot, status: "running" as const } }
     }
 }
 

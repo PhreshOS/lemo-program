@@ -9,6 +9,7 @@ import LLMProviders from "./llm/providers"
 import Lemo from "./lemo/lemo"
 import type { LemoDatabaseSource } from "./lemo/database"
 import type Task from "./lemo/task"
+import type ClientChannel from "./client-channel"
 
 export default class Application {
 
@@ -27,7 +28,7 @@ export default class Application {
         this.ollamaCloudActive = ollamaCloudActive
     }
 
-    public static async init(store: ProgramStore, database: LemoDatabaseSource) {
+    public static async init(store: ProgramStore, database: LemoDatabaseSource, client: ClientChannel) {
 
         const providers = []
 
@@ -44,7 +45,7 @@ export default class Application {
             providers.push(new OllamaCloudProvider(ollamaCloudConfiguration(ollamaCloud), active))
         }
 
-        const lemo = await Lemo.wakeUp(database)
+        const lemo = await Lemo.wakeUp(database, client)
 
         return new Application(store, new LLMProviders(providers), active, lemo)
     }
@@ -145,10 +146,48 @@ export default class Application {
         return this.lemo.findTask(identity)
     }
 
-    public name() {
+    public async pauseTask(identity: string) {
 
-        return "Lemo"
+        const task = await this.requireTask(identity)
+
+        await task.pause()
+
+        return task
     }
+
+    public async cancelTask(identity: string) {
+
+        const task = await this.requireTask(identity)
+
+        await task.cancel()
+
+        return task
+    }
+
+    public async continueTask(identity: string) {
+
+        const task = await this.requireTask(identity)
+        const coordinates = await task.model()
+        const model = await this.providers.model(coordinates.provider, coordinates.id)
+
+        if (!model) {
+            throw new Error(`The Task's LLM Model "${coordinates.provider}/${coordinates.id}" is unavailable`)
+        }
+
+        await task.continue(model)
+
+        return task
+    }
+
+    private async requireTask(identity: string) {
+
+        const task = await this.findTask(identity)
+
+        if (!task) throw new Error(`Unknown Lemo Task "${identity}"`)
+
+        return task
+    }
+
 }
 
 const ollamaCloudConfigurationKey = `${OllamaCloudProvider.identity}:config`

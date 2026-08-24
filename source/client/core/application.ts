@@ -12,6 +12,7 @@ import LLMProviders from "./llm/providers"
 import Lemo, { type LemoSource } from "./lemo/lemo"
 import type LLMModel from "./llm/model"
 import { taskSnapshot } from "./lemo/task"
+import Prompts, { type PromptSource } from "./prompts/prompts"
 
 const generationTimeout = 5 * 60 * 1000
 
@@ -19,11 +20,23 @@ export default class Application {
 
     public readonly llmProviders = new LLMProviders(serverSource)
     public readonly lemo = new Lemo(serverLemoSource)
+    public readonly prompts: Prompts
 
-    public async name(): Promise<string> {
+    public constructor(promptSource: PromptSource) {
 
-        return await current.server.ask<string>("application.name")
+        this.prompts = new Prompts(promptSource)
     }
+
+    public start() {
+
+        this.prompts.start()
+    }
+
+    public stop() {
+
+        this.prompts.stop()
+    }
+
 }
 
 const serverLemoSource: LemoSource = {
@@ -47,6 +60,20 @@ const serverLemoSource: LemoSource = {
 
         return taskChannel("lemo.task.open", { task })
     }
+}
+
+function taskControl(task: string) {
+
+    return Object.freeze({
+        pause: () => controlTask("lemo.task.pause", task),
+        cancel: () => controlTask("lemo.task.cancel", task),
+        continue: () => controlTask("lemo.task.continue", task)
+    })
+}
+
+async function controlTask(operation: string, task: string) {
+
+    return taskSnapshot(await current.server.ask<unknown>(operation, { task }))
 }
 
 const serverSource = {
@@ -218,7 +245,8 @@ async function taskChannel(operation: string, payload: Record<string, unknown>) 
         return Object.freeze({
             snapshot,
             events,
-            close: () => controller.abort()
+            close: () => controller.abort(),
+            ...taskControl(snapshot.id)
         })
     } catch (error) {
 

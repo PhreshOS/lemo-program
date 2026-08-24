@@ -73,11 +73,16 @@ assert.deepEqual(toolInput({ action: "ask", payload: "null" }, serviceInput), {
 
 const database = new DatabaseSync(":memory:")
 
-const lemo = await Lemo.wakeUp(database)
+const client = {
+    publish() {},
+    subscribe() { return () => {} }
+}
+
+const lemo = await Lemo.wakeUp(database, client)
 
 assert(lemo instanceof Lemo)
 
-await Lemo.wakeUp(database)
+await Lemo.wakeUp(database, client)
 
 const tables = database.prepare(`
     SELECT name
@@ -297,7 +302,7 @@ const operations = database.prepare(`
     ORDER BY sequence
 `).all()
 
-assert.equal(operations.length, 38)
+assert.equal(operations.length, 40)
 
 for (const task of [firstTask, secondTask]) {
 
@@ -305,6 +310,7 @@ for (const task of [firstTask, secondTask]) {
 
     assert.deepEqual(related.map(operation => operation.kind), [
         "task.input",
+        "task.run.started",
         "cycle.started",
         "model.event",
         "model.message",
@@ -397,7 +403,7 @@ const toolFailureContext = await lemo.task({ input: "inspect missing capability 
 
 assert.equal(await toolFailureContext.result(), "tool-failure:recalled")
 
-const restarted = await Lemo.wakeUp(database)
+const restarted = await Lemo.wakeUp(database, client)
 
 const restored = await restarted.findTask(firstTask.id)
 
