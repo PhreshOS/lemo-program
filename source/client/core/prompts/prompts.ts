@@ -20,6 +20,7 @@ export default class Prompts {
     private readonly records = new Map<string, Prompt>()
     private readonly subscribers = new Set<() => void>()
     private cleanup: readonly (() => void)[] | null = null
+    private snapshot: readonly Prompt[] = Object.freeze([])
 
     public constructor(private readonly source: PromptSource) {}
 
@@ -35,9 +36,10 @@ export default class Prompts {
         this.source.ready(promptReadySchema.parse({ client: crypto.randomUUID() }))
     }
 
+    /** Stable snapshot replaced only after the pending collection changes. */
     public all(): readonly Prompt[] {
 
-        return Object.freeze([...this.records.values()].sort((left, right) => left.createdAt - right.createdAt))
+        return this.snapshot
     }
 
     public forTask(task: string): readonly Prompt[] {
@@ -89,6 +91,10 @@ export default class Prompts {
     }
 
     private changed() {
+
+        this.snapshot = Object.freeze(
+            [...this.records.values()].sort((left, right) => left.createdAt - right.createdAt)
+        )
 
         for (const subscriber of this.subscribers) subscriber()
     }

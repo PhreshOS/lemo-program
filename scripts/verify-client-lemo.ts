@@ -69,6 +69,10 @@ const task = await lemo.task({ input: "Hello", model })
 
 let changes = 0
 
+const initialOperations = task.operations()
+
+assert.equal(task.operations(), initialOperations)
+
 task.subscribe(() => changes++)
 
 events.push({
@@ -96,6 +100,10 @@ await settled()
 assert.equal(task.status, "completed")
 
 assert.equal(task.operations().length, 3)
+
+assert.notEqual(task.operations(), initialOperations)
+
+assert.equal(task.operations(), task.operations())
 
 assert.equal(changes, 2)
 
@@ -133,6 +141,10 @@ const promptSource: PromptSource = {
 
 const prompts = new Prompts(promptSource)
 
+const initialPrompts = prompts.all()
+
+assert.equal(prompts.all(), initialPrompts)
+
 prompts.start()
 
 assert.equal(ready, 1)
@@ -157,6 +169,10 @@ for (const listener of promptListeners) listener({
 })
 
 assert.equal(prompts.forTask("task-one")[0]?.content, "Continue?")
+
+assert.notEqual(prompts.all(), initialPrompts)
+
+assert.equal(prompts.all(), prompts.all())
 
 prompts.stop()
 

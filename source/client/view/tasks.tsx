@@ -3,7 +3,16 @@ import type Task from "@client/core/lemo/task"
 import type OllamaCloudModel from "@client/core/llm/providers/ollama-cloud/model"
 import type Prompt from "@client/core/prompts/prompt"
 import usePromise, { type PromiseWithDependencies } from "@libs/react-promise"
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
+import {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+    useSyncExternalStore,
+    type FormEvent,
+    type KeyboardEvent
+} from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import type { OllamaCloudSnapshot } from "./llm-providers/ollama-cloud-resource"
@@ -15,8 +24,6 @@ export default function Tasks({ application, models: modelResource }: Properties
     const [input, setInput] = useState("")
     const [selectedModel, setSelectedModel] = useState("")
     const [selectedTask, setSelectedTask] = useState("")
-    const [revision, render] = useState(0)
-    const history = useRef<HTMLDivElement>(null)
 
     const taskResource = usePromise(async function () {
 
@@ -31,6 +38,8 @@ export default function Tasks({ application, models: modelResource }: Properties
     const tasks = taskResource.solve ?? []
 
     const models = modelResource.solve?.models ?? []
+
+    const prompts = usePrompts(application.prompts)
 
     const available = useMemo(() => new Map(models.map(model => [modelKey(model), model])), [models])
 
@@ -55,21 +64,6 @@ export default function Tasks({ application, models: modelResource }: Properties
         ))
 
     }, [taskResource.solve])
-
-    useEffect(function () {
-
-        return combine([
-            application.prompts.subscribe(() => render(value => value + 1)),
-            ...tasks.map(task => task.subscribe(() => render(value => value + 1)))
-        ])
-
-    }, [application, tasks])
-
-    useEffect(function () {
-
-        history.current?.scrollTo({ top: history.current.scrollHeight, behavior: "smooth" })
-
-    }, [selectedTask, revision])
 
     async function submit(event: FormEvent) {
 
@@ -123,22 +117,17 @@ export default function Tasks({ application, models: modelResource }: Properties
                     retry={() => void taskResource.safeExecute()}
                 />}
 
-                {taskResource.solve && [...tasks].reverse().map(task => <button
-                    className="task-link"
-                    data-status={task.status}
-                    aria-current={task.id === selectedTask ? "page" : undefined}
+                {taskResource.solve && [...tasks].reverse().map(task => <TaskLink
                     key={task.id}
-                    type="button"
-                    onClick={() => setSelectedTask(task.id)}
-                >
-                    <span>{taskQuestion(task)}</span>
-                    <small>{statusLabel(task.status)}</small>
-                </button>)}
+                    task={task}
+                    selected={task.id === selectedTask}
+                    select={() => setSelectedTask(task.id)}
+                />)}
             </nav>
         </aside>
 
         <div className="task-workspace">
-            <div className="task-list" ref={history} aria-live="polite">
+            {!currentTask && <div className="task-list" aria-live="polite">
                 {taskResource.isPending && <ResourceState title="Loading your Tasks…" />}
 
                 {taskResource.exception && <ResourceState
@@ -152,11 +141,12 @@ export default function Tasks({ application, models: modelResource }: Properties
                     <p>Start a Task below. Every Task runs independently, so you can submit another while Lemo works.</p>
                 </div>}
 
-                {taskResource.solve && currentTask && <TaskView
-                    task={currentTask}
-                    prompts={application.prompts.forTask(currentTask.id)}
-                />}
-            </div>
+            </div>}
+
+            {currentTask && <TaskHistory
+                task={currentTask}
+                prompts={prompts.filter(prompt => prompt.task === currentTask.id)}
+            />}
 
             <form className="composer" onSubmit={submit}>
                 <textarea
@@ -205,14 +195,53 @@ export default function Tasks({ application, models: modelResource }: Properties
     </section>
 }
 
-function TaskView({ task, prompts }: Readonly<{ task: Task; prompts: readonly Prompt[] }>) {
+function TaskLink({ task, selected, select }: Readonly<{
+    task: Task
+    selected: boolean
+    select(): void
+}>) {
 
-    const history = task.operations()
+    const snapshot = useTask(task)
 
-    const events = timeline(history)
+    return <button
+        className="task-link"
+        data-status={snapshot.status}
+        aria-current={selected ? "page" : undefined}
+        type="button"
+        onClick={select}
+    >
+        <span>{taskQuestion(snapshot.operations)}</span>
+        <small>{statusLabel(snapshot.status)}</small>
+    </button>
+}
 
-    return <article className="task" data-status={task.status}>
-        <TaskControls task={task} />
+function TaskHistory({ task, prompts }: Readonly<{ task: Task; prompts: readonly Prompt[] }>) {
+
+    const history = useRef<HTMLDivElement>(null)
+
+    const snapshot = useTask(task)
+
+    useEffect(function () {
+
+        history.current?.scrollTo({ top: history.current.scrollHeight, behavior: "smooth" })
+
+    }, [snapshot.operations])
+
+    return <div className="task-list" ref={history} aria-live="polite">
+        <TaskView task={task} snapshot={snapshot} prompts={prompts} />
+    </div>
+}
+
+function TaskView({ task, snapshot, prompts }: Readonly<{
+    task: Task
+    snapshot: TaskViewSnapshot
+    prompts: readonly Prompt[]
+}>) {
+
+    const events = timeline(snapshot.operations)
+
+    return <article className="task" data-status={snapshot.status}>
+        <TaskControls task={task} status={snapshot.status} />
 
         {events.map(event => event.type === "user"
             ? <div className="user-message" key={event.key}>{event.content}</div>
@@ -235,19 +264,23 @@ function TaskView({ task, prompts }: Readonly<{ task: Task; prompts: readonly Pr
                         <p role="alert">{event.content}</p>
                     </div>)}
 
-        {prompts.map(prompt => <PromptView key={prompt.id} prompt={prompt} />)}
+        {prompts.map(prompt => <PromptView
+            key={prompt.id}
+            prompt={prompt}
+            responding={prompt.isResponding}
+        />)}
 
-        {task.status === "running" && <div className="working" aria-label="Lemo is working">
+        {snapshot.status === "running" && <div className="working" aria-label="Lemo is working">
             <i />
             <i />
             <i />
         </div>}
 
-        {task.error && <p role="alert">{task.error.message}</p>}
+        {snapshot.error && <p role="alert">{snapshot.error.message}</p>}
     </article>
 }
 
-function TaskControls({ task }: Readonly<{ task: Task }>) {
+function TaskControls({ task, status }: Readonly<{ task: Task; status: Task["status"] }>) {
 
     const pause = usePromise(() => task.pause())
 
@@ -262,24 +295,24 @@ function TaskControls({ task }: Readonly<{ task: Task }>) {
         ?? cancellation.exception?.current
 
     return <header className="task-controls">
-        <span data-status={task.status}>{statusLabel(task.status)}</span>
+        <span data-status={status}>{statusLabel(status)}</span>
 
         <div>
-            {task.status === "running" && <button
+            {status === "running" && <button
                 className="quiet"
                 type="button"
                 disabled={pending}
                 onClick={() => void pause.safeExecute()}
             >{pause.isPending ? "Pausing…" : "Pause"}</button>}
 
-            {task.status === "paused" && <button
+            {status === "paused" && <button
                 className="quiet"
                 type="button"
                 disabled={pending}
                 onClick={() => void continuation.safeExecute()}
             >{continuation.isPending ? "Continuing…" : "Continue"}</button>}
 
-            {(task.status === "running" || task.status === "paused") && <button
+            {(status === "running" || status === "paused") && <button
                 className="quiet danger"
                 type="button"
                 disabled={pending}
@@ -304,7 +337,7 @@ function ResourceState({ title, error, retry }: Readonly<{
     </div>
 }
 
-function PromptView({ prompt }: Readonly<{ prompt: Prompt }>) {
+function PromptView({ prompt, responding }: Readonly<{ prompt: Prompt; responding: boolean }>) {
 
     const [content, setContent] = useState("")
     const [error, setError] = useState("")
@@ -313,7 +346,7 @@ function PromptView({ prompt }: Readonly<{ prompt: Prompt }>) {
 
         event.preventDefault()
 
-        if (!content.trim() || prompt.isResponding) return
+        if (!content.trim() || responding) return
 
         setError("")
 
@@ -338,13 +371,13 @@ function PromptView({ prompt }: Readonly<{ prompt: Prompt }>) {
                 aria-label="Response"
                 placeholder="Type your response…"
                 value={content}
-                disabled={prompt.isResponding}
+                disabled={responding}
                 onChange={event => setContent(event.target.value)}
                 onKeyDown={promptKeyboard}
             />
 
-            <button className="primary" type="submit" disabled={!content.trim() || prompt.isResponding}>
-                {prompt.isResponding ? "Sending…" : "Respond"}
+            <button className="primary" type="submit" disabled={!content.trim() || responding}>
+                {responding ? "Sending…" : "Respond"}
             </button>
         </form>
 
@@ -377,9 +410,9 @@ function MarkdownMessage({ content }: Readonly<{ content: string }>) {
     </div>
 }
 
-function taskQuestion(task: Task) {
+function taskQuestion(operations: ReturnType<Task["operations"]>) {
 
-    const input = task.operations().find(operation => operation.kind === "task.input")
+    const input = operations.find(operation => operation.kind === "task.input")
 
     return text(record(input?.payload)?.input) || "Task"
 }
@@ -505,12 +538,24 @@ function modelKey(model: OllamaCloudModel) {
     return `${model.provider.identity}/${model.id}`
 }
 
-function combine(dispose: readonly (() => void)[]) {
+function useTask(task: Task): TaskViewSnapshot {
 
-    return () => {
+    const subscribe = useCallback((listener: () => void) => task.subscribe(listener), [task])
 
-        for (const value of dispose) value()
-    }
+    const snapshot = useCallback(() => task.operations(), [task])
+
+    const operations = useSyncExternalStore(subscribe, snapshot, snapshot)
+
+    return { operations, status: task.status, error: task.error }
+}
+
+function usePrompts(prompts: Application["prompts"]) {
+
+    const subscribe = useCallback((listener: () => void) => prompts.subscribe(listener), [prompts])
+
+    const snapshot = useCallback(() => prompts.all(), [prompts])
+
+    return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
 function message(value: unknown) {
@@ -531,6 +576,12 @@ function record(value: unknown) {
 }
 
 type ToolStatus = "running" | "completed" | "failed"
+
+type TaskViewSnapshot = Readonly<{
+    operations: ReturnType<Task["operations"]>
+    status: Task["status"]
+    error: Error | null
+}>
 
 type ToolResult = Readonly<{
     ok: boolean

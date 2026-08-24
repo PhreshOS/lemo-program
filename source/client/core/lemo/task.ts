@@ -56,6 +56,7 @@ export default class Task {
         return this.synchronizationError
     }
 
+    /** Stable snapshot replaced only after the authoritative Task changes. */
     public operations(): readonly Operation[] {
 
         return this.history

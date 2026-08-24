@@ -230,6 +230,14 @@ collection has a reversible mount lifecycle: it subscribes before announcing
 readiness, so Runtime can resend every still-pending prompt after a Client
 reload, including under React Strict Mode.
 
+Task operation collections and pending-prompt collections expose stable local
+snapshots that are replaced only when their authoritative projection changes.
+Client View consumes those snapshots through `useSyncExternalStore`. Streaming
+operations, Task status, prompt arrival, release, and response state therefore
+invalidate exactly the rendered consumers that use them, including in a React
+Compiler build; no unrelated render counter is used as a synchronization
+signal.
+
 ## Async View state
 
 Lemo Client View uses the shared, domain-neutral `usePromise` mechanism for
