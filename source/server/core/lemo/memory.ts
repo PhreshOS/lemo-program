@@ -1,7 +1,7 @@
 import type LemoDatabase from "./database"
 import type Operation from "./operation"
 
-export const defaultMemoryBudget = 12_000
+export const defaultMemoryBudget = 32_000
 export const minimumMemoryBudget = 1_000
 export const maximumMemoryBudget = 32_000
 
@@ -90,7 +90,11 @@ export default class Memory {
         const selected = new Map<string, Selected>()
         let size = 0
 
-        const include = (value: Candidate, selection: MemoryResult["selection"]) => {
+        const include = (
+            value: Candidate,
+            selection: MemoryResult["selection"],
+            limit: number
+        ) => {
 
             const existing = selected.get(value.operation.id)
 
@@ -106,7 +110,7 @@ export default class Memory {
 
             const addition = contextSize(value)
 
-            if (selected.size && size + addition > budget) return false
+            if (size + addition > limit) return false
 
             selected.set(value.operation.id, { value, selection })
             size += addition
@@ -117,7 +121,8 @@ export default class Memory {
         const collect = (
             anchors: readonly Candidate[],
             selection: "recent" | "relevant",
-            target: number
+            target: number,
+            contextFor: (anchor: Candidate, index: ContextIndex) => readonly Candidate[]
         ) => {
 
             const identities = new Set<string>()
@@ -125,13 +130,15 @@ export default class Memory {
             for (const anchor of anchors) {
 
                 if (size >= target) break
-                if (!include(anchor, selection)) break
+                if (!include(anchor, selection, target)) continue
 
                 identities.add(anchor.operation.id)
 
-                for (const context of contextualUnit(anchor, index)) {
+                for (const context of contextFor(anchor, index)) {
 
-                    if (size >= target || !include(context, "context")) break
+                    if (size >= target) break
+
+                    include(context, "context", target)
                 }
             }
 
@@ -139,9 +146,10 @@ export default class Memory {
         }
 
         const recentIdentities = collect(
-            [...candidates].reverse(),
+            recentAnchors(index),
             "recent",
-            Math.ceil(budget / 2)
+            Math.ceil(budget / 2),
+            recentContext
         )
 
         const latest = candidates.at(-1)!.operation.sequence
@@ -155,12 +163,30 @@ export default class Memory {
             .sort((left, right) => right.score - left.score || right.value.operation.sequence - left.value.operation.sequence)
             .map(value => value.value)
 
-        collect(relevant, "relevant", budget)
+        collect(relevant, "relevant", budget, contextualUnit)
 
         return Object.freeze([...selected.values()]
             .sort((left, right) => left.value.operation.sequence - right.value.operation.sequence)
             .map(value => result(value.value, value.selection)))
     }
+}
+
+/** Preserves the latest durable statement from each Task before adding depth. */
+function recentAnchors(index: ContextIndex) {
+
+    return [...index.tasks.values()]
+        .map(task => task.at(-1))
+        .filter((value): value is Candidate => value !== undefined)
+        .sort((left, right) => right.operation.sequence - left.operation.sequence)
+}
+
+/** A recent Task needs its question, not every intermediate Model cycle. */
+function recentContext(anchor: Candidate, index: ContextIndex) {
+
+    const task = anchor.operation.task ? index.tasks.get(anchor.operation.task) ?? [] : []
+    const input = task.find(value => value.method === "task-input")
+
+    return input && input.operation.id !== anchor.operation.id ? [input] : []
 }
 
 function candidate(operation: Operation): readonly Candidate[] {

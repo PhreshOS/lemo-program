@@ -186,9 +186,12 @@ presentation unavailable to Server Runtime tools.
 Memory is an internal mathematical view over the existing raw operation log;
 it does not copy history into a second memory table or alter the schema. Recall
 uses a content-size budget rather than a Block-count radius. Half of the budget
-preserves recent history, then the remaining half favors combined lexical and
-temporal relevance. The default budget is 12,000 characters and explicit
-Memory calls may request between 1,000 and 32,000. Task input, assistant
+preserves the latest statement and original input of recent Tasks, so one
+cycle-heavy Task cannot displace several neighboring Tasks. The remaining half
+favors combined lexical and temporal relevance. The default budget is 32,000
+characters and explicit Memory calls may request between 1,000 and 32,000.
+Candidates that do not fit are skipped instead of blocking smaller useful
+facts. Task input, assistant
 content, explicit `memory.recorded` facts, failed Tool results, and Task
 failures are candidates. Successful Tool output and recall bookkeeping remain
 excluded, preventing Memory from recursively recalling its own output.

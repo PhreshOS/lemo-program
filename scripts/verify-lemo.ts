@@ -460,9 +460,47 @@ const large = await new Memory(largeDatabase).recall({ query: "large", budget: 1
 
 assert(compact.length > large.length)
 
+const continuitySource = new DatabaseSync(":memory:")
+const continuityDatabase = await LemoDatabase.open(continuitySource)
+
+await continuityDatabase.createTask("identity", { input: "My name is Zohayr" })
+await continuityDatabase.appendToTask("identity", "model.message", {
+    content: "Your name is Zohayr"
+})
+
+await continuityDatabase.createTask("long-operation", { input: "Open a browser" })
+
+for (let index = 0; index < 12; index++) {
+
+    await continuityDatabase.appendToTask("long-operation", "model.message", {
+        content: `Browser operation ${index} ${"working ".repeat(30)}`
+    })
+}
+
+const continuity = await new Memory(continuityDatabase).recall({
+    query: "an unrelated follow-up",
+    budget: 2_000
+})
+
+assert(continuity.some(result => result.task === "long-operation"))
+assert(continuity.some(result => result.task === "identity"))
+
+const fittingSource = new DatabaseSync(":memory:")
+const fittingDatabase = await LemoDatabase.open(fittingSource)
+
+await fittingDatabase.createTask("small", { input: "needle remains accessible" })
+await fittingDatabase.createTask("oversized", { input: "large ".repeat(300) })
+
+const fitting = await new Memory(fittingDatabase).recall({ query: "needle", budget: 1_000 })
+
+assert(fitting.some(result => result.task === "small"))
+assert(fitting.reduce((size, result) => size + result.content.length + 180, 0) <= 1_000)
+
 database.close()
 compactSource.close()
 largeSource.close()
+continuitySource.close()
+fittingSource.close()
 
 function deferred() {
 
