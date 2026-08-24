@@ -54,6 +54,10 @@ const provider: LLMProvider = {
     async models() {
 
         return [model]
+    },
+    model() {
+
+        return model
     }
 }
 

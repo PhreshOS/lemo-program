@@ -25,6 +25,7 @@ export type LLMMessage = Readonly<{
     toolCalls?: readonly LLMToolCall[]
 }> | Readonly<{
     role: "tool"
+    call: string
     name: string
     content: string
 }>

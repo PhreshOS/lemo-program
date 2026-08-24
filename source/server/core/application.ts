@@ -1,10 +1,6 @@
 import type { ProgramStore } from "@phreshos/core"
-import ollamaCloudConfiguration, {
-    type OllamaCloudConfigurationState
-} from "./llm/providers/ollama-cloud/configuration"
-import OllamaCloudProvider from "./llm/providers/ollama-cloud/provider"
 import type { LLMModelRecord, LLMModelRequest } from "./llm/model"
-import { llmProviderActiveKey, llmProviderActiveSchema } from "./llm/provider"
+import type { LLMProviderState } from "./llm/provider"
 import LLMProviders from "./llm/providers"
 import Lemo from "./lemo/lemo"
 import type { LemoDatabaseSource } from "./lemo/database"
@@ -13,41 +9,18 @@ import type ClientChannel from "./client-channel"
 
 export default class Application {
 
-    private providers: LLMProviders
-    private ollamaCloudActive: boolean
-
     private constructor(
-        private readonly store: ProgramStore,
-        providers: LLMProviders,
-        ollamaCloudActive: boolean,
+        private readonly providers: LLMProviders,
         public readonly lemo: Lemo
-    ) {
-
-        this.providers = providers
-
-        this.ollamaCloudActive = ollamaCloudActive
-    }
+    ) {}
 
     public static async init(store: ProgramStore, database: LemoDatabaseSource, client: ClientChannel) {
 
-        const providers = []
-
-        const ollamaCloud = await store.get(ollamaCloudConfigurationKey)
-
-        const storedActive = await store.get(ollamaCloudActiveKey)
-
-        const active = storedActive === undefined ? true : llmProviderActiveSchema.parse(storedActive)
-
-        if (ollamaCloud !== undefined) {
-
-            if (storedActive === undefined) await store.set(ollamaCloudActiveKey, active)
-
-            providers.push(new OllamaCloudProvider(ollamaCloudConfiguration(ollamaCloud), active))
-        }
+        const providers = await LLMProviders.init(store)
 
         const lemo = await Lemo.wakeUp(database, client)
 
-        return new Application(store, new LLMProviders(providers), active, lemo)
+        return new Application(providers, lemo)
     }
 
     public get llmProviders() {
@@ -55,42 +28,29 @@ export default class Application {
         return this.providers
     }
 
-    public ollamaCloudConfiguration(): OllamaCloudConfigurationState {
+    public llmProviderState(identity: string): LLMProviderState {
 
-        return Object.freeze({
-            configured: this.providers.get(OllamaCloudProvider.identity) !== null,
-            active: this.ollamaCloudActive
-        })
+        return this.providers.state(identity)
     }
 
-    public async configureOllamaCloud(value: unknown): Promise<void> {
+    public configureLLMProvider(identity: string, value: unknown) {
 
-        const configuration = ollamaCloudConfiguration(value)
-
-        const provider = new OllamaCloudProvider(configuration, this.ollamaCloudActive)
-
-        await this.store.set(ollamaCloudActiveKey, this.ollamaCloudActive)
-
-        await this.store.set(ollamaCloudConfigurationKey, configuration)
-
-        this.providers = this.providers.with(provider)
+        return this.providers.configure(identity, value)
     }
 
-    public async removeOllamaCloudConfiguration(): Promise<void> {
+    public removeLLMProviderConfiguration(identity: string) {
 
-        await this.store.delete(ollamaCloudConfigurationKey)
-
-        this.providers = this.providers.without(OllamaCloudProvider.identity)
+        return this.providers.removeConfiguration(identity)
     }
 
-    public async activateOllamaCloud(): Promise<void> {
+    public activateLLMProvider(identity: string) {
 
-        await this.setOllamaCloudActive(true)
+        return this.providers.activate(identity)
     }
 
-    public async deactivateOllamaCloud(): Promise<void> {
+    public deactivateLLMProvider(identity: string) {
 
-        await this.setOllamaCloudActive(false)
+        return this.providers.deactivate(identity)
     }
 
     public async modelRecords(): Promise<readonly LLMModelRecord[]> {
@@ -99,23 +59,6 @@ export default class Application {
             provider: model.provider.identity,
             id: model.id
         })))
-    }
-
-    private async setOllamaCloudActive(active: boolean): Promise<void> {
-
-        const stored = await this.store.get(ollamaCloudConfigurationKey)
-
-        const provider = stored === undefined
-            ? null
-            : new OllamaCloudProvider(ollamaCloudConfiguration(stored), active)
-
-        await this.store.set(ollamaCloudActiveKey, active)
-
-        this.ollamaCloudActive = active
-
-        this.providers = provider
-            ? this.providers.with(provider)
-            : this.providers.without(OllamaCloudProvider.identity)
     }
 
     public async *generate(providerIdentity: string, modelIdentity: string, request: LLMModelRequest) {
@@ -189,6 +132,3 @@ export default class Application {
     }
 
 }
-
-const ollamaCloudConfigurationKey = `${OllamaCloudProvider.identity}:config`
-const ollamaCloudActiveKey = llmProviderActiveKey(OllamaCloudProvider.identity)

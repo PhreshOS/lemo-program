@@ -1,18 +1,15 @@
-import type {
-    OllamaCloudConfiguration
-} from "@server/core/llm/providers/ollama-cloud/configuration"
-import OllamaCloudModel from "./model"
 import type LLMProvider from "../../provider"
 import type { LLMProviderRegistration, LLMProviderSource } from "../../provider"
 import type { LLMModelSource } from "../../model"
+import OpenCodeModel from "./model"
 
-/** One local configuration and Model handle for Ollama Cloud. */
-export default class OllamaCloudProvider implements LLMProvider {
+/** One local state and Model handle for anonymous OpenCode Zen. */
+export default class OpenCodeProvider implements LLMProvider {
 
-    public readonly identity = "ollama-cloud"
-    public readonly name = "Ollama Cloud"
+    public readonly identity = "opencode"
+    public readonly name = "OpenCode Zen"
 
-    private readonly retainedModels = new Map<string, OllamaCloudModel>()
+    private readonly retainedModels = new Map<string, OpenCodeModel>()
 
     public constructor(
         private readonly modelsSource: LLMModelSource,
@@ -34,16 +31,6 @@ export default class OllamaCloudProvider implements LLMProvider {
         return this.source.state(this.identity)
     }
 
-    public async configure(configuration: OllamaCloudConfiguration): Promise<void> {
-
-        await this.source.configure(this.identity, configuration)
-    }
-
-    public async removeConfiguration(): Promise<void> {
-
-        await this.source.removeConfiguration(this.identity)
-    }
-
     public async activate(): Promise<void> {
 
         await this.source.activate(this.identity)
@@ -54,7 +41,7 @@ export default class OllamaCloudProvider implements LLMProvider {
         await this.source.deactivate(this.identity)
     }
 
-    public async models(): Promise<readonly OllamaCloudModel[]> {
+    public async models(): Promise<readonly OpenCodeModel[]> {
 
         return Object.freeze((await this.modelsSource.models())
             .filter(record => record.provider === this.identity)
@@ -67,7 +54,7 @@ export default class OllamaCloudProvider implements LLMProvider {
 
         if (!model) {
 
-            model = new OllamaCloudModel(
+            model = new OpenCodeModel(
                 this,
                 identity,
                 request => this.modelsSource.generate(this.identity, identity, request)
@@ -81,6 +68,6 @@ export default class OllamaCloudProvider implements LLMProvider {
 }
 
 export const registration: LLMProviderRegistration = Object.freeze({
-    identity: "ollama-cloud",
-    create: (models: LLMModelSource, source: LLMProviderSource) => new OllamaCloudProvider(models, source)
+    identity: "opencode",
+    create: (models: LLMModelSource, source: LLMProviderSource) => new OpenCodeProvider(models, source)
 })

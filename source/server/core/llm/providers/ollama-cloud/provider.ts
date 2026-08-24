@@ -1,6 +1,10 @@
+import type { ProgramStore } from "@phreshos/core"
+import ollamaCloudConfiguration from "./configuration"
 import type { OllamaCloudConfiguration } from "./configuration"
 import OllamaCloudModel from "./model"
 import type LLMProvider from "../../provider"
+import type { LLMProviderHandle, LLMProviderRegistration } from "../../provider"
+import { llmProviderActiveKey, llmProviderActiveSchema } from "../../provider"
 import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMToolCall } from "../../model"
 
 const host = "https://ollama.com"
@@ -124,6 +128,92 @@ export default class OllamaCloudProvider implements LLMProvider {
         return response
     }
 }
+
+class OllamaCloudHandle implements LLMProviderHandle {
+
+    public readonly identity = OllamaCloudProvider.identity
+
+    private configuration: OllamaCloudConfiguration | null
+    private isActive: boolean
+    private current: OllamaCloudProvider | null
+
+    private constructor(
+        private readonly store: ProgramStore,
+        configuration: OllamaCloudConfiguration | null,
+        active: boolean
+    ) {
+
+        this.configuration = configuration
+        this.isActive = active
+        this.current = configuration ? new OllamaCloudProvider(configuration, active) : null
+    }
+
+    public static async open(store: ProgramStore) {
+
+        const value = await store.get(configurationKey)
+        const configuration = value === undefined ? null : ollamaCloudConfiguration(value)
+        const storedActive = await store.get(activeKey)
+        const active = storedActive === undefined ? true : llmProviderActiveSchema.parse(storedActive)
+
+        if (storedActive === undefined) await store.set(activeKey, active)
+
+        return new OllamaCloudHandle(store, configuration, active)
+    }
+
+    public get provider() {
+
+        return this.current
+    }
+
+    public state() {
+
+        return Object.freeze({ configured: this.configuration !== null, active: this.isActive })
+    }
+
+    public async configure(value: unknown): Promise<void> {
+
+        const configuration = ollamaCloudConfiguration(value)
+
+        await this.store.set(configurationKey, configuration)
+
+        this.configuration = configuration
+        this.current = new OllamaCloudProvider(configuration, this.isActive)
+    }
+
+    public async removeConfiguration(): Promise<void> {
+
+        await this.store.delete(configurationKey)
+
+        this.configuration = null
+        this.current = null
+    }
+
+    public async activate(): Promise<void> {
+
+        await this.setActive(true)
+    }
+
+    public async deactivate(): Promise<void> {
+
+        await this.setActive(false)
+    }
+
+    private async setActive(active: boolean) {
+
+        await this.store.set(activeKey, active)
+
+        this.isActive = active
+        this.current = this.configuration ? new OllamaCloudProvider(this.configuration, active) : null
+    }
+}
+
+const configurationKey = `${OllamaCloudProvider.identity}:config`
+const activeKey = llmProviderActiveKey(OllamaCloudProvider.identity)
+
+export const registration: LLMProviderRegistration = Object.freeze({
+    identity: OllamaCloudProvider.identity,
+    open: OllamaCloudHandle.open
+})
 
 async function *lines(stream: ReadableStream<Uint8Array>) {
 

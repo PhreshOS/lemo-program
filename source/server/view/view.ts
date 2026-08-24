@@ -20,26 +20,31 @@ export default async function view() {
 
     const application = await Application.init(program.store, program.database, clientChannel)
 
-    current.answer("llm-provider.ollama-cloud.configuration", () => application.ollamaCloudConfiguration())
+    current.answer("llm-provider.state", function ({ payload }) {
 
-    current.answer<unknown, void>("llm-provider.ollama-cloud.configure", async function ({ payload }) {
-
-        await application.configureOllamaCloud(payload)
+        return application.llmProviderState(providerIdentity(payload))
     })
 
-    current.answer("llm-provider.ollama-cloud.remove-configuration", async function () {
+    current.answer<unknown, void>("llm-provider.configure", async function ({ payload }) {
 
-        await application.removeOllamaCloudConfiguration()
+        const request = providerConfiguration(payload)
+
+        await application.configureLLMProvider(request.provider, request.configuration)
     })
 
-    current.answer("llm-provider.ollama-cloud.activate", async function () {
+    current.answer("llm-provider.remove-configuration", async function ({ payload }) {
 
-        await application.activateOllamaCloud()
+        await application.removeLLMProviderConfiguration(providerIdentity(payload))
     })
 
-    current.answer("llm-provider.ollama-cloud.deactivate", async function () {
+    current.answer("llm-provider.activate", async function ({ payload }) {
 
-        await application.deactivateOllamaCloud()
+        await application.activateLLMProvider(providerIdentity(payload))
+    })
+
+    current.answer("llm-provider.deactivate", async function ({ payload }) {
+
+        await application.deactivateLLMProvider(providerIdentity(payload))
     })
 
     current.answer<unknown, readonly LLMModelRecord[]>("llm-models", () => application.modelRecords())
@@ -160,6 +165,24 @@ function taskIdentity(value: unknown) {
     return task
 }
 
+function providerIdentity(value: unknown) {
+
+    if (!record(value)) throw new Error("An LLM Provider request must be an object")
+
+    const provider = text(value.provider)
+
+    if (!provider) throw new Error("An LLM Provider request requires an identity")
+
+    return provider
+}
+
+function providerConfiguration(value: unknown) {
+
+    const provider = providerIdentity(value)
+
+    return { provider, configuration: (value as Record<string, unknown>).configuration }
+}
+
 function taskCreateRequest(value: unknown) {
 
     if (!record(value)) throw new Error("A Lemo Task request must be an object")
@@ -248,11 +271,13 @@ function message(value: unknown): LLMMessage {
 
     if (role === "tool") {
 
+        const call = text(value.call)
+
         const name = text(value.name)
 
-        if (!name) throw new Error("An LLM tool message requires a name")
+        if (!call || !name) throw new Error("An LLM tool message requires call and Tool identities")
 
-        return Object.freeze({ role, name, content: value.content })
+        return Object.freeze({ role, call, name, content: value.content })
     }
 
     if (role === "assistant" && value.toolCalls !== undefined) {

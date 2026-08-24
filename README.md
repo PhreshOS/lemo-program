@@ -45,6 +45,14 @@ an operation, never its Provider.
 Server Core retains only initialized LLM Providers in `LLMProviders`.
 There is no generic configuration shape.
 
+OpenCode Zen is initialized without configuration and exposes only anonymous,
+zero-cost Models from OpenCode's public catalog. It discovers the catalog from
+`https://models.opencode.ai/api.json`, ignores paid, deprecated, and unsupported
+protocol entries, and sends generation requests to
+`https://opencode.ai/zen/v1` with OpenCode's public credential. Catalog results
+are retained for five minutes. The Provider owns both OpenAI-compatible Chat
+Completions and OpenAI Responses protocol translation.
+
 Ollama Cloud owns its `{ apiKey }` configuration contract, Zod schema, raw HTTP
 transport, model discovery, and LLM Model construction.
 The TypeScript configuration contract is derived from that schema. Server Core
@@ -52,17 +60,32 @@ reads its raw value from `ollama-cloud:config` in the Program store and
 constructs the Provider only when that key exists. No environment variable
 configures an LLM Provider.
 
-Every configured LLM Provider also retains an independent `active` property at
+Every LLM Provider also retains an independent `active` property at
 `<provider-identity>:active`. Inactive and unconfigured Providers are excluded
 from Model loading. Loading all Models is one strict operation: if any active,
 configured Provider fails, the complete operation fails without converting the
 error into an empty Model list.
 
-Client Core always retains an explicit Ollama Cloud configuration handle,
-including while the authoritative Provider is unconfigured. It can inspect the
-safe configured state, replace or remove configuration, discover Models, and
-use each retained LLM Model directly. Client View renders Ollama Cloud through
-its own integration; it never receives the stored API key.
+Client Core always retains explicit OpenCode Zen and Ollama Cloud handles,
+including while an authoritative configurable Provider is unconfigured. It can
+inspect their safe state, control activation, manage Provider-owned
+configuration where applicable, discover Models in one authoritative operation,
+and use each retained LLM Model directly. Client View integrates each Provider
+individually; it never receives the stored Ollama Cloud API key.
+
+LLM Providers are self-registering on each MVC side. Server Core discovers the
+`registration` exported by every `server/core/llm/providers/*/provider.ts`;
+Client Core does the same for `client/core/llm/providers/*/provider.ts`; and
+Client View discovers every `client/view/llm-providers/*.tsx` integration. The
+Server View exposes the shared Provider state, configuration, activation, Model
+discovery, and generation operations once. It has no Provider-specific events.
+
+Consequently, adding a non-configurable LLM Provider requires five production
+files: Server Provider and Model, Client Provider and Model, and its Client View
+integration. A sixth Provider-owned `verify.ts` file is discovered by the shared
+verification runner. No existing Application, View boundary, Task, registry,
+test runner, or other Provider file is edited. A Provider with configuration
+may add one owned schema file.
 
 ## Lemo database
 

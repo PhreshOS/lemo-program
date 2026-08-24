@@ -44,37 +44,47 @@ const store: ProgramStore = {
 
 const unconfigured = await Application.init(store, database, client)
 
-assert.equal(unconfigured.llmProviders.all().length, 0)
+assert.equal(unconfigured.llmProviders.all().length, 1)
 
-assert.deepEqual(unconfigured.ollamaCloudConfiguration(), { configured: false, active: true })
+assert.deepEqual(unconfigured.llmProviderState("ollama-cloud"), { configured: false, active: true })
+
+assert.deepEqual(unconfigured.llmProviderState("opencode"), { configured: true, active: true })
+
+assert.equal(await store.get("opencode:active"), true)
 
 await store.set("ollama-cloud:config", { apiKey: "secret" })
 
 const application = await Application.init(store, database, client)
 
-assert.equal(application.llmProviders.all().length, 1)
+assert.equal(application.llmProviders.all().length, 2)
 
-assert.deepEqual(application.ollamaCloudConfiguration(), { configured: true, active: true })
+assert.deepEqual(application.llmProviderState("ollama-cloud"), { configured: true, active: true })
 
 assert.equal(await store.get("ollama-cloud:active"), true)
 
-await application.removeOllamaCloudConfiguration()
+await application.removeLLMProviderConfiguration("ollama-cloud")
 
-assert.equal(application.ollamaCloudConfiguration().configured, false)
+assert.equal(application.llmProviderState("ollama-cloud").configured, false)
 
-await application.configureOllamaCloud({ apiKey: "replacement" })
+await application.configureLLMProvider("ollama-cloud", { apiKey: "replacement" })
 
 assert.deepEqual(await store.get("ollama-cloud:config"), { apiKey: "replacement" })
 
-await application.deactivateOllamaCloud()
+await application.deactivateLLMProvider("ollama-cloud")
 
-assert.deepEqual(application.ollamaCloudConfiguration(), { configured: true, active: false })
+await application.deactivateLLMProvider("opencode")
+
+assert.deepEqual(application.llmProviderState("ollama-cloud"), { configured: true, active: false })
 
 assert.deepEqual(await application.modelRecords(), [])
 
-await application.activateOllamaCloud()
+assert.deepEqual(application.llmProviderState("opencode"), { configured: true, active: false })
 
-assert.deepEqual(application.ollamaCloudConfiguration(), { configured: true, active: true })
+await application.activateLLMProvider("ollama-cloud")
+
+await application.activateLLMProvider("opencode")
+
+assert.deepEqual(application.llmProviderState("ollama-cloud"), { configured: true, active: true })
 
 const requests: string[] = []
 const tool = {
@@ -185,5 +195,11 @@ const failingProvider: LLMProvider = {
 await assert.rejects(new LLMProviders([inactiveProvider, failingProvider]).models(), /Model loading failed/)
 
 assert.equal(inactiveCalled, false)
+
+const providerVerifications = import.meta.glob<true, string, () => Promise<unknown>>(
+    "../source/server/core/llm/providers/*/verify.ts"
+)
+
+for (const verify of Object.values(providerVerifications)) await verify()
 
 database.close()

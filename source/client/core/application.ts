@@ -4,10 +4,7 @@ import type {
     LLMGenerationRequest,
     LLMModelRecord
 } from "@server/core/llm/model"
-import type {
-    OllamaCloudConfiguration,
-    OllamaCloudConfigurationState
-} from "@server/core/llm/providers/ollama-cloud/configuration"
+import type { LLMProviderState } from "@server/core/llm/provider"
 import LLMProviders from "./llm/providers"
 import Lemo, { type LemoSource } from "./lemo/lemo"
 import type LLMModel from "./llm/model"
@@ -18,7 +15,7 @@ const generationTimeout = 5 * 60 * 1000
 
 export default class Application {
 
-    public readonly llmProviders = new LLMProviders(serverSource)
+    public readonly llmProviders = new LLMProviders(serverModelsSource, serverProviderSource)
     public readonly lemo = new Lemo(serverLemoSource)
     public readonly prompts: Prompts
 
@@ -76,27 +73,30 @@ async function controlTask(operation: string, task: string) {
     return taskSnapshot(await current.server.ask<unknown>(operation, { task }))
 }
 
-const serverSource = {
-    async configuration() {
+const serverProviderSource = {
+    async state(provider: string) {
 
-        return await current.server.ask<OllamaCloudConfigurationState>("llm-provider.ollama-cloud.configuration")
+        return await current.server.ask<LLMProviderState>("llm-provider.state", { provider })
     },
-    async configure(configuration: OllamaCloudConfiguration) {
+    async configure(provider: string, configuration: unknown) {
 
-        await current.server.ask("llm-provider.ollama-cloud.configure", configuration)
+        await current.server.ask("llm-provider.configure", { provider, configuration })
     },
-    async removeConfiguration() {
+    async removeConfiguration(provider: string) {
 
-        await current.server.ask("llm-provider.ollama-cloud.remove-configuration")
+        await current.server.ask("llm-provider.remove-configuration", { provider })
     },
-    async activate() {
+    async activate(provider: string) {
 
-        await current.server.ask("llm-provider.ollama-cloud.activate")
+        await current.server.ask("llm-provider.activate", { provider })
     },
-    async deactivate() {
+    async deactivate(provider: string) {
 
-        await current.server.ask("llm-provider.ollama-cloud.deactivate")
-    },
+        await current.server.ask("llm-provider.deactivate", { provider })
+    }
+}
+
+const serverModelsSource = {
     async models() {
 
         return await current.server.ask<readonly LLMModelRecord[]>("llm-models")

@@ -1,12 +1,9 @@
 import Application from "@client/core/application"
+import type LLMModel from "@client/core/llm/model"
 import usePromise, { type PromiseWithDependencies } from "@libs/react-promise"
 import { CurrentProvider, useProgram } from "@phreshos/react"
 import { Component, useEffect, useState, type ReactNode } from "react"
-import OllamaCloudConfiguration from "./llm-providers/ollama-cloud"
-import {
-    loadOllamaCloud,
-    type OllamaCloudSnapshot
-} from "./llm-providers/ollama-cloud-resource"
+import LLMProviderViews from "./llm-providers"
 import promptSource from "./prompt-source"
 import Tasks from "./tasks"
 import "./style.css"
@@ -34,9 +31,7 @@ function ApplicationView() {
 
     const [settings, setSettings] = useState(false)
 
-    const provider = application.llmProviders.ollamaCloud
-
-    const ollamaCloud = usePromise(() => loadOllamaCloud(provider), [provider])
+    const models = usePromise(() => application.llmProviders.models(), [application])
 
     useEffect(function () {
 
@@ -53,7 +48,7 @@ function ApplicationView() {
                     <span className="identity-mark">L</span>
                     <div>
                         <h1>{program.name}</h1>
-                        <p>{modelStatus(ollamaCloud)}</p>
+                        <p>{modelStatus(models)}</p>
                     </div>
                 </div>
 
@@ -67,7 +62,7 @@ function ApplicationView() {
                 </button>
             </header>
 
-            <Tasks application={application} models={ollamaCloud} />
+            <Tasks application={application} models={models} />
 
             <div
                 className={`settings-layer${settings ? " open" : ""}`}
@@ -85,22 +80,22 @@ function ApplicationView() {
                         <button className="quiet" type="button" onClick={() => setSettings(false)}>Done</button>
                     </header>
 
-                    <OllamaCloudConfiguration provider={provider} resource={ollamaCloud} />
+                    <LLMProviderViews providers={application.llmProviders} models={models} />
                 </aside>
             </div>
         </div>
     </main>
 }
 
-function modelStatus(resource: PromiseWithDependencies<OllamaCloudSnapshot>) {
+function modelStatus(resource: PromiseWithDependencies<readonly LLMModel[]>) {
 
     if (resource.isPending) return "Loading LLM Provider…"
 
     if (resource.exception) return "LLM Models unavailable"
 
-    if (!resource.solve.models.length) return "LLM Provider required"
+    if (!resource.solve.length) return "LLM Provider required"
 
-    return `${resource.solve.models.length} LLM Models available`
+    return `${resource.solve.length} LLM Models available`
 }
 
 function StartupState({ title, error, retry }: Readonly<{

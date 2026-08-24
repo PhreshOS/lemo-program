@@ -1,14 +1,24 @@
+import type LLMModel from "@client/core/llm/model"
 import type OllamaCloudProvider from "@client/core/llm/providers/ollama-cloud/provider"
+import { default as OllamaCloudProviderClass } from "@client/core/llm/providers/ollama-cloud/provider"
+import type { LLMProviderState } from "@server/core/llm/provider"
 import usePromise, { type PromiseWithDependencies } from "@libs/react-promise"
 import { useState, type FormEvent } from "react"
-import {
-    OllamaCloudLoadingError,
-    type OllamaCloudSnapshot
-} from "./ollama-cloud-resource"
+import type { LLMProviderViewProperties } from "../llm-providers"
 
-export default function OllamaCloudConfiguration({ provider, resource }: Properties) {
+export const identity = "ollama-cloud"
+
+export default function OllamaCloudConfiguration({ providers, models }: LLMProviderViewProperties) {
+
+    const candidate = providers.get(identity)
+
+    if (!(candidate instanceof OllamaCloudProviderClass)) throw new Error("Ollama Cloud Client Core is unavailable")
+
+    const provider: OllamaCloudProvider = candidate
 
     const [apiKey, setApiKey] = useState("")
+
+    const resource = usePromise(() => provider.state(), [provider])
 
     const mutation = usePromise(async function (request: Mutation) {
 
@@ -20,13 +30,16 @@ export default function OllamaCloudConfiguration({ provider, resource }: Propert
 
         if (request.action === "remove") await provider.removeConfiguration()
 
-        return resource.execute()
+        const snapshot = await resource.execute()
+
+        await models.execute()
+
+        return snapshot
     })
 
     const snapshot = resource.solve
 
-    const configuration = snapshot?.configuration
-        ?? loadingError(resource.exception?.current)?.configuration
+    const configuration = snapshot
 
     const failure = mutation.exception?.current ?? resource.exception?.current
 
@@ -49,7 +62,7 @@ export default function OllamaCloudConfiguration({ provider, resource }: Propert
         <header>
             <div>
                 <h2>{provider.name}</h2>
-                <p>{providerStatus(resource)}</p>
+                <p>{providerStatus(resource, providerModelCount(models, provider.identity))}</p>
             </div>
 
             {configuration?.configured && <div className="actions">
@@ -98,12 +111,11 @@ export default function OllamaCloudConfiguration({ provider, resource }: Propert
     </section>
 }
 
-function providerStatus(resource: PromiseWithDependencies<OllamaCloudSnapshot>) {
+function providerStatus(resource: PromiseWithDependencies<LLMProviderState>, models: number) {
 
     if (resource.isPending) return "Loading configuration…"
 
-    const configuration = resource.solve?.configuration
-        ?? loadingError(resource.exception?.current)?.configuration
+    const configuration = resource.solve
 
     if (!configuration) return "Configuration unavailable"
 
@@ -111,14 +123,7 @@ function providerStatus(resource: PromiseWithDependencies<OllamaCloudSnapshot>) 
 
     if (!configuration.active) return "Inactive"
 
-    if (resource.exception) return "Active · Model loading failed"
-
-    return `Active · ${resource.solve?.models.length ?? 0} Models`
-}
-
-function loadingError(value: unknown) {
-
-    return value instanceof OllamaCloudLoadingError ? value : null
+    return `Active · ${models} Models`
 }
 
 function message(value: unknown) {
@@ -133,7 +138,7 @@ type Mutation = Readonly<{
     action: "activate" | "deactivate" | "remove"
 }>
 
-type Properties = Readonly<{
-    provider: OllamaCloudProvider
-    resource: PromiseWithDependencies<OllamaCloudSnapshot>
-}>
+function providerModelCount(resource: PromiseWithDependencies<readonly LLMModel[]>, provider: string) {
+
+    return resource.solve?.filter(model => model.provider.identity === provider).length ?? 0
+}

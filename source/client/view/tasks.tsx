@@ -1,6 +1,6 @@
 import type Application from "@client/core/application"
 import type Task from "@client/core/lemo/task"
-import type OllamaCloudModel from "@client/core/llm/providers/ollama-cloud/model"
+import type LLMModel from "@client/core/llm/model"
 import type Prompt from "@client/core/prompts/prompt"
 import usePromise, { type PromiseWithDependencies } from "@libs/react-promise"
 import {
@@ -15,7 +15,6 @@ import {
 } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
-import type { OllamaCloudSnapshot } from "./llm-providers/ollama-cloud-resource"
 
 const visibleTaskLimit = 20
 
@@ -31,13 +30,13 @@ export default function Tasks({ application, models: modelResource }: Properties
 
     }, [application])
 
-    const creation = usePromise((question: string, model: OllamaCloudModel) => (
+    const creation = usePromise((question: string, model: LLMModel) => (
         application.lemo.task({ input: question, model })
     ))
 
     const tasks = taskResource.solve ?? []
 
-    const models = modelResource.solve?.models ?? []
+    const models = modelResource.solve ?? []
 
     const prompts = usePrompts(application.prompts)
 
@@ -533,7 +532,7 @@ function statusLabel(status: Task["status"]) {
     return "Completed"
 }
 
-function modelKey(model: OllamaCloudModel) {
+function modelKey(model: LLMModel) {
 
     return `${model.provider.identity}/${model.id}`
 }
@@ -602,5 +601,5 @@ type TimelineEvent = {
 
 type Properties = Readonly<{
     application: Application
-    models: PromiseWithDependencies<OllamaCloudSnapshot>
+    models: PromiseWithDependencies<readonly LLMModel[]>
 }>

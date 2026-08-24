@@ -130,8 +130,14 @@ function modelRequest(
 
         if (operation.kind === "tool.result" && typeof payload?.name === "string") {
 
+            if (typeof payload.call !== "string" || !payload.call) {
+
+                throw new Error("A persisted Tool result has no call identity")
+            }
+
             messages.push({
                 role: "tool",
+                call: payload.call,
                 name: payload.name,
                 content: JSON.stringify(modelToolResult(payload))
             })
