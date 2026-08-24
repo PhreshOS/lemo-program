@@ -1,7 +1,11 @@
 import { host, type Program } from "@phreshos/server"
 import { z } from "zod"
 import type Tool from "../../tool"
+import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
+
+const registryEvent = z.enum(["create", "forget", "install", "uninstall"])
+const programEvent = z.enum(["forget", "uninstall"])
 
 const input = z.discriminatedUnion("action", [
     z.object({
@@ -15,8 +19,18 @@ const input = z.discriminatedUnion("action", [
     z.object({
         action: z.literal("agent"),
         program: z.string().trim().min(1)
+    }).strict(),
+    z.object({
+        action: z.literal("wait"),
+        event: registryEvent,
+        program: z.string().trim().min(1).optional(),
+        timeout: z.number().int().positive().optional()
     }).strict()
-])
+]).refine(request => (
+    request.action !== "wait"
+    || request.program === undefined
+    || programEvent.safeParse(request.event).success
+), { message: "A specific Program emits only forget and uninstall events" })
 
 /** Reads installed Program and Endpoint declarations from the authoritative Host. */
 const programs: Tool = {
@@ -52,13 +66,55 @@ const programs: Tool = {
                         program: Object.freeze({ type: "string" })
                     }),
                     additionalProperties: false
+                }),
+                Object.freeze({
+                    type: "object",
+                    required: Object.freeze(["action", "event"]),
+                    properties: Object.freeze({
+                        action: Object.freeze({ const: "wait" }),
+                        event: Object.freeze({
+                            type: "string",
+                            enum: Object.freeze(["create", "forget", "install", "uninstall"])
+                        }),
+                        program: Object.freeze({
+                            type: "string",
+                            description: "When supplied, wait on this Program entity; only forget and uninstall are valid."
+                        }),
+                        timeout: Object.freeze({ type: "integer", minimum: 1 })
+                    }),
+                    additionalProperties: false
                 })
             ])
         })
     }),
-    async execute(value) {
+    async execute(value, context) {
 
         const request = input.parse(value)
+
+        if (request.action === "wait") {
+
+            if (request.program) {
+
+                const program = await host.program.find(request.program)
+
+                if (!program) throw new Error(`Unknown Program "${request.program}"`)
+
+                return Object.freeze({
+                    scope: "program",
+                    program: eventProgram(program),
+                    event: request.event,
+                    payload: await waitEvent(program, request.event, context.signal, request.timeout)
+                })
+            }
+
+            const payload = await waitEvent(host.program, request.event, context.signal, request.timeout)
+
+            return Object.freeze({
+                scope: "host",
+                event: request.event,
+                payload: registryPayload(request.event, payload)
+            })
+        }
 
         if (request.action === "list") {
 
@@ -127,4 +183,32 @@ function declaration(endpoint: Program["server"] | Program["client"]) {
     return endpoint
         ? Object.freeze({ start: endpoint.start })
         : null
+}
+
+function registryPayload(event: "create" | "forget" | "install" | "uninstall", value: unknown) {
+
+    if (event === "uninstall") {
+
+        const payload = value as { program: Program, everythingRemoved: boolean }
+
+        return Object.freeze({
+            program: eventProgram(payload.program),
+            everythingRemoved: payload.everythingRemoved
+        })
+    }
+
+    return eventProgram(value as Program)
+}
+
+function eventProgram(program: Program) {
+
+    return Object.freeze({
+        identity: program.identity,
+        name: program.name,
+        version: program.version,
+        description: program.description,
+        hasAgent: program.hasAgent,
+        server: declaration(program.server),
+        client: declaration(program.client)
+    })
 }

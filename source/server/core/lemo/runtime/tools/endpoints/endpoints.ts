@@ -1,6 +1,7 @@
 import { host, type Process } from "@phreshos/server"
 import { z } from "zod"
 import type Tool from "../../tool"
+import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
 
 const coordinates = {
@@ -46,6 +47,13 @@ const input = z.discriminatedUnion("action", [
         endpoint,
         event: z.string().trim().min(1),
         payload: z.json().optional()
+    }).strict(),
+    z.object({
+        action: z.literal("wait"),
+        ...coordinates,
+        endpoint,
+        event: z.string().trim().min(1),
+        timeout: z.number().int().positive().optional()
     }).strict()
 ])
 
@@ -101,6 +109,13 @@ const endpoints: Tool = {
                     endpoint: endpointParameters,
                     event: Object.freeze({ type: "string" }),
                     payload: jsonParameters
+                }),
+                variant(["action", "process", "endpoint", "event"], {
+                    action: Object.freeze({ const: "wait" }),
+                    ...coordinateParameters,
+                    endpoint: endpointParameters,
+                    event: Object.freeze({ type: "string" }),
+                    timeout: Object.freeze({ type: "integer", minimum: 1 })
                 })
             ])
         })
@@ -110,6 +125,22 @@ const endpoints: Tool = {
         const request = input.parse(value)
 
         const process = await requiredProcess(request.process, request.program)
+
+        if (request.action === "wait") {
+
+            await requireEndpoint(process, request.endpoint)
+
+            const target = process[request.endpoint]
+
+            if (!await target.exists()) throw new Error(`The ${request.endpoint} Endpoint is not running`)
+
+            return Object.freeze({
+                process: process.identity,
+                endpoint: request.endpoint,
+                event: request.event,
+                payload: await waitEvent(target, request.event, context.signal, request.timeout)
+            })
+        }
 
         if (request.action === "ask") {
 

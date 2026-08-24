@@ -1,17 +1,50 @@
 import assert from "node:assert/strict"
 import { DatabaseSync } from "node:sqlite"
+import type { Subscribable } from "@phreshos/core"
 import LemoDatabase from "../source/server/core/lemo/database"
 import Lemo from "../source/server/core/lemo/lemo"
 import Memory from "../source/server/core/lemo/memory"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
-import { endpointModelOutput } from "../source/server/core/lemo/runtime/tools/endpoints/endpoints"
+import endpoints, { endpointModelOutput } from "../source/server/core/lemo/runtime/tools/endpoints/endpoints"
+import processes from "../source/server/core/lemo/runtime/tools/processes/processes"
+import programs from "../source/server/core/lemo/runtime/tools/programs/programs"
 import windows from "../source/server/core/lemo/runtime/tools/windows/windows"
 import toolInput from "../source/server/core/lemo/runtime/tool-input"
+import waitEvent from "../source/server/core/lemo/runtime/wait-event"
 
 assert.match(windows.definition.description, /numbers are pixels, never proportions/i)
 assert.match(JSON.stringify(windows.definition.parameters), /0\.5 means half a pixel/)
 assert.match(windows.docs, /"width": "50%", "height": "100%"/)
+assert.match(JSON.stringify(programs.definition.parameters), /"const":"wait"/)
+assert.match(JSON.stringify(processes.definition.parameters), /"const":"wait"/)
+assert.match(JSON.stringify(endpoints.definition.parameters), /"const":"wait"/)
+assert.match(JSON.stringify(windows.definition.parameters), /"const":"wait"/)
+
+const immediateEvents = {
+    async *events() { yield Object.freeze({ value: "received" }) }
+} as unknown as Subscribable
+
+assert.deepEqual(
+    await waitEvent(immediateEvents, "change", new AbortController().signal, 100),
+    { value: "received" }
+)
+
+const idleEvents = {
+    async *events(_event: string, options: { signal?: AbortSignal } = {}) {
+
+        await new Promise<void>(resolve => {
+
+            if (options.signal?.aborted) resolve()
+            else options.signal?.addEventListener("abort", () => resolve(), { once: true })
+        })
+    }
+} as unknown as Subscribable
+
+await assert.rejects(
+    waitEvent(idleEvents, "change", new AbortController().signal, 5),
+    /timeout 5ms/
+)
 assert.deepEqual(toolInput({
     action: "setGeometry",
     process: "lemo-process",

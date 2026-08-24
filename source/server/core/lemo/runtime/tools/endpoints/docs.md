@@ -73,3 +73,23 @@ already be running.
 ```
 
 Read the Program's agent documentation before using Program-specific events.
+
+## Wait for an Endpoint Event
+
+Use `wait` to receive the next destinationless event emitted by a running
+Server or Client Endpoint:
+
+```json
+{
+  "action": "wait",
+  "process": "process-identity",
+  "endpoint": "server",
+  "event": "workspace.change",
+  "timeout": 30000
+}
+```
+
+The result identifies the Process, Endpoint kind, event name, and received
+payload. The optional positive timeout is measured in milliseconds and
+defaults to 10 seconds. Pausing or cancelling the Task immediately releases
+the temporary subscription.

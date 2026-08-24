@@ -47,3 +47,21 @@ declare a Client Endpoint and that Client must be running.
 Window state is transient authoritative system state, so this tool does not
 copy reads or mutations into Memory. Server code cannot access local Surface
 presentation; that remains a Client-only capability.
+
+## Wait for Window Events
+
+Use `wait` to receive the next authoritative `move`, `resize`, `geometry`,
+`minimize`, `changeTitle`, or `front` event from one Window:
+
+```json
+{
+  "action": "wait",
+  "process": "process-identity",
+  "event": "resize",
+  "timeout": 30000
+}
+```
+
+The result contains the Process identity, event name, and complete event
+payload. The timeout defaults to 10 seconds. Task pause or cancellation
+immediately releases the temporary subscription.

@@ -1,6 +1,7 @@
 import { host, type Process, type Window } from "@phreshos/server"
 import { z } from "zod"
 import type Tool from "../../tool"
+import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
 
 const value = z.union([z.number().finite(), z.string().trim().min(1)])
@@ -21,7 +22,13 @@ const input = z.discriminatedUnion("action", [
     z.object({ action: z.literal("setGeometry"), ...coordinates, position, size }).strict(),
     z.object({ action: z.literal("minimize"), ...coordinates, minimized: z.boolean().optional() }).strict(),
     z.object({ action: z.literal("changeTitle"), ...coordinates, title: z.string() }).strict(),
-    z.object({ action: z.literal("raise"), ...coordinates }).strict()
+    z.object({ action: z.literal("raise"), ...coordinates }).strict(),
+    z.object({
+        action: z.literal("wait"),
+        ...coordinates,
+        event: z.enum(["move", "resize", "geometry", "minimize", "changeTitle", "front"]),
+        timeout: z.number().int().positive().optional()
+    }).strict()
 ])
 
 const coordinateParameters = Object.freeze({
@@ -70,17 +77,33 @@ const windows: Tool = {
                 variant("setGeometry", { position: positionParameters, size: sizeParameters }),
                 variant("minimize", { minimized: Object.freeze({ type: "boolean", default: true }) }),
                 variant("changeTitle", { title: Object.freeze({ type: "string" }) }),
-                variant("raise")
+                variant("raise"),
+                variant("wait", {
+                    event: Object.freeze({
+                        type: "string",
+                        enum: Object.freeze(["move", "resize", "geometry", "minimize", "changeTitle", "front"])
+                    }),
+                    timeout: Object.freeze({ type: "integer", minimum: 1 })
+                })
             ])
         })
     }),
-    async execute(value) {
+    async execute(value, context) {
 
         const request = input.parse(value)
 
         const process = await requiredProcess(request.process, request.program)
 
         const window = await requiredWindow(process)
+
+        if (request.action === "wait") {
+
+            return Object.freeze({
+                process: process.identity,
+                event: request.event,
+                payload: await waitEvent(window, request.event, context.signal, request.timeout)
+            })
+        }
 
         if (request.action === "inspect") return snapshot(process, window)
 
@@ -160,7 +183,11 @@ function variant(action: string, extra: Readonly<Record<string, unknown>> = {}) 
 
     return Object.freeze({
         type: "object",
-        required: Object.freeze(["action", "process", ...Object.keys(extra).filter(key => key !== "minimized")]),
+        required: Object.freeze([
+            "action",
+            "process",
+            ...Object.keys(extra).filter(key => key !== "minimized" && key !== "timeout")
+        ]),
         properties: Object.freeze({
             action: Object.freeze({ const: action }),
             ...coordinateParameters,

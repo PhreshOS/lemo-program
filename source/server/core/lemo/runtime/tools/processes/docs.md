@@ -44,3 +44,19 @@ Listing and inspection do not write Memory. Successful creation, shared
 Process resolution, and exit are deliberately recorded with their Program and
 Process identities. Starting and stopping individual Endpoints belongs to the
 separate `endpoints` capability.
+
+## Wait for Process Events
+
+Use `wait` to receive one `endpointStart`, `endpointStop`, `create`, or `exit`
+event. Without coordinates it observes the Host Process registry:
+
+```json
+{ "action": "wait", "event": "create", "timeout": 30000 }
+```
+
+Supply only `program` to observe that Program's Process registry. Supply
+`process`, with optional `program` for local-name resolution, to observe one
+Process; an individual Process emits every listed event except `create`.
+Results identify their scope and contain a JSON-safe Process, Endpoint, or exit
+payload. The timeout defaults to 10 seconds, and pausing or cancelling the Task
+releases the temporary subscription immediately.

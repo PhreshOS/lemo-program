@@ -1,7 +1,10 @@
 import { host, type Process } from "@phreshos/server"
 import { z } from "zod"
 import type Tool from "../../tool"
+import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
+
+const processEvent = z.enum(["endpointStart", "endpointStop", "create", "exit"])
 
 const value = z.union([z.number().finite(), z.string().trim().min(1)])
 
@@ -44,8 +47,19 @@ const input = z.discriminatedUnion("action", [
     z.object({
         action: z.literal("exit"),
         process: z.string().trim().min(1)
+    }).strict(),
+    z.object({
+        action: z.literal("wait"),
+        event: processEvent,
+        process: z.string().trim().min(1).optional(),
+        program: z.string().trim().min(1).optional(),
+        timeout: z.number().int().positive().optional()
     }).strict()
-])
+]).refine(request => (
+    request.action !== "wait"
+    || request.process === undefined
+    || request.event !== "create"
+), { message: "An individual Process does not emit create" })
 
 const launchParameters = Object.freeze({
     type: "object",
@@ -123,6 +137,22 @@ const processes: Tool = {
                 variant(["action", "process"], {
                     action: Object.freeze({ const: "exit" }),
                     process: Object.freeze({ type: "string" })
+                }),
+                variant(["action", "event"], {
+                    action: Object.freeze({ const: "wait" }),
+                    event: Object.freeze({
+                        type: "string",
+                        enum: Object.freeze(["endpointStart", "endpointStop", "create", "exit"])
+                    }),
+                    process: Object.freeze({
+                        type: "string",
+                        description: "When supplied, wait on one Process; create is not valid."
+                    }),
+                    program: Object.freeze({
+                        type: "string",
+                        description: "With process, scopes name resolution; without process, waits on this Program's Process registry."
+                    }),
+                    timeout: Object.freeze({ type: "integer", minimum: 1 })
                 })
             ])
         })
@@ -130,6 +160,31 @@ const processes: Tool = {
     async execute(value, context) {
 
         const request = input.parse(value)
+
+        if (request.action === "wait") {
+
+            const scoped = request.process
+                ? await requiredProcess(request.process, request.program)
+                : null
+            const payload = scoped
+                ? await waitEvent(scoped, request.event, context.signal, request.timeout)
+                : request.program
+                    ? await waitEvent(
+                        (await requiredProgram(request.program)).process,
+                        request.event,
+                        context.signal,
+                        request.timeout
+                    )
+                    : await waitEvent(host.process, request.event, context.signal, request.timeout)
+
+            return Object.freeze({
+                scope: scoped ? "process" : request.program ? "program" : "host",
+                ...(scoped ? { process: scoped.identity } : {}),
+                ...(request.program ? { program: request.program } : {}),
+                event: request.event,
+                payload: await processEventPayload(request.event, payload, scoped)
+            })
+        }
 
         if (request.action === "list") {
 
@@ -246,5 +301,39 @@ function variant(required: readonly string[], properties: Readonly<Record<string
         required: Object.freeze(required),
         properties: Object.freeze(properties),
         additionalProperties: false
+    })
+}
+
+async function processEventPayload(
+    event: "endpointStart" | "endpointStop" | "create" | "exit",
+    value: unknown,
+    scoped: Process | null
+) {
+
+    if (event === "create") return snapshot(value as Process)
+
+    if (event === "endpointStart" || event === "endpointStop") {
+
+        const endpoint = value as Process["server"] | Process["client"]
+        const process = await endpoint.process()
+
+        return Object.freeze({
+            process: process.identity,
+            endpoint: endpoint === process.server ? "server" : "client"
+        })
+    }
+
+    const payload = value as {
+        process?: Process
+        status: "exited" | "signaled"
+        code: number | null
+        signal: string | null
+    }
+
+    return Object.freeze({
+        process: payload.process?.identity ?? scoped?.identity ?? null,
+        status: payload.status,
+        code: payload.code,
+        signal: payload.signal
     })
 }

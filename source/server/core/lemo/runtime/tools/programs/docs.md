@@ -28,3 +28,18 @@ defined by their own tools, not by Program documentation.
 
 Unknown Programs and Programs without agent documentation are errors. This tool
 is read-only and does not record registry snapshots into Memory.
+
+## Wait for Program Events
+
+Use `wait` without `program` to receive the next Host Program registry event.
+Valid events are `create`, `forget`, `install`, and `uninstall`:
+
+```json
+{ "action": "wait", "event": "install", "timeout": 30000 }
+```
+
+Add `program` to wait on one existing Program entity. Individual Programs emit
+only `forget` and `uninstall`. The result states whether the source was the Host
+or one Program and includes a JSON-safe Program description or event payload.
+The timeout defaults to 10 seconds. Task pause or cancellation releases the
+temporary subscription immediately.
