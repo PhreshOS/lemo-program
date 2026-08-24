@@ -1,7 +1,7 @@
 import type { LLMToolDefinition } from "../../llm/model"
 import type { MemoryRecord } from "../memory"
 import type Operation from "../operation"
-import type { WaitAnswerRequest } from "./wait-answers"
+import type { PromptAnswer, WaitAnswerRequest } from "./prompt-contract"
 
 /** One Runtime-owned capability exposed to LLM Models. */
 export default interface Tool {
@@ -22,5 +22,5 @@ export type ToolContext = Readonly<{
     memory: Readonly<{
         record(value: MemoryRecord): Promise<Operation>
     }>
-    waitAnswer(request: WaitAnswerRequest): Promise<string>
+    waitAnswer(request: WaitAnswerRequest): Promise<PromptAnswer>
 }>

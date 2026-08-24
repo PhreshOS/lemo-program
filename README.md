@@ -225,10 +225,13 @@ client-facing prompt value to assemble a Task-bound `waitAnswer` capability in
 the Tool context.
 
 `prompt` is an ordinary discoverable Runtime Tool and is the first consumer of
-`waitAnswer`. Runtime owns its bounded pending queue and first-response
-settlement. The Tool supplies only the prompt content and receives the answer;
-it does not know how the Client is reached or where the prompt is rendered.
-Pausing or cancelling its Task releases the pending prompt immediately.
+`waitAnswer`. Runtime owns its bounded pending queue, first-terminal-event
+settlement, authoritative result validation, and release. It supports a native
+structured form and an interactive HTML document through one discriminated
+contract. Both return either `{ type: "submitted", values }` or
+`{ type: "cancelled" }`. Pausing or cancelling the Task releases its pending
+prompt immediately. Invalid structured responses remain pending; document
+runtime failures fail the Tool call.
 
 ## Client Tasks
 
@@ -250,10 +253,15 @@ Client Core also owns the minimal prompt contract it requires: receive a
 renderable prompt associated with a Task, expose it as a local entity, and send
 a correlated response. It knows nothing about Runtime, Tools, `waitAnswer`, the
 pending queue, or transport mechanics. View renders each pending prompt only in
-its associated Task and invokes the local prompt entity to respond. Its prompt
-collection has a reversible mount lifecycle: it subscribes before announcing
-readiness, so Runtime can resend every still-pending prompt after a Client
-reload, including under React Strict Mode.
+its associated Task and invokes the local prompt entity to submit, cancel, or
+report a technical document failure. Native form controls are rendered directly
+from the field contract. HTML is rendered in an opaque-origin iframe sandboxed
+with only `allow-scripts allow-forms`; View inserts the complete frozen
+`form.set(key, value)` and `form.submit()` bridge before document scripts and
+accepts messages only from the correlated iframe. The Cancel control remains
+outside that iframe. The prompt collection has a reversible mount lifecycle: it
+subscribes before announcing readiness, so Runtime can resend every
+still-pending prompt after a Client reload, including under React Strict Mode.
 
 Task operation collections and pending-prompt collections expose stable local
 snapshots that are replaced only when their authoritative projection changes.

@@ -5,11 +5,29 @@ import type {
 } from "@client/core/prompts/contract"
 import type ClientChannel from "@server/core/client-channel"
 import { z } from "zod"
+import {
+    promptValueSchema,
+    validatePromptAnswer,
+    type PromptAnswer,
+    type WaitAnswerRequest
+} from "./prompt-contract"
 
-const response = z.strictObject({
-    id: z.string().trim().min(1),
-    content: z.string().trim().min(1).max(4_000)
-})
+const response = z.discriminatedUnion("type", [
+    z.strictObject({
+        id: z.string().trim().min(1),
+        type: z.literal("submitted"),
+        values: z.record(z.string().trim().min(1).max(64), promptValueSchema)
+    }),
+    z.strictObject({
+        id: z.string().trim().min(1),
+        type: z.literal("cancelled")
+    }),
+    z.strictObject({
+        id: z.string().trim().min(1),
+        type: z.literal("failed"),
+        error: z.string().trim().min(1).max(1_000)
+    })
+])
 
 const ready = z.strictObject({
     client: z.string().trim().min(1)
@@ -20,17 +38,14 @@ const defaultTimeout = 2 * 60 * 1_000
 
 type Pending = Readonly<{
     prompt: PromptRecord
-    resolve(content: string): void
+    resolve(answer: PromptAnswer, reason?: PromptRelease["reason"]): void
+    reject(error: Error, reason?: PromptRelease["reason"]): void
     cancel(): void
 }>
 
 export type WaitAnswerContext = Readonly<{
     task: string
     call: string
-}>
-
-export type WaitAnswerRequest = Readonly<{
-    content: string
 }>
 
 /** Runtime's bounded owner of pending responses from the paired Client. */
@@ -57,12 +72,8 @@ export default class WaitAnswers {
         client.subscribe("lemo.prompt.ready" satisfies PromptEvent, value => this.restore(value))
     }
 
-    public wait(context: WaitAnswerContext, request: WaitAnswerRequest, signal: AbortSignal): Promise<string> {
+    public wait(context: WaitAnswerContext, request: WaitAnswerRequest, signal: AbortSignal): Promise<PromptAnswer> {
 
-        const content = request.content.trim()
-
-        if (!content) throw new Error("waitAnswer requires prompt content")
-        if (content.length > 4_000) throw new Error("waitAnswer prompt content cannot exceed 4000 characters")
         if (this.pending.size >= this.capacity) {
             throw new Error(`Runtime already has its maximum of ${this.capacity} pending answers`)
         }
@@ -79,12 +90,12 @@ export default class WaitAnswers {
             id: crypto.randomUUID(),
             task: context.task,
             call: context.call,
-            content,
+            request,
             createdAt,
             expiresAt: createdAt + this.timeout
         })
 
-        return new Promise<string>((resolve, reject) => {
+        return new Promise<PromptAnswer>((resolve, reject) => {
 
             let settled = false
 
@@ -114,7 +125,8 @@ export default class WaitAnswers {
 
             this.pending.set(prompt.id, Object.freeze({
                 prompt,
-                resolve: answer => settle("answered", () => resolve(answer)),
+                resolve: (answer, reason = "answered") => settle(reason, () => resolve(answer)),
+                reject: (error, reason = "failed") => settle(reason, () => reject(error)),
                 cancel
             }))
 
@@ -137,9 +149,43 @@ export default class WaitAnswers {
 
         const parsed = response.safeParse(value)
 
-        if (!parsed.success) return
+        if (!parsed.success) {
 
-        this.pending.get(parsed.data.id)?.resolve(parsed.data.content)
+            const invalid = record(value)
+            const id = typeof invalid?.id === "string" ? invalid.id : ""
+
+            if (id && this.pending.has(id)) this.rejectResponse(id, "The Client returned an invalid Prompt response")
+
+            return
+        }
+
+        const pending = this.pending.get(parsed.data.id)
+
+        if (!pending) return
+
+        if (parsed.data.type === "failed") {
+            pending.reject(new Error(parsed.data.error))
+            return
+        }
+
+        if (parsed.data.type === "cancelled") {
+            pending.resolve({ type: "cancelled" }, "cancelled")
+            return
+        }
+
+        try {
+            pending.resolve(validatePromptAnswer(pending.prompt.request, {
+                type: "submitted",
+                values: parsed.data.values
+            }))
+        } catch (cause) {
+            this.rejectResponse(parsed.data.id, cause instanceof Error ? cause.message : String(cause))
+        }
+    }
+
+    private rejectResponse(id: string, error: string) {
+
+        this.client.publish("lemo.prompt.invalid" satisfies PromptEvent, { id, error })
     }
 
     private restore(value: unknown) {
@@ -150,4 +196,11 @@ export default class WaitAnswers {
             this.client.publish("lemo.prompt.open" satisfies PromptEvent, entry.prompt)
         }
     }
+}
+
+function record(value: unknown) {
+
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null
 }

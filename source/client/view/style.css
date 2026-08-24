@@ -572,29 +572,65 @@ p {
     font-size: 13px;
 }
 
+.client-prompt > header > div {
+    display: grid;
+    gap: 3px;
+}
+
 .client-prompt > header span {
     color: #8b6515;
     font-size: 11px;
     font-weight: 650;
 }
 
-.client-prompt > p {
+.client-prompt > header .quiet {
+    min-height: 31px;
+    padding: 0 10px;
+    font-size: 11px;
+}
+
+.client-prompt .danger {
+    color: #a52735;
+}
+
+.prompt-form {
+    display: grid;
+    gap: 12px;
+}
+
+.prompt-form > p {
     line-height: 1.5;
     white-space: pre-wrap;
 }
 
-.client-prompt form {
+.prompt-fields {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
-    gap: 8px;
+    gap: 11px;
 }
 
-.client-prompt textarea {
+.prompt-field {
+    display: grid;
+    gap: 5px;
+    font-size: 12px;
+}
+
+.prompt-field > strong {
+    font-size: 12px;
+}
+
+.prompt-field > small,
+.prompt-check span > small {
+    display: block;
+    color: rgb(23 33 43 / 54%);
+    line-height: 1.4;
+}
+
+.prompt-field input:not([type="checkbox"]),
+.prompt-field select,
+.prompt-field textarea {
     width: 100%;
-    min-height: 58px;
+    min-height: 40px;
     padding: 9px 10px;
-    resize: vertical;
     background: #fff;
     border: 1px solid rgb(23 33 43 / 14%);
     border-radius: 10px;
@@ -602,8 +638,56 @@ p {
     line-height: 1.4;
 }
 
-.client-prompt textarea:focus {
+.prompt-field textarea {
+    min-height: 88px;
+    resize: vertical;
+}
+
+.prompt-field select[multiple] {
+    min-height: 92px;
+}
+
+.prompt-field input:focus,
+.prompt-field select:focus,
+.prompt-field textarea:focus {
     border-color: rgb(23 33 43 / 34%);
+}
+
+.prompt-check {
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+}
+
+.prompt-check input {
+    width: 17px;
+    height: 17px;
+    margin: 1px 0 0;
+    flex: 0 0 auto;
+}
+
+.prompt-check span {
+    display: grid;
+    gap: 3px;
+}
+
+.prompt-form > .primary {
+    justify-self: end;
+}
+
+.html-prompt {
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid rgb(23 33 43 / 12%);
+    border-radius: 10px;
+}
+
+.html-prompt iframe {
+    display: block;
+    width: 100%;
+    height: clamp(220px, 42vh, 440px);
+    background: #fff;
+    border: 0;
 }
 
 .client-prompt small {

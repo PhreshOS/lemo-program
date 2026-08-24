@@ -139,6 +139,10 @@ const promptSource: PromptSource = {
 
         return () => {}
     },
+    invalid() {
+
+        return () => {}
+    },
     respond() {},
     ready() { ready++ }
 }
@@ -167,12 +171,16 @@ for (const listener of promptListeners) listener({
     id: "prompt-one",
     task: "task-one",
     call: "call-one",
-    content: "Continue?",
+    request: {
+        type: "form",
+        content: "Continue?",
+        fields: [{ type: "confirmation", key: "continue", label: "Continue", required: true }]
+    },
     createdAt: 1,
     expiresAt: 2
 })
 
-assert.equal(prompts.forTask("task-one")[0]?.content, "Continue?")
+assert.equal(prompts.forTask("task-one")[0]?.request.type, "form")
 
 assert.notEqual(prompts.all(), initialPrompts)
 

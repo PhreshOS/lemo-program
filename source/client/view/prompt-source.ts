@@ -12,6 +12,10 @@ const promptSource: PromptSource = {
 
         return current.subscribe("lemo.prompt.release" satisfies PromptEvent, message => listener(message.payload))
     },
+    invalid(listener) {
+
+        return current.subscribe("lemo.prompt.invalid" satisfies PromptEvent, message => listener(message.payload))
+    },
     respond(value) {
 
         current.server.publish("lemo.prompt.response" satisfies PromptEvent, value)

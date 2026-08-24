@@ -24,11 +24,26 @@ The available mutations match the Window contract directly:
 - `changeTitle` with the complete new title.
 - `raise` to bring the Window to the front of its current layer.
 
-Positions and sizes accept either absolute numbers or PhreshOS relative linear
-expressions. The Program must declare a Client Endpoint and that Client must be
-running.
+Every numeric geometry value is an absolute pixel count. A decimal does not
+represent a share: `0.5` means half a pixel and `1` means one pixel. Use a
+string containing a percentage or fraction for workspace-relative geometry.
+Plain numeric strings are also pixels.
+
+For example, place a Window over the complete left half of its workspace with:
+
+```json
+{
+  "action": "setGeometry",
+  "process": "process-identity",
+  "position": { "x": 0, "y": 0 },
+  "size": { "width": "50%", "height": "100%" }
+}
+```
+
+Equivalent fractional expressions include `"1/2"` and `"1/1"`. Linear pixel
+offsets may be combined with them, such as `"50% - 8"`. The Program must
+declare a Client Endpoint and that Client must be running.
 
 Window state is transient authoritative system state, so this tool does not
 copy reads or mutations into Memory. Server code cannot access local Surface
 presentation; that remains a Client-only capability.
-

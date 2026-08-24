@@ -29,7 +29,18 @@ const coordinateParameters = Object.freeze({
     program: Object.freeze({ type: "string" })
 })
 
-const valueParameters = Object.freeze({ type: Object.freeze(["number", "string"]) })
+const valueParameters = Object.freeze({
+    oneOf: Object.freeze([
+        Object.freeze({
+            type: "number",
+            description: "An absolute pixel count. Decimals remain pixels: 0.5 means half a pixel, not half the workspace."
+        }),
+        Object.freeze({
+            type: "string",
+            description: "A linear expression. Use a percentage such as \"50%\" or fraction such as \"1/2\" for a workspace-relative value; a plain numeric string is still pixels."
+        })
+    ])
+})
 
 const positionParameters = Object.freeze({
     type: "object",
@@ -50,7 +61,7 @@ const windows: Tool = {
     docs,
     definition: Object.freeze({
         name: "windows",
-        description: "Inspect or change the authoritative Window of a live PhreshOS Client.",
+        description: "Inspect or change a live Client Window. Geometry numbers are pixels, never proportions; use strings such as \"50%\" or \"1/2\" for workspace-relative dimensions.",
         parameters: Object.freeze({
             oneOf: Object.freeze([
                 variant("inspect"),
@@ -158,4 +169,3 @@ function variant(action: string, extra: Readonly<Record<string, unknown>> = {}) 
         additionalProperties: false
     })
 }
-

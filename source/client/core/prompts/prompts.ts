@@ -1,4 +1,5 @@
 import {
+    promptInvalidSchema,
     promptReadySchema,
     promptRecordSchema,
     promptReleaseSchema,
@@ -10,6 +11,7 @@ import Prompt from "./prompt"
 export interface PromptSource {
     open(listener: (value: unknown) => void): () => void
     release(listener: (value: unknown) => void): () => void
+    invalid(listener: (value: unknown) => void): () => void
     respond(value: PromptResponse): void
     ready(value: PromptReady): void
 }
@@ -30,7 +32,8 @@ export default class Prompts {
 
         this.cleanup = Object.freeze([
             this.source.open(value => this.receive(value)),
-            this.source.release(value => this.release(value))
+            this.source.release(value => this.release(value)),
+            this.source.invalid(value => this.invalid(value))
         ])
 
         this.source.ready(promptReadySchema.parse({ client: crypto.randomUUID() }))
@@ -88,6 +91,15 @@ export default class Prompts {
         if (!parsed.success || !this.records.delete(parsed.data.id)) return
 
         this.changed()
+    }
+
+    private invalid(value: unknown) {
+
+        const parsed = promptInvalidSchema.safeParse(value)
+
+        if (!parsed.success) return
+
+        this.records.get(parsed.data.id)?.reject(parsed.data.error)
     }
 
     private changed() {

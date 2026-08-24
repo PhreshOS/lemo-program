@@ -6,7 +6,23 @@ import Memory from "../source/server/core/lemo/memory"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
 import { endpointModelOutput } from "../source/server/core/lemo/runtime/tools/endpoints/endpoints"
+import windows from "../source/server/core/lemo/runtime/tools/windows/windows"
 import toolInput from "../source/server/core/lemo/runtime/tool-input"
+
+assert.match(windows.definition.description, /numbers are pixels, never proportions/i)
+assert.match(JSON.stringify(windows.definition.parameters), /0\.5 means half a pixel/)
+assert.match(windows.docs, /"width": "50%", "height": "100%"/)
+assert.deepEqual(toolInput({
+    action: "setGeometry",
+    process: "lemo-process",
+    position: "{\"x\":0,\"y\":0}",
+    size: "{\"width\":\"50%\",\"height\":\"100%\"}"
+}, windows.definition.parameters), {
+    action: "setGeometry",
+    process: "lemo-process",
+    position: { x: 0, y: 0 },
+    size: { width: "50%", height: "100%" }
+})
 
 assert.deepEqual(toolInput({
     action: "setGeometry",

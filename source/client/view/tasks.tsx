@@ -15,6 +15,7 @@ import {
 } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
+import PromptView from "./prompts/prompt"
 
 const visibleTaskLimit = 20
 
@@ -263,11 +264,7 @@ function TaskView({ task, snapshot, prompts }: Readonly<{
                         <p role="alert">{event.content}</p>
                     </div>)}
 
-        {prompts.map(prompt => <PromptView
-            key={prompt.id}
-            prompt={prompt}
-            responding={prompt.isResponding}
-        />)}
+        {prompts.map(prompt => <PromptView key={prompt.id} prompt={prompt} />)}
 
         {snapshot.status === "running" && <div className="working" aria-label="Lemo is working">
             <i />
@@ -334,63 +331,6 @@ function ResourceState({ title, error, retry }: Readonly<{
         {error !== undefined && <small role="alert">{message(error)}</small>}
         {retry && <button className="quiet" type="button" onClick={retry}>Retry</button>}
     </div>
-}
-
-function PromptView({ prompt, responding }: Readonly<{ prompt: Prompt; responding: boolean }>) {
-
-    const [content, setContent] = useState("")
-    const [error, setError] = useState("")
-
-    function submit(event: FormEvent) {
-
-        event.preventDefault()
-
-        if (!content.trim() || responding) return
-
-        setError("")
-
-        try {
-            prompt.respond(content)
-        } catch (cause) {
-            setError(message(cause))
-        }
-    }
-
-    return <section className="client-prompt" aria-label="Lemo needs your response">
-        <header>
-            <strong>Lemo needs your response</strong>
-            <span>Waiting</span>
-        </header>
-
-        <p>{prompt.content}</p>
-
-        <form onSubmit={submit}>
-            <textarea
-                rows={2}
-                aria-label="Response"
-                placeholder="Type your response…"
-                value={content}
-                disabled={responding}
-                onChange={event => setContent(event.target.value)}
-                onKeyDown={promptKeyboard}
-            />
-
-            <button className="primary" type="submit" disabled={!content.trim() || responding}>
-                {responding ? "Sending…" : "Respond"}
-            </button>
-        </form>
-
-        {error && <small role="alert">{error}</small>}
-    </section>
-}
-
-function promptKeyboard(event: KeyboardEvent<HTMLTextAreaElement>) {
-
-    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return
-
-    event.preventDefault()
-
-    event.currentTarget.form?.requestSubmit()
 }
 
 const markdownComponents: Components = {

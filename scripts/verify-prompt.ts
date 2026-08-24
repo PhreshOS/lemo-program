@@ -41,7 +41,41 @@ model = {
 
             yield {
                 type: "tool-call" as const,
-                call: { id: "request-name", name: "prompt", input: { content: "What is your name?" } }
+                call: {
+                    id: "request-name",
+                    name: "prompt",
+                    input: {
+                        type: "form",
+                        title: "Identity",
+                        content: "What is your name?",
+                        fields: [{ type: "text", key: "name", label: "Name", required: true }]
+                    }
+                }
+            }
+
+            return
+        }
+
+        if (cycle === 3) {
+            const result = request.messages.findLast(message => message.role === "tool" && message.name === "prompt")
+
+            assert(result)
+            assert.deepEqual(JSON.parse(result.content).output, {
+                type: "submitted",
+                values: { name: "Zohayr" }
+            })
+
+            yield {
+                type: "tool-call" as const,
+                call: {
+                    id: "request-choice",
+                    name: "prompt",
+                    input: {
+                        type: "html",
+                        title: "Choose",
+                        html: "<button onclick=\"form.set('choice', 'first'); form.submit()\">First</button>"
+                    }
+                }
             }
 
             return
@@ -50,7 +84,10 @@ model = {
         const result = request.messages.findLast(message => message.role === "tool" && message.name === "prompt")
 
         assert(result)
-        assert.deepEqual(JSON.parse(result.content).output, { answer: "Zohayr" })
+        assert.deepEqual(JSON.parse(result.content).output, {
+            type: "submitted",
+            values: { choice: "first" }
+        })
 
         yield { type: "text" as const, content: "Thank you, Zohayr." }
     }
@@ -61,14 +98,41 @@ const opened = await client.waitFor("lemo.prompt.open") as PromptRecord
 
 assert.equal(opened.task, task.id)
 assert.equal(opened.call, "request-name")
-assert.equal(opened.content, "What is your name?")
+assert.equal(opened.request.type, "form")
+assert.equal(opened.request.content, "What is your name?")
 assert(opened.expiresAt > opened.createdAt)
 
 client.receive("lemo.prompt.ready", { client: "reloaded-client" })
 
 assert.equal(client.published.filter(event => event.name === "lemo.prompt.open").length, 2)
 
-client.receive("lemo.prompt.response", { id: opened.id, content: "Zohayr" })
+client.receive("lemo.prompt.response", {
+    id: opened.id,
+    type: "submitted",
+    values: { name: "" }
+})
+
+assert(client.published.some(event => (
+    event.name === "lemo.prompt.invalid"
+    && (event.payload as { id?: string }).id === opened.id
+)))
+
+client.receive("lemo.prompt.response", {
+    id: opened.id,
+    type: "submitted",
+    values: { name: "Zohayr" }
+})
+
+const html = await client.waitFor("lemo.prompt.open", 2) as PromptRecord
+
+assert.equal(html.call, "request-choice")
+assert.equal(html.request.type, "html")
+
+client.receive("lemo.prompt.response", {
+    id: html.id,
+    type: "submitted",
+    values: { choice: "first" }
+})
 
 assert.equal(await task.result(), "Thank you, Zohayr.")
 
@@ -101,7 +165,15 @@ const pausedModel: LLMModel = {
 
         yield {
             type: "tool-call" as const,
-            call: { id: "paused-prompt", name: "prompt", input: { content: "Still there?" } }
+            call: {
+                id: "paused-prompt",
+                name: "prompt",
+                input: {
+                    type: "form",
+                    content: "Still there?",
+                    fields: [{ type: "confirmation", key: "present", label: "I am here", required: true }]
+                }
+            }
         }
     }
 }
@@ -133,7 +205,7 @@ function channel() {
     const source: ClientChannel & {
         published: typeof published
         receive(event: PromptEvent, payload: unknown): void
-        waitFor(event: PromptEvent): Promise<unknown>
+        waitFor(event: PromptEvent, occurrence?: number): Promise<unknown>
     } = {
         published,
         publish(name, payload) {
@@ -155,9 +227,9 @@ function channel() {
 
             for (const subscriber of subscribers.get(name) ?? []) subscriber(payload)
         },
-        waitFor(name) {
+        waitFor(name, occurrence = 0) {
 
-            const existing = published.find(event => event.name === name)
+            const existing = published.filter(event => event.name === name)[occurrence]
 
             if (existing) return Promise.resolve(existing.payload)
 
@@ -165,7 +237,12 @@ function channel() {
 
                 const listeners = waiting.get(name) ?? []
 
-                listeners.push(resolve)
+                listeners.push(() => {
+                    const events = published.filter(event => event.name === name)
+
+                    if (events.length > occurrence) resolve(events[occurrence]?.payload)
+                    else listeners.push(resolve)
+                })
                 waiting.set(name, listeners)
             })
         }
