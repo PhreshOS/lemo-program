@@ -6,6 +6,7 @@ import usePromise, { type PromiseWithDependencies } from "@libs/react-promise"
 import {
     useCallback,
     useEffect,
+    useLayoutEffect,
     useMemo,
     useRef,
     useState,
@@ -19,11 +20,39 @@ import PromptView from "./prompts/prompt"
 
 const visibleTaskLimit = 20
 
+const suggestionPrompts = [
+    {
+        icon: "⚡",
+        title: "Explore Programs",
+        description: "List all installed programs and check their status",
+        prompt: "List all installed programs and check their status."
+    },
+    {
+        icon: "⚙",
+        title: "System Processes",
+        description: "Inspect live running processes and endpoints",
+        prompt: "Show all active processes and their endpoints."
+    },
+    {
+        icon: "📖",
+        title: "Available Tools",
+        description: "Discover all runtime tools and documentation",
+        prompt: "What tools and capabilities do you have available?"
+    },
+    {
+        icon: "⏱",
+        title: "Time & System State",
+        description: "Check current clock and overall system status",
+        prompt: "What is the current time and system state?"
+    }
+] as const
+
 export default function Tasks({ application, models: modelResource }: Properties) {
 
     const [input, setInput] = useState("")
     const [selectedModel, setSelectedModel] = useState("")
     const [selectedTask, setSelectedTask] = useState("")
+    const textareaRef = useRef<HTMLTextAreaElement>(null)
 
     const taskResource = usePromise(async function () {
 
@@ -47,6 +76,17 @@ export default function Tasks({ application, models: modelResource }: Properties
 
     const currentTask = tasks.find(task => task.id === selectedTask) ?? null
 
+    useLayoutEffect(function () {
+
+        const textarea = textareaRef.current
+
+        if (!textarea) return
+
+        textarea.style.height = "auto"
+        textarea.style.height = `${Math.min(textarea.scrollHeight, 180)}px`
+
+    }, [input])
+
     useEffect(function () {
 
         if (model && selectedModel !== modelKey(model)) setSelectedModel(modelKey(model))
@@ -64,6 +104,31 @@ export default function Tasks({ application, models: modelResource }: Properties
         ))
 
     }, [taskResource.solve])
+
+    function handleInputChange(value: string) {
+
+        setInput(value)
+    }
+
+    function handleSelectSuggestion(promptText: string) {
+
+        setInput(promptText)
+
+        if (textareaRef.current) {
+
+            textareaRef.current.focus()
+        }
+    }
+
+    function startNewTask() {
+
+        setSelectedTask("")
+
+        if (textareaRef.current) {
+
+            textareaRef.current.focus()
+        }
+    }
 
     async function submit(event: FormEvent) {
 
@@ -103,9 +168,21 @@ export default function Tasks({ application, models: modelResource }: Properties
 
     return <section className="tasks" aria-label="Lemo Tasks">
         <aside className="task-sidebar" aria-label="Tasks">
-            <header>
-                <strong>Tasks</strong>
-                <span>{taskResource.isPending ? "…" : tasks.length}</span>
+            <header className="task-sidebar-header">
+                <div className="task-sidebar-title">
+                    <strong>Tasks</strong>
+                    <span className="task-count">{taskResource.isPending ? "…" : tasks.length}</span>
+                </div>
+
+                <button
+                    className="new-task-button"
+                    type="button"
+                    title="Start a new Task"
+                    onClick={startNewTask}
+                >
+                    <span className="new-task-plus">+</span>
+                    <span>New</span>
+                </button>
             </header>
 
             <nav className="task-navigation">
@@ -117,6 +194,10 @@ export default function Tasks({ application, models: modelResource }: Properties
                     retry={() => void taskResource.safeExecute()}
                 />}
 
+                {taskResource.solve && tasks.length === 0 && <div className="no-tasks-hint">
+                    <p>No previous tasks yet.</p>
+                </div>}
+
                 {taskResource.solve && [...tasks].reverse().map(task => <TaskLink
                     key={task.id}
                     task={task}
@@ -127,7 +208,7 @@ export default function Tasks({ application, models: modelResource }: Properties
         </aside>
 
         <div className="task-workspace">
-            {!currentTask && <div className="task-list" aria-live="polite">
+            {!currentTask && <div className="task-list welcome-workspace" aria-live="polite">
                 {taskResource.isPending && <ResourceState title="Loading your Tasks…" />}
 
                 {taskResource.exception && <ResourceState
@@ -137,8 +218,28 @@ export default function Tasks({ application, models: modelResource }: Properties
                 />}
 
                 {taskResource.solve && !currentTask && <div className="empty-state">
-                    <strong>What should we work on?</strong>
-                    <p>Start a Task below. Every Task runs independently, so you can submit another while Lemo works.</p>
+                    <div className="empty-state-badge">
+                        <span className="empty-state-icon">✨</span>
+                    </div>
+                    <strong>What should we work on today?</strong>
+                    <p>Lemo can manage programs, monitor processes, inspect windows, and run system tasks autonomously.</p>
+
+                    <div className="suggestions-grid">
+                        {suggestionPrompts.map(suggestion => (
+                            <button
+                                key={suggestion.title}
+                                type="button"
+                                className="suggestion-card"
+                                onClick={() => handleSelectSuggestion(suggestion.prompt)}
+                            >
+                                <span className="suggestion-icon">{suggestion.icon}</span>
+                                <div className="suggestion-text">
+                                    <strong>{suggestion.title}</strong>
+                                    <span>{suggestion.description}</span>
+                                </div>
+                            </button>
+                        ))}
+                    </div>
                 </div>}
 
             </div>}
@@ -150,36 +251,44 @@ export default function Tasks({ application, models: modelResource }: Properties
 
             <form className="composer" onSubmit={submit}>
                 <textarea
+                    ref={textareaRef}
                     aria-label="Task input"
-                    rows={2}
-                    placeholder={model ? "Message Lemo…" : "Configure an active LLM Provider first."}
+                    rows={1}
+                    placeholder={model ? "Message Lemo or ask to run a task…" : "Configure an active LLM Provider first."}
                     value={input}
-                    onChange={event => setInput(event.target.value)}
+                    onChange={event => handleInputChange(event.target.value)}
                     onKeyDown={keyboard}
                 />
 
                 <div className="composer-bar">
-                    <select
-                        aria-label="LLM Model"
-                        value={model ? modelKey(model) : ""}
-                        disabled={modelResource.isPending || !models.length}
-                        onChange={event => setSelectedModel(event.target.value)}
-                    >
-                        {modelResource.isPending && <option value="">Loading LLM Models…</option>}
-                        {modelResource.exception && <option value="">LLM Models unavailable</option>}
-                        {modelResource.solve && !models.length && <option value="">No LLM Models</option>}
-                        {models.map(candidate => <option key={modelKey(candidate)} value={modelKey(candidate)}>
-                            {candidate.provider.name} · {candidate.id}
-                        </option>)}
-                    </select>
+                    <div className="model-selector-wrapper">
+                        <select
+                            aria-label="LLM Model"
+                            className="model-select"
+                            value={model ? modelKey(model) : ""}
+                            disabled={modelResource.isPending || !models.length}
+                            onChange={event => setSelectedModel(event.target.value)}
+                        >
+                            {modelResource.isPending && <option value="">Loading LLM Models…</option>}
+                            {modelResource.exception && <option value="">LLM Models unavailable</option>}
+                            {modelResource.solve && !models.length && <option value="">No LLM Models</option>}
+                            {models.map(candidate => <option key={modelKey(candidate)} value={modelKey(candidate)}>
+                                {candidate.provider.name} · {candidate.id}
+                            </option>)}
+                        </select>
+                    </div>
 
-                    <span className="composer-hint">Enter to send · Shift Enter for a new line</span>
+                    <span className="composer-hint">
+                        <kbd>Enter ↵</kbd> send · <kbd>Shift + Enter</kbd> new line
+                    </span>
 
                     <button
-                        className="primary"
+                        className="primary send-button"
                         type="submit"
                         disabled={!input.trim() || !model || !taskResource.solve || creation.isPending}
-                    >{creation.isPending ? "Starting…" : "Send"}</button>
+                    >
+                        {creation.isPending ? "Starting…" : "Send"}
+                    </button>
                 </div>
 
                 {modelResource.exception && <div className="composer-error resource-error" role="alert">
@@ -210,8 +319,15 @@ function TaskLink({ task, selected, select }: Readonly<{
         type="button"
         onClick={select}
     >
-        <span>{taskQuestion(snapshot.operations)}</span>
-        <small>{statusLabel(snapshot.status)}</small>
+        <div className="task-link-content">
+            <span className="task-link-title">{taskQuestion(snapshot.operations)}</span>
+            <div className="task-link-meta">
+                <span className={`status-badge status-${snapshot.status}`}>
+                    <i className="status-badge-dot" />
+                    {statusLabel(snapshot.status)}
+                </span>
+            </div>
+        </div>
     </button>
 }
 
@@ -219,15 +335,39 @@ function TaskHistory({ task, prompts }: Readonly<{ task: Task; prompts: readonly
 
     const history = useRef<HTMLDivElement>(null)
 
+    const followsLatest = useRef(true)
+
+    const currentTask = useRef(task.id)
+
     const snapshot = useTask(task)
 
-    useEffect(function () {
+    useLayoutEffect(function () {
 
-        history.current?.scrollTo({ top: history.current.scrollHeight, behavior: "smooth" })
+        const element = history.current
 
-    }, [snapshot.operations])
+        if (!element) return
 
-    return <div className="task-list" ref={history} aria-live="polite">
+        if (currentTask.current !== task.id) {
+
+            currentTask.current = task.id
+            followsLatest.current = true
+        }
+
+        if (followsLatest.current) element.scrollTop = element.scrollHeight
+
+    }, [task.id, snapshot.operations])
+
+    return <div
+        className="task-list"
+        ref={history}
+        aria-live="polite"
+        onScroll={event => {
+
+            const element = event.currentTarget
+
+            followsLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 48
+        }}
+    >
         <TaskView task={task} snapshot={snapshot} prompts={prompts} />
     </div>
 }
@@ -244,35 +384,55 @@ function TaskView({ task, snapshot, prompts }: Readonly<{
         <TaskControls task={task} status={snapshot.status} />
 
         {events.map(event => event.type === "user"
-            ? <div className="user-message" key={event.key}>{event.content}</div>
+            ? <div className="user-message-container" key={event.key}>
+                <div className="user-message">
+                    <p>{event.content}</p>
+                </div>
+            </div>
             : event.type === "message"
                 ? <div className="assistant-message" key={event.key}>
-                    <strong className="event-author">Lemo</strong>
+                    <div className="assistant-header">
+                        <span className="assistant-avatar">L</span>
+                        <strong className="event-author">Lemo</strong>
+                    </div>
                     <MarkdownMessage content={event.content} />
                 </div>
                 : event.type === "tool"
                     ? <div className="runtime-message" key={event.key}>
-                        <strong className="event-author">Runtime</strong>
                         <div className="tool-event" data-status={event.status}>
-                            <code>{event.name}</code>
-                            <span>{toolStatus(event.status)}</span>
-                            {event.error && <small>{event.error}</small>}
+                            <div className="tool-event-header">
+                                <span className="tool-icon">{toolIcon(event.name)}</span>
+                                <code className="tool-name">{event.name}</code>
+                                <span className={`tool-status-pill status-${event.status}`}>
+                                    {toolStatus(event.status)}
+                                </span>
+                            </div>
+                            {event.error && <div className="tool-error"><small>{event.error}</small></div>}
                         </div>
                     </div>
                     : <div className="assistant-message failure-message" key={event.key}>
-                        <strong className="event-author">Lemo</strong>
-                        <p role="alert">{event.content}</p>
+                        <div className="assistant-header">
+                            <span className="assistant-avatar failure-avatar">!</span>
+                            <strong className="event-author">Lemo</strong>
+                        </div>
+                        <p role="alert" className="failure-text">{event.content}</p>
                     </div>)}
 
         {prompts.map(prompt => <PromptView key={prompt.id} prompt={prompt} />)}
 
-        {snapshot.status === "running" && <div className="working" aria-label="Lemo is working">
-            <i />
-            <i />
-            <i />
+        {snapshot.status === "running" && <div className="working-container">
+            <div className="working" aria-label="Lemo is working">
+                <span className="working-dot" />
+                <span className="working-label">Lemo is working…</span>
+                <div className="working-bars">
+                    <i />
+                    <i />
+                    <i />
+                </div>
+            </div>
         </div>}
 
-        {snapshot.error && <p role="alert">{snapshot.error.message}</p>}
+        {snapshot.error && <p role="alert" className="task-error-alert">{snapshot.error.message}</p>}
     </article>
 }
 
@@ -291,32 +451,37 @@ function TaskControls({ task, status }: Readonly<{ task: Task; status: Task["sta
         ?? cancellation.exception?.current
 
     return <header className="task-controls">
-        <span data-status={status}>{statusLabel(status)}</span>
+        <div className="task-status-wrapper">
+            <span className={`task-status-pill status-${status}`} data-status={status}>
+                <i className="status-dot" />
+                {statusLabel(status)}
+            </span>
+        </div>
 
-        <div>
+        <div className="task-action-buttons">
             {status === "running" && <button
-                className="quiet"
+                className="quiet action-button"
                 type="button"
                 disabled={pending}
                 onClick={() => void pause.safeExecute()}
-            >{pause.isPending ? "Pausing…" : "Pause"}</button>}
+            >{pause.isPending ? "Pausing…" : "⏸ Pause"}</button>}
 
             {status === "paused" && <button
-                className="quiet"
+                className="quiet action-button"
                 type="button"
                 disabled={pending}
                 onClick={() => void continuation.safeExecute()}
-            >{continuation.isPending ? "Continuing…" : "Continue"}</button>}
+            >{continuation.isPending ? "Continuing…" : "▶ Continue"}</button>}
 
             {(status === "running" || status === "paused") && <button
-                className="quiet danger"
+                className="quiet danger action-button"
                 type="button"
                 disabled={pending}
                 onClick={() => void cancellation.safeExecute()}
-            >{cancellation.isPending ? "Cancelling…" : "Cancel"}</button>}
+            >{cancellation.isPending ? "Cancelling…" : "✕ Cancel"}</button>}
         </div>
 
-        {failure !== undefined && <small role="alert">{message(failure)}</small>}
+        {failure !== undefined && <small role="alert" className="task-controls-error">{message(failure)}</small>}
     </header>
 }
 
@@ -333,12 +498,69 @@ function ResourceState({ title, error, retry }: Readonly<{
     </div>
 }
 
+function CodeBlock({ language, content }: Readonly<{ language: string; content: string }>) {
+
+    const [copied, setCopied] = useState(false)
+
+    async function copy() {
+
+        try {
+
+            if (navigator.clipboard?.writeText) {
+
+                await navigator.clipboard.writeText(content)
+                setCopied(true)
+                setTimeout(() => setCopied(false), 2000)
+            }
+
+        } catch {
+            // ignore
+        }
+    }
+
+    return <div className="code-block-wrapper">
+        <div className="code-block-header">
+            <span className="code-language-tag">{language || "code"}</span>
+            <button
+                type="button"
+                className={`copy-code-btn${copied ? " copied" : ""}`}
+                onClick={copy}
+                title="Copy code"
+            >
+                {copied ? "Copied ✓" : "Copy"}
+            </button>
+        </div>
+        <pre className="code-pre">
+            <code>{content}</code>
+        </pre>
+    </div>
+}
+
 const markdownComponents: Components = {
     a({ node, ...properties }) {
 
         void node
 
         return <a {...properties} target="_blank" rel="noreferrer" />
+    },
+    pre({ children }) {
+
+        return <>{children}</>
+    },
+    code({ node, className, children, ...props }) {
+
+        void node
+
+        const match = /language-(\w+)/.exec(className || "")
+        const content = String(children)
+        const isMultiline = content.includes("\n")
+
+        if (match || isMultiline) {
+
+            return <CodeBlock language={match ? match[1] : ""} content={content.replace(/\n$/, "")} />
+        }
+
+        return <code className={className} {...props}>{children}</code>
     }
 }
 
@@ -347,6 +569,21 @@ function MarkdownMessage({ content }: Readonly<{ content: string }>) {
     return <div className="markdown">
         <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{content}</Markdown>
     </div>
+}
+
+function toolIcon(name: string) {
+
+    switch (name) {
+        case "programs": return "⚡"
+        case "processes": return "⚙"
+        case "endpoints": return "🔌"
+        case "windows": return "🪟"
+        case "docs": return "📖"
+        case "memory": return "🧠"
+        case "time": return "⏱"
+        case "prompt": return "💬"
+        default: return "🔧"
+    }
 }
 
 function taskQuestion(operations: ReturnType<Task["operations"]>) {
@@ -452,7 +689,7 @@ function toolResults(operations: ReturnType<Task["operations"]>) {
 
 function toolStatus(status: ToolStatus) {
 
-    if (status === "running") return "Running…"
+    if (status === "running") return "Running"
 
     if (status === "failed") return "Failed"
 

@@ -17,6 +17,7 @@ export default function OllamaCloudConfiguration({ providers, models }: LLMProvi
     const provider: OllamaCloudProvider = candidate
 
     const [apiKey, setApiKey] = useState("")
+    const [showKey, setShowKey] = useState(false)
 
     const resource = usePromise(() => provider.state(), [provider])
 
@@ -88,14 +89,28 @@ export default function OllamaCloudConfiguration({ providers, models }: LLMProvi
         <form onSubmit={configure}>
             <label htmlFor="ollama-cloud-api-key">API key</label>
             <div className="configuration-row">
-                <input
-                    id="ollama-cloud-api-key"
-                    type="password"
-                    value={apiKey}
-                    disabled={pending}
-                    autoComplete="off"
-                    onChange={event => setApiKey(event.target.value)}
-                />
+                <div className="input-with-toggle">
+                    <input
+                        id="ollama-cloud-api-key"
+                        type={showKey ? "text" : "password"}
+                        value={apiKey}
+                        placeholder={configuration?.configured ? "••••••••••••••••" : "Paste your API key"}
+                        disabled={pending}
+                        autoComplete="off"
+                        onChange={event => setApiKey(event.target.value)}
+                    />
+                    <button
+                        type="button"
+                        className="toggle-key-visibility"
+                        aria-controls="ollama-cloud-api-key"
+                        aria-pressed={showKey}
+                        disabled={pending}
+                        onClick={() => setShowKey(val => !val)}
+                        title={showKey ? "Hide key" : "Show key"}
+                    >
+                        {showKey ? "Hide" : "Show"}
+                    </button>
+                </div>
                 <button type="submit" disabled={pending || !apiKey.trim()}>
                     {configuration?.configured ? "Replace" : "Configure"}
                 </button>

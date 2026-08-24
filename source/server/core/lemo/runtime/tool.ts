@@ -10,7 +10,11 @@ export default interface Tool {
 
     execute(input: unknown, context: ToolContext): Promise<unknown>
 
-    /** Optionally reduces a raw result only for the next Model context. */
+    /**
+     * Defines the Tool-owned durable representation used in Model context.
+     * The raw output is always preserved independently; omission excludes a
+     * successful result from later associative context.
+     */
     modelOutput?(output: unknown): unknown
 }
 

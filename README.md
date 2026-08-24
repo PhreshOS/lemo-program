@@ -140,12 +140,12 @@ holding context in Process or Task memory.
 ## Cycles
 
 A Cycle is an internal, disposable Model operation. It records its start, loads
-the Task's ordered raw operations, reruns Memory retrieval from the original
-Task input, and constructs a fresh request from those facts, the disposable
-snapshot, and `system.md`. The current Task is excluded from its own automatic
-snapshot. Every accepted text or tool-call event and the final assistant
-message are persisted before the Cycle completes. Neither the constructed
-request nor its snapshot is retained or reused by another Cycle.
+the Task's ordered raw operations, asks Memory for a freshly rebuilt context,
+and constructs a request from those facts, the disposable snapshot, and
+`system.md`. The current Task is excluded from its own automatic snapshot.
+Every accepted text or tool-call event and the final assistant message are
+persisted before the Cycle completes. Neither the constructed request nor its
+snapshot is retained or reused by another Cycle.
 
 Ollama Cloud maps this general message request directly to its streaming chat
 API.
@@ -184,17 +184,28 @@ belonging to a live Client Endpoint while correctly leaving local Surface
 presentation unavailable to Server Runtime tools.
 
 Memory is an internal mathematical view over the existing raw operation log;
-it does not copy history into a second memory table or alter the schema. Recall
-uses a content-size budget rather than a Block-count radius. Half of the budget
-preserves the latest statement and original input of recent Tasks, so one
-cycle-heavy Task cannot displace several neighboring Tasks. The remaining half
-favors combined lexical and temporal relevance. The default budget is 32,000
-characters and explicit Memory calls may request between 1,000 and 32,000.
-Candidates that do not fit are skipped instead of blocking smaller useful
-facts. Task input, assistant
-content, explicit `memory.recorded` facts, failed Tool results, and Task
-failures are candidates. Successful Tool output and recall bookkeeping remain
-excluded, preventing Memory from recursively recalling its own output.
+it does not copy history into a second memory table or alter the schema. Its
+stable contract delegates retrieval, active-focus derivation, episode
+expansion, budgeting, and snapshot formatting to one private Context component.
+Cycle and the rest of the application therefore remain unchanged while that
+frequently tested algorithm evolves.
+
+Recall uses a content-size budget rather than a Block-count radius. It first
+favors distinctive matches from the Task objective and latest durable working
+focus, with temporal proximity added as a supporting signal. Related anchors
+are expanded into local Task episodes. Remaining capacity preserves awareness
+of recent Tasks before relevant anchors receive any unused budget. The default
+budget is 32,000 characters and explicit Memory calls may request between
+1,000 and 32,000. Candidates that do not fit are skipped instead of blocking
+smaller useful facts.
+
+Task input, assistant content, explicit `memory.recorded` facts, failed Tool
+results, Task failures, and successful Tool-owned context results are
+candidates. Runtime always preserves the complete raw Tool output. A Tool can
+add a distinct bounded `modelOutput` beside it; only that Tool-owned form is
+eligible for later associative context. Omitting `modelOutput` deliberately
+keeps a successful result out of automatic retrieval. The Memory Tool does so,
+preventing recall output from recursively becoming more Memory.
 
 Selected facts are anchors rather than isolated fragments. Memory
 mathematically expands each anchor with its Task input, nearby facts across the
@@ -211,11 +222,13 @@ Tasks contribute committed experience to one shared mind without merging their
 durable Task identities or retaining a generated snapshot.
 
 Every Tool receives a distinct Memory-writing capability through its execution
-context. A Tool must deliberately record a fact; Runtime never promotes tool
-output automatically. Each `memory.recorded` operation preserves the supplied
-content, source, and recording method and is immediately associated with its
-Task, tool name, and tool-call identity. Operational bookkeeping remains
-available through the Tool's separate raw `record` capability.
+context. A Tool must deliberately record a durable domain fact; Runtime never
+promotes raw tool output into such a fact. Each `memory.recorded` operation
+preserves the supplied content, source, and recording method and is immediately
+associated with its Task, tool name, and tool-call identity. Separately, each
+Tool decides whether and how its successful result may enter reconstructed
+Model context through `modelOutput`. Operational bookkeeping remains available
+through the Tool's separate raw `record` capability.
 
 The Server View also composes its paired Client communication handle and passes
 that general capability through Server Core into Lemo. Runtime never exposes

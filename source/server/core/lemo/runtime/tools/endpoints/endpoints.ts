@@ -175,7 +175,7 @@ const endpoints: Tool = {
 
 export default endpoints
 
-/** Removes large transport material only from the disposable text Model context. */
+/** Owns the bounded representation of Endpoint results used in Model context. */
 export function endpointModelOutput(output: unknown): unknown {
 
     const compact = compactValue(output)

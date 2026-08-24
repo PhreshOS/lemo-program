@@ -2,7 +2,7 @@ import Application from "@client/core/application"
 import type LLMModel from "@client/core/llm/model"
 import usePromise, { type PromiseWithDependencies } from "@libs/react-promise"
 import { CurrentProvider, useProgram } from "@phreshos/react"
-import { Component, useEffect, useState, type ReactNode } from "react"
+import { Component, useEffect, useRef, useState, type ReactNode } from "react"
 import LLMProviderViews from "./llm-providers"
 import promptSource from "./prompt-source"
 import Tasks from "./tasks"
@@ -31,6 +31,8 @@ function ApplicationView() {
 
     const [settings, setSettings] = useState(false)
 
+    const settingsDialog = useRef<HTMLDialogElement>(null)
+
     const models = usePromise(() => application.llmProviders.models(), [application])
 
     useEffect(function () {
@@ -41,61 +43,99 @@ function ApplicationView() {
 
     }, [application])
 
+    useEffect(function () {
+
+        const dialog = settingsDialog.current
+
+        if (!dialog) return
+
+        if (settings && !dialog.open) dialog.showModal()
+
+        if (!settings && dialog.open) dialog.close()
+
+    }, [settings])
+
     return <main className="shell">
         <div className="application">
             <header className="application-bar">
                 <div className="identity">
-                    <span className="identity-mark">L</span>
-                    <div>
-                        <h1>{program.name}</h1>
-                        <p>{modelStatus(models)}</p>
+                    <span className="identity-mark" title="Lemo AI Agent">L</span>
+                    <div className="identity-text">
+                        <div className="identity-title-row">
+                            <h1>{program.name}</h1>
+                            <span className={`status-pill ${statusKind(models)}`}>
+                                <i className="status-dot" />
+                                <span>{modelStatus(models)}</span>
+                            </span>
+                        </div>
+                        <p className="identity-sub">PhreshOS Autonomous Agent</p>
                     </div>
                 </div>
 
-                <button
-                    className="quiet"
-                    type="button"
-                    aria-expanded={settings}
-                    onClick={() => setSettings(value => !value)}
-                >
-                    {settings ? "Close" : "Settings"}
-                </button>
+                <div className="application-actions">
+                    <button
+                        className={`quiet settings-toggle${settings ? " active" : ""}`}
+                        type="button"
+                        aria-controls="lemo-settings"
+                        aria-expanded={settings}
+                        onClick={() => setSettings(value => !value)}
+                    >
+                        <span className="icon-gear">⚙</span>
+                        <span>{settings ? "Close" : "Settings"}</span>
+                    </button>
+                </div>
             </header>
 
             <Tasks application={application} models={models} />
 
-            <div
-                className={`settings-layer${settings ? " open" : ""}`}
-                aria-hidden={!settings}
-                inert={!settings}
-                onMouseDown={() => setSettings(false)}
+            <dialog
+                ref={settingsDialog}
+                id="lemo-settings"
+                className="settings-layer"
+                aria-labelledby="lemo-settings-title"
+                onClose={() => setSettings(false)}
+                onMouseDown={event => {
+
+                    if (event.target === event.currentTarget) setSettings(false)
+                }}
             >
                 <aside className="settings" aria-label="Lemo Settings" onMouseDown={event => event.stopPropagation()}>
                     <header>
                         <div>
                             <p>Configuration</p>
-                            <h2>LLM Providers</h2>
+                            <h2 id="lemo-settings-title">LLM Providers</h2>
                         </div>
 
-                        <button className="quiet" type="button" onClick={() => setSettings(false)}>Done</button>
+                        <button autoFocus className="quiet close-settings" type="button" onClick={() => setSettings(false)}>Done</button>
                     </header>
 
                     <LLMProviderViews providers={application.llmProviders} models={models} />
                 </aside>
-            </div>
+            </dialog>
         </div>
     </main>
 }
 
+function statusKind(resource: PromiseWithDependencies<readonly LLMModel[]>): "ready" | "pending" | "error" | "warning" {
+
+    if (resource.isPending) return "pending"
+
+    if (resource.exception) return "error"
+
+    if (!resource.solve.length) return "warning"
+
+    return "ready"
+}
+
 function modelStatus(resource: PromiseWithDependencies<readonly LLMModel[]>) {
 
-    if (resource.isPending) return "Loading LLM Provider…"
+    if (resource.isPending) return "Connecting…"
 
-    if (resource.exception) return "LLM Models unavailable"
+    if (resource.exception) return "Unavailable"
 
-    if (!resource.solve.length) return "LLM Provider required"
+    if (!resource.solve.length) return "Setup Required"
 
-    return `${resource.solve.length} LLM Models available`
+    return `${resource.solve.length} Model${resource.solve.length === 1 ? "" : "s"}`
 }
 
 function StartupState({ title, error, retry }: Readonly<{

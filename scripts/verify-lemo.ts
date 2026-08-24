@@ -159,12 +159,13 @@ model = {
         assert(input)
 
         const snapshot = request.messages.find(message => (
-            message.role === "system" && message.content.startsWith("# Reconstructed Memory Context")
+            message.role === "system" && message.content.startsWith("# Reconstructed Cycle Context")
         ))
 
         assert(snapshot)
-        assert(snapshot.content.includes("<memory_context"))
-        assert(snapshot.content.includes("</memory_context>"))
+        assert(snapshot.content.includes("<working_focus>"))
+        assert(snapshot.content.includes("<associative_memory>"))
+        assert(snapshot.content.includes("</associative_memory>"))
 
         snapshots.set(input, [...snapshots.get(input) ?? [], snapshot.content])
 
@@ -374,7 +375,8 @@ for (const [input, task] of [["first", firstTask], ["second", secondTask]] as co
     const recalled = snapshots.get(input)
 
     assert(recalled?.length)
-    assert(recalled.every(snapshot => !snapshot.includes(`<task id="${task.id}">`)))
+    assert(recalled.every(snapshot => !snapshot.includes(`<episode task="${task.id}">`)))
+    assert(recalled.some(snapshot => snapshot.includes('source="tool-result:tools"')))
 }
 
 const recordedInput = operations.find(operation => operation.task_id === firstTask.id)
@@ -385,7 +387,7 @@ assert.deepEqual(JSON.parse(String(recordedInput?.payload)), {
 })
 
 assert(!operations.some(operation => operation.kind === "model.request"))
-assert(!operations.some(operation => String(operation.payload).includes("# Reconstructed Memory Context")))
+assert(!operations.some(operation => String(operation.payload).includes("# Reconstructed Cycle Context")))
 
 const memoryTask = await lemo.task({ input: "recall first", model })
 
@@ -512,11 +514,67 @@ const fitting = await new Memory(fittingDatabase).recall({ query: "needle", budg
 assert(fitting.some(result => result.task === "small"))
 assert(fitting.reduce((size, result) => size + result.content.length + 180, 0) <= 1_000)
 
+const activationSource = new DatabaseSync(":memory:")
+const activationDatabase = await LemoDatabase.open(activationSource)
+
+await activationDatabase.createTask("recovery", {
+    input: "Recover the browser after a websocket transport timeout"
+})
+await activationDatabase.createTask("recent-unrelated", {
+    input: "Change the wallpaper color"
+})
+
+const activated = await new Memory(activationDatabase).recall({
+    query: "Investigate the current failure",
+    focus: [{
+        source: "tool-result:endpoints",
+        content: "The websocket transport timed out while opening the browser",
+        weight: 2.4
+    }],
+    budget: 1_000
+})
+
+assert(activated.some(result => result.task === "recovery" && result.selection === "relevant"))
+
+const toolResultSource = new DatabaseSync(":memory:")
+const toolResultDatabase = await LemoDatabase.open(toolResultSource)
+const workspaceIdentity = "bd4e05ac-b3bd-4f53-83b0-d641f717ed19"
+
+await toolResultDatabase.createTask("workspace-history", { input: "Inspect old browser workspaces" })
+await toolResultDatabase.appendToTask("workspace-history", "tool.result", {
+    call: "workspace-list",
+    name: "endpoints",
+    ok: true,
+    output: { workspaces: [{ workspace: workspaceIdentity }], transport: "raw-preserved" },
+    modelOutput: { workspaces: [{ workspace: workspaceIdentity }] }
+})
+
+const toolResultContext = await new Memory(toolResultDatabase).recall({
+    query: "Find the old browser workspace",
+    budget: 1_000
+})
+
+assert(toolResultContext.some(result => (
+    result.method === "tool-result"
+    && result.tool === "endpoints"
+    && result.content.includes(workspaceIdentity)
+)))
+
+const storedToolResult = (await toolResultDatabase.operations("workspace-history"))
+    .find(operation => operation.kind === "tool.result")
+
+assert.deepEqual((storedToolResult?.payload as Record<string, unknown>).output, {
+    workspaces: [{ workspace: workspaceIdentity }],
+    transport: "raw-preserved"
+})
+
 database.close()
 compactSource.close()
 largeSource.close()
 continuitySource.close()
 fittingSource.close()
+activationSource.close()
+toolResultSource.close()
 
 function deferred() {
 
