@@ -2,7 +2,7 @@ import type OllamaCloudProvider from "@client/core/llm/providers/ollama-cloud/pr
 import type OllamaCloudModel from "@client/core/llm/providers/ollama-cloud/model"
 import { useEffect, useState, type FormEvent } from "react"
 
-export default function OllamaCloudConfiguration({ provider }: Properties) {
+export default function OllamaCloudConfiguration({ provider, onModelsChange }: Properties) {
 
     const [configured, setConfigured] = useState<boolean>()
 
@@ -38,7 +38,7 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
 
                 if (!active) return
 
-                setModels(discovered)
+                retainModels(discovered)
             } catch (failure) {
 
                 if (active) setError(message(failure))
@@ -50,7 +50,14 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
             active = false
         }
 
-    }, [provider])
+    }, [provider, onModelsChange])
+
+    function retainModels(value: readonly OllamaCloudModel[]) {
+
+        setModels(value)
+
+        onModelsChange(value)
+    }
 
     async function configure(event: FormEvent) {
 
@@ -78,7 +85,7 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
 
             const discovered = state.active ? await provider.models() : []
 
-            setModels(discovered)
+            retainModels(discovered)
         } catch (failure) {
 
             setError(message(failure))
@@ -104,7 +111,7 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
 
             const discovered = configured ? await provider.models() : []
 
-            setModels(discovered)
+            retainModels(discovered)
         } catch (failure) {
 
             setError(message(failure))
@@ -128,7 +135,7 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
 
             setActive(false)
 
-            setModels([])
+            retainModels([])
         } catch (failure) {
 
             setError(message(failure))
@@ -152,7 +159,7 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
 
             setConfigured(false)
 
-            setModels([])
+            retainModels([])
         } catch (failure) {
 
             setError(message(failure))
@@ -162,11 +169,15 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
         }
     }
 
-    return <section>
+    return <section className="provider-settings">
         <header>
             <div>
                 <h2>{provider.name}</h2>
-                <p>{configured === undefined ? "Loading configuration…" : configured ? "Configured" : "Not configured"}</p>
+                <p>{configured === undefined
+                    ? "Loading configuration…"
+                    : configured
+                        ? `${isActive ? "Active" : "Inactive"} · ${models.length} Models`
+                        : "Not configured"}</p>
             </div>
 
             {configured && <div className="actions">
@@ -194,13 +205,6 @@ export default function OllamaCloudConfiguration({ provider }: Properties) {
             </div>
         </form>
 
-        {configured && isActive && <div>
-            <h3>LLM Models</h3>
-            {models.length
-                ? <ul>{models.map(model => <li key={model.id}>{model.id}</li>)}</ul>
-                : <p>No Models are available.</p>}
-        </div>}
-
         {error && <p role="alert">{error}</p>}
     </section>
 }
@@ -212,4 +216,5 @@ function message(value: unknown) {
 
 type Properties = Readonly<{
     provider: OllamaCloudProvider
+    onModelsChange(models: readonly OllamaCloudModel[]): void
 }>

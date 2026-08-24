@@ -11,6 +11,12 @@ export type TaskRequest = Readonly<{
     model: LLMModel
 }>
 
+export type TaskSnapshot = Readonly<{
+    id: string
+    status: TaskStatus
+    operations: readonly Operation[]
+}>
+
 /** A durable Task identity whose state is reconstructed from its operations. */
 export default class Task {
 
@@ -70,6 +76,20 @@ export default class Task {
     public operations() {
 
         return this.database.operations(this.id)
+    }
+
+    /** Returns one internally consistent durable Task projection. */
+    public async snapshot(): Promise<TaskSnapshot> {
+
+        const operations = await this.operations()
+
+        return Object.freeze({ id: this.id, status: taskStatus(operations), operations })
+    }
+
+    /** Observes only operations persisted after this subscription. */
+    public subscribe(subscriber: (operation: Operation) => void) {
+
+        return this.database.subscribe(this.id, subscriber)
     }
 
     /** Resolves from persisted state or waits for this live Task execution. */

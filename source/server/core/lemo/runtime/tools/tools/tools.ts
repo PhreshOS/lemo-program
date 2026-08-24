@@ -30,7 +30,7 @@ export default function tools(catalog: () => readonly Tool[]): Tool {
 
             const request = input.parse(value)
 
-            const available = catalog().filter(tool => tool.definition.name !== "tools" && tool.definition.name !== "docs")
+            const available = catalog().filter(tool => !builtIn.has(tool.definition.name))
 
             const selected = request.all
                 ? available
@@ -51,3 +51,5 @@ export default function tools(catalog: () => readonly Tool[]): Tool {
         }
     }
 }
+
+const builtIn = new Set(["tools", "docs", "memory"])

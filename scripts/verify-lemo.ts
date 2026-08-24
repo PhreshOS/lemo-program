@@ -3,6 +3,34 @@ import { DatabaseSync } from "node:sqlite"
 import Lemo from "../source/server/core/lemo/lemo"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
+import toolInput from "../source/server/core/lemo/runtime/tool-input"
+
+assert.deepEqual(toolInput({
+    action: "setGeometry",
+    position: "{\"x\":\"0/1\",\"y\":\"0/1\"}",
+    size: "{\"width\":\"1/2\",\"height\":\"1/1\"}",
+    minimized: "false"
+}, {
+    oneOf: [{
+        type: "object",
+        properties: {
+            action: { const: "setGeometry" },
+            position: { type: "object", properties: { x: { type: "string" }, y: { type: "string" } } },
+            size: {
+                type: "object",
+                properties: { width: { type: ["number", "string"] }, height: { type: ["number", "string"] } }
+            },
+            minimized: { type: "boolean" }
+        }
+    }]
+}), {
+    action: "setGeometry",
+    position: { x: "0/1", y: "0/1" },
+    size: { width: "1/2", height: "1/1" },
+    minimized: false
+})
+
+assert.equal(toolInput("{\"raw\":true}", {}), "{\"raw\":true}")
 
 const database = new DatabaseSync(":memory:")
 
@@ -58,15 +86,55 @@ model = {
 
         cycles.set(input, cycle)
 
+        if (input === "recall first") {
+
+            assert.deepEqual(request.tools.map(tool => tool.name), ["tools", "docs", "memory"])
+
+            if (cycle === 1) {
+
+                yield {
+                    type: "tool-call" as const,
+                    call: { id: "recall-memory", name: "memory", input: { query: "first", limit: 6 } }
+                }
+
+                return
+            }
+
+            const recalled = request.messages.find(message => message.role === "tool" && message.name === "memory")
+
+            assert(recalled)
+
+            const result = JSON.parse(recalled.content) as Record<string, unknown>
+
+            assert(Array.isArray(result.output))
+
+            assert(result.output.some(item => (
+                typeof item === "object"
+                && item !== null
+                && "content" in item
+                && String(item.content).includes("first")
+            )))
+
+            yield { type: "text" as const, content: "memory:complete" }
+
+            return
+        }
+
         if (cycle === 1) {
 
-            assert.deepEqual(request.tools.map(tool => tool.name), ["tools", "docs"])
+            assert.deepEqual(request.tools.map(tool => tool.name), ["tools", "docs", "memory"])
 
             await (input === "first" ? first.promise : second.promise)
 
             yield {
                 type: "tool-call" as const,
-                call: { id: `${input}-tools`, name: "tools", input: { names: ["time"] } }
+                call: {
+                    id: `${input}-tools`,
+                    name: "tools",
+                    input: {
+                        names: ["time", "programs", "processes", "endpoints", "services", "windows"]
+                    }
+                }
             }
 
             return
@@ -74,7 +142,17 @@ model = {
 
         if (cycle === 2) {
 
-            assert.deepEqual(request.tools.map(tool => tool.name), ["tools", "docs", "time"])
+            assert.deepEqual(request.tools.map(tool => tool.name), [
+                "tools",
+                "docs",
+                "memory",
+                "time",
+                "programs",
+                "processes",
+                "endpoints",
+                "services",
+                "windows"
+            ])
 
             assert(request.messages.some(message => message.role === "tool" && message.name === "tools"))
 
@@ -180,7 +258,32 @@ assert(Array.isArray(request.messages))
 
 assert(Array.isArray(request.tools))
 
-assert.equal(request.tools.length, 2)
+assert.equal(request.tools.length, 3)
+
+const memoryTask = await lemo.task({ input: "recall first", model })
+
+assert.equal(await memoryTask.result(), "memory:complete")
+
+const memoryOperations = await memoryTask.operations()
+
+assert(memoryOperations.some(operation => operation.kind === "tool.memory.recalled"))
+
+const memoryResult = memoryOperations.find(operation => operation.kind === "tool.result")
+
+assert(memoryResult)
+
+const memoryPayload = memoryResult.payload as Record<string, unknown>
+
+assert(Array.isArray(memoryPayload.output))
+
+assert(memoryPayload.output.length <= 6)
+
+assert(memoryPayload.output.every(item => (
+    typeof item === "object"
+    && item !== null
+    && "kind" in item
+    && ["task.input", "model.message", "memory.recorded"].includes(String(item.kind))
+)))
 
 const restarted = await Lemo.wakeUp(database)
 

@@ -115,8 +115,58 @@ asks Runtime to execute all independent calls concurrently. Runtime records
 every result, and Task begins another Cycle that reconstructs its context from
 the database. Task completes only when a Cycle requests no tools.
 
-Ordinary tools are not loaded into every Model request. Only the `tools` and
-`docs` discovery tools are initially visible. Tool discovery records which
+Before execution, Runtime applies the selected Tool's declared JSON Schema to
+values returned by the Model. JSON-encoded objects, arrays, booleans, and
+numbers are decoded only where the schema requires that type. The original
+Model call remains raw and unchanged; a distinct `tool.input.normalized`
+operation records any value actually normalized for execution. Unconstrained
+payloads and declared strings are never guessed or rewritten.
+
+Ordinary tools are not loaded into every Model request. Only the `tools`,
+`docs`, and `memory` tools are initially visible. Tool discovery records which
 tools were loaded, so every later Cycle reconstructs its available definitions
 from the Task operation chain. `time` is the first ordinary, Zod-validated tool
-and owns its implementation and documentation. Memory is not implemented yet.
+and owns its implementation and documentation. The read-only `programs` tool
+lists and inspects authoritative PhreshOS Programs and reads their declared
+Endpoint Service documentation without copying temporary registry snapshots
+into Memory. The `processes` tool reads and controls live Processes through the
+actual Host and Program entities. Read operations remain ephemeral; successful
+creation, named Process resolution, and exit are deliberately written through
+the Tool's Memory context. The `endpoints` tool inspects and controls individual
+Server and Client Endpoint lifecycles, can wait for Server readiness, and
+records only successful start and stop operations. The `services` tool has no
+listing API: it connects directly to coordinates learned from Program Endpoint
+documentation, checks or awaits readiness, and passes Server Service questions
+and answers through without interpreting or promoting them into Memory. The
+`windows` tool reads and controls the authoritative Window belonging to a live
+Client Endpoint while correctly leaving local Surface presentation unavailable
+to Server Runtime tools.
+
+Memory is an internal mathematical view over the existing raw operation log;
+it does not copy history into a second memory table or alter the schema. Recall
+reserves half of its radius for recent history, then fills the remaining half
+by combined lexical and temporal relevance. It currently returns at most 20
+results. Only task input, assistant content, and explicit future
+`memory.recorded` facts are candidates. Recall metadata and tool results are
+excluded, preventing Memory from recursively recalling its own output.
+
+Every Tool receives a distinct Memory-writing capability through its execution
+context. A Tool must deliberately record a fact; Runtime never promotes tool
+output automatically. Each `memory.recorded` operation preserves the supplied
+content, source, and recording method and is immediately associated with its
+Task, tool name, and tool-call identity. Operational bookkeeping remains
+available through the Tool's separate raw `record` capability.
+
+## Client Tasks
+
+Client Core exposes Lemo and its authoritative Tasks as local handles. Creating
+a Task uses the selected local LLM Model handle, while Server Core resolves the
+authoritative Model and starts execution. View never communicates with Server
+or Runtime directly.
+
+Each Client Task begins with a validated database snapshot and then applies
+only newly persisted operations. The handoff subscribes before requesting the
+snapshot and deduplicates any overlap, so fast Model output cannot create a
+gap. Reloading View reconstructs completed Tasks from snapshots and reconnects
+running Tasks. Client-side operation history is only a projection; Server
+SQLite remains authoritative.

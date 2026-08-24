@@ -9,16 +9,43 @@ import type {
     OllamaCloudConfigurationState
 } from "@server/core/llm/providers/ollama-cloud/configuration"
 import LLMProviders from "./llm/providers"
+import Lemo, { type LemoSource } from "./lemo/lemo"
+import type LLMModel from "./llm/model"
+import { taskSnapshot } from "./lemo/task"
 
 const generationTimeout = 5 * 60 * 1000
 
 export default class Application {
 
     public readonly llmProviders = new LLMProviders(serverSource)
+    public readonly lemo = new Lemo(serverLemoSource)
 
     public async name(): Promise<string> {
 
         return await current.server.ask<string>("application.name")
+    }
+}
+
+const serverLemoSource: LemoSource = {
+    async snapshots() {
+
+        const value = await current.server.ask<unknown>("lemo.tasks")
+
+        if (!Array.isArray(value)) throw new Error("The Server returned an invalid Lemo Task list")
+
+        return Object.freeze(value.map(taskSnapshot))
+    },
+    create(input: string, model: LLMModel) {
+
+        return taskChannel("lemo.task.create", {
+            input,
+            provider: model.provider.identity,
+            model: model.id
+        })
+    },
+    open(task: string) {
+
+        return taskChannel("lemo.task.open", { task })
     }
 }
 
@@ -148,4 +175,55 @@ function generationEvent(value: unknown): LLMGenerationEvent {
 function record(value: unknown): value is Record<string, unknown> {
 
     return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+async function taskChannel(operation: string, payload: Record<string, unknown>) {
+
+    const subscription = crypto.randomUUID()
+
+    const controller = new AbortController()
+
+    const source = current.server.events<unknown>(subscription, {
+        capacity: Infinity,
+        signal: controller.signal
+    })
+
+    const iterator = source[Symbol.asyncIterator]()
+
+    let next = iterator.next()
+
+    const events: AsyncIterable<unknown> = {
+        [Symbol.asyncIterator]() {
+
+            return {
+                async next() {
+
+                    const result = await next
+
+                    if (!result.done) next = iterator.next()
+
+                    return result
+                },
+                async return() {
+
+                    return await iterator.return?.() ?? { value: undefined, done: true }
+                }
+            }
+        }
+    }
+
+    try {
+        const snapshot = taskSnapshot(await current.server.ask<unknown>(operation, { ...payload, subscription }))
+
+        return Object.freeze({
+            snapshot,
+            events,
+            close: () => controller.abort()
+        })
+    } catch (error) {
+
+        controller.abort()
+
+        throw error
+    }
 }

@@ -7,6 +7,8 @@ import type { OperationInput } from "./operation"
 /** Lemo's internal raw operation database. */
 export default class LemoDatabase {
 
+    private readonly subscribers = new Map<string, Set<OperationSubscriber>>()
+
     private constructor(private readonly source: LemoDatabaseSource) {}
 
     public static async open(source: LemoDatabaseSource) {
@@ -47,6 +49,39 @@ export default class LemoDatabase {
         return rows[0]?.found === 1
     }
 
+    public async tasks(): Promise<readonly string[]> {
+
+        const rows = await this.query<{ id: string }>(`
+            SELECT id
+            FROM tasks
+            ORDER BY created_at, id
+        `, [])
+
+        return Object.freeze(rows.map(row => row.id))
+    }
+
+    /** Observes future persisted operations without retaining history. */
+    public subscribe(task: string, subscriber: OperationSubscriber) {
+
+        let subscribers = this.subscribers.get(task)
+
+        if (!subscribers) {
+
+            subscribers = new Set()
+
+            this.subscribers.set(task, subscribers)
+        }
+
+        subscribers.add(subscriber)
+
+        return () => {
+
+            subscribers.delete(subscriber)
+
+            if (!subscribers.size) this.subscribers.delete(task)
+        }
+    }
+
     public async operations(task: string): Promise<readonly Operation[]> {
 
         const rows = await this.query<OperationRow>(`
@@ -55,6 +90,18 @@ export default class LemoDatabase {
             WHERE task_id = ?
             ORDER BY sequence
         `, [task])
+
+        return Object.freeze(rows.map(operation))
+    }
+
+    /** Loads the complete global raw operation log in authoritative order. */
+    public async allOperations(): Promise<readonly Operation[]> {
+
+        const rows = await this.query<OperationRow>(`
+            SELECT sequence, id, task_id, parent_id, kind, payload, created_at
+            FROM operations
+            ORDER BY sequence
+        `, [])
 
         return Object.freeze(rows.map(operation))
     }
@@ -82,7 +129,7 @@ export default class LemoDatabase {
             throw new Error(`Lemo cannot append to unknown Task "${task}"`)
         }
 
-        return Object.freeze({
+        const operation = Object.freeze({
             sequence: recorded.sequence,
             id,
             task,
@@ -91,6 +138,10 @@ export default class LemoDatabase {
             payload,
             createdAt
         })
+
+        this.publish(operation)
+
+        return operation
     }
 
     public async append(input: OperationInput): Promise<Operation> {
@@ -116,7 +167,7 @@ export default class LemoDatabase {
 
         if (typeof sequence !== "number") throw new Error("Lemo failed to record an operation")
 
-        return Object.freeze({
+        const operation = Object.freeze({
             sequence,
             id,
             task: input.task,
@@ -125,6 +176,10 @@ export default class LemoDatabase {
             payload: input.payload,
             createdAt
         })
+
+        this.publish(operation)
+
+        return operation
     }
 
     private async execute(statement: string): Promise<void> {
@@ -156,6 +211,27 @@ export default class LemoDatabase {
         if (programDatabase(this.source)) return this.source.query<Row>(statement, [...values])
 
         return this.source.prepare(statement).all(...values) as Row[]
+    }
+
+    private publish(operation: Operation) {
+
+        if (!operation.task) return
+
+        const subscribers = this.subscribers.get(operation.task)
+
+        if (!subscribers) return
+
+        for (const subscriber of subscribers) {
+
+            try {
+                subscriber(operation)
+            } catch {
+
+                subscribers.delete(subscriber)
+            }
+        }
+
+        if (!subscribers.size) this.subscribers.delete(operation.task)
     }
 }
 
@@ -205,3 +281,5 @@ type OperationRow = Readonly<{
     payload: string
     created_at: number
 }>
+
+export type OperationSubscriber = (operation: Operation) => void

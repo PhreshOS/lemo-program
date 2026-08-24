@@ -1,4 +1,5 @@
 import type { LLMToolDefinition } from "../../llm/model"
+import type { MemoryRecord } from "../memory"
 import type Operation from "../operation"
 
 /** One Runtime-owned capability exposed to LLM Models. */
@@ -13,4 +14,7 @@ export type ToolContext = Readonly<{
     task: string
     call: string
     record(kind: string, payload: unknown): Promise<Operation>
+    memory: Readonly<{
+        record(value: MemoryRecord): Promise<Operation>
+    }>
 }>

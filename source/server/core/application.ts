@@ -8,6 +8,7 @@ import { llmProviderActiveKey, llmProviderActiveSchema } from "./llm/provider"
 import LLMProviders from "./llm/providers"
 import Lemo from "./lemo/lemo"
 import type { LemoDatabaseSource } from "./lemo/database"
+import type Task from "./lemo/task"
 
 export default class Application {
 
@@ -123,6 +124,25 @@ export default class Application {
         if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
 
         yield* model.generate(request)
+    }
+
+    public async task(input: string, providerIdentity: string, modelIdentity: string): Promise<Task> {
+
+        const model = await this.providers.model(providerIdentity, modelIdentity)
+
+        if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
+
+        return this.lemo.task({ input, model })
+    }
+
+    public tasks() {
+
+        return this.lemo.tasks()
+    }
+
+    public findTask(identity: string) {
+
+        return this.lemo.findTask(identity)
     }
 
     public name() {

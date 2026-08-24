@@ -1,4 +1,5 @@
 import LemoDatabase, { type LemoDatabaseSource } from "./database"
+import Memory from "./memory"
 import Task, { type TaskRequest } from "./task"
 import Runtime from "./runtime/runtime"
 
@@ -14,7 +15,7 @@ export default class Lemo {
 
         const opened = await LemoDatabase.open(database)
 
-        return new Lemo(opened, new Runtime())
+        return new Lemo(opened, new Runtime(new Memory(opened)))
     }
 
     /** Starts one independent Task without waiting for its execution. */
@@ -27,5 +28,13 @@ export default class Lemo {
     public findTask(id: string): Promise<Task | null> {
 
         return Task.open(this.database, this.runtime, id)
+    }
+
+    /** Reconstructs all Tasks from their durable identities. */
+    public async tasks(): Promise<readonly Task[]> {
+
+        return Object.freeze(await Promise.all(
+            (await this.database.tasks()).map(async id => (await Task.open(this.database, this.runtime, id))!)
+        ))
     }
 }
