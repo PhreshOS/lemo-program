@@ -17,6 +17,7 @@ export default defineConfig({
         strictPort: true
     },
     build: {
+        chunkSizeWarningLimit: 600,
         emptyOutDir: true,
         outDir: resolve(import.meta.dirname, "dist/client")
     }
