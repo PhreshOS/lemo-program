@@ -192,13 +192,15 @@ model = {
         assert(input)
 
         const snapshot = request.messages.find(message => (
-            message.role === "system" && message.content.startsWith("# Reconstructed Cycle Context")
+            message.role === "system" && message.content.startsWith("# Reconstructed Mind Context")
         ))
 
         assert(snapshot)
-        assert(snapshot.content.includes("<working_focus>"))
-        assert(snapshot.content.includes("<associative_memory>"))
-        assert(snapshot.content.includes("</associative_memory>"))
+        assert(snapshot.content.includes('<self task='))
+        assert(snapshot.content.includes('<immediate_continuity precedence="before-associative-memory">'))
+        assert(snapshot.content.includes('<active_tasks omitted='))
+        assert(snapshot.content.includes('<shared_memory role="possible-associations"'))
+        assert(snapshot.content.includes("</shared_memory>"))
 
         snapshots.set(input, [...snapshots.get(input) ?? [], snapshot.content])
 
@@ -409,7 +411,7 @@ for (const [input, task] of [["first", firstTask], ["second", secondTask]] as co
 
     assert(recalled?.length)
     assert(recalled.every(snapshot => !snapshot.includes(`<episode task="${task.id}">`)))
-    assert(recalled.some(snapshot => snapshot.includes('source="tool-result:tools"')))
+    assert(recalled.some(snapshot => snapshot.includes('source="tool:tools"')))
 }
 
 const recordedInput = operations.find(operation => operation.task_id === firstTask.id)
@@ -420,7 +422,7 @@ assert.deepEqual(JSON.parse(String(recordedInput?.payload)), {
 })
 
 assert(!operations.some(operation => operation.kind === "model.request"))
-assert(!operations.some(operation => String(operation.payload).includes("# Reconstructed Cycle Context")))
+assert(!operations.some(operation => String(operation.payload).includes("# Reconstructed Mind Context")))
 
 const memoryTask = await lemo.task({ input: "recall first", model })
 
@@ -601,13 +603,85 @@ assert.deepEqual((storedToolResult?.payload as Record<string, unknown>).output, 
     transport: "raw-preserved"
 })
 
+const mindSource = new DatabaseSync(":memory:")
+const mindDatabase = await LemoDatabase.open(mindSource)
+
+await mindDatabase.createTask("self", { input: "Recover the browser workspace" })
+await mindDatabase.appendToTask("self", "task.run.started", { run: "self-run" })
+await mindDatabase.createTask("running-related", { input: "Monitor browser workspace changes" })
+await mindDatabase.appendToTask("running-related", "task.run.started", { run: "related-run" })
+await mindDatabase.appendToTask("running-related", "model.message", {
+    content: "Waiting for the browser workspace event"
+})
+await mindDatabase.createTask("running-unrelated", { input: "Compose a short song" })
+await mindDatabase.appendToTask("running-unrelated", "task.run.started", { run: "unrelated-run" })
+await mindDatabase.appendToTask("running-unrelated", "model.message", {
+    content: "Choosing the song melody"
+})
+await mindDatabase.createTask("completed-related", { input: "Browser workspace recovery" })
+await mindDatabase.appendToTask("completed-related", "model.message", {
+    content: "The browser workspace was restored from its durable identity"
+})
+await mindDatabase.appendToTask("completed-related", "task.completed", { output: "restored" })
+await mindDatabase.createTask("completed-noise", { input: "hhhhhh" })
+await mindDatabase.appendToTask("completed-noise", "model.message", { content: "A generic greeting" })
+await mindDatabase.appendToTask("completed-noise", "task.completed", { output: "done" })
+
+const mindSnapshot = await new Memory(mindDatabase).context(
+    await mindDatabase.operations("self")
+)
+
+assert(mindSnapshot.includes('<self task="self" perspective="self" relation="self" status="running"'))
+assert(mindSnapshot.includes('<task task="running-related" perspective="other" relation="concurrent" status="running"'))
+assert(mindSnapshot.includes('<task task="running-unrelated" perspective="other" relation="concurrent" status="running"'))
+assert(mindSnapshot.includes('<episode task="completed-related" perspective="other" relation="associative" status="completed"'))
+assert(mindSnapshot.includes('source="lemo" method="model-message"'))
+assert.match(mindSnapshot, /generatedAt="\d{4}-\d{2}-\d{2}T/)
+assert(mindSnapshot.includes('reason="possible-semantic-association"'))
+assert(!mindSnapshot.includes("completed-noise"))
+assert(!mindSnapshot.includes('<episode task="self"'))
+
+const perceptualSource = new DatabaseSync(":memory:")
+const continuityMindDatabase = await LemoDatabase.open(perceptualSource)
+
+for (const [task, input, output] of [
+    ["older-association", "Try again to open YouTube", "youtube opened"],
+    ["recent-background-a", "Inspect the current wallpaper", "wallpaper inspected"],
+    ["recent-background-b", "Check the current clock", "clock checked"],
+    ["immediate", "Wait for the Lemo window to minimize", "window wait completed"]
+] as const) {
+
+    await continuityMindDatabase.createTask(task, { input })
+    await continuityMindDatabase.appendToTask(task, "model.message", { content: output })
+    await continuityMindDatabase.appendToTask(task, "task.completed", { output })
+}
+
+await continuityMindDatabase.createTask("follow-up", { input: "Yes, try again" })
+await continuityMindDatabase.appendToTask("follow-up", "task.run.started", { run: "follow-up-run" })
+
+const continuitySnapshot = await new Memory(continuityMindDatabase).context(
+    await continuityMindDatabase.operations("follow-up")
+)
+
+assert(continuitySnapshot.includes(
+    '<task task="immediate" perspective="other" relation="immediately-before" status="completed"'
+))
+assert(continuitySnapshot.includes('reason="temporal-continuity"'))
+assert(continuitySnapshot.includes(
+    '<episode task="older-association" perspective="other" relation="associative" status="completed"'
+))
+assert(continuitySnapshot.includes('reason="semantic-association"'))
+assert(continuitySnapshot.indexOf('task="immediate"') < continuitySnapshot.indexOf('task="older-association"'))
+
 database.close()
 compactSource.close()
 largeSource.close()
-continuitySource.close()
+perceptualSource.close()
 fittingSource.close()
 activationSource.close()
 toolResultSource.close()
+mindSource.close()
+continuitySource.close()
 
 function deferred() {
 

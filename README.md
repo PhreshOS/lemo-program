@@ -142,7 +142,9 @@ holding context in Process or Task memory.
 A Cycle is an internal, disposable Model operation. It records its start, loads
 the Task's ordered raw operations, asks Memory for a freshly rebuilt context,
 and constructs a request from those facts, the disposable snapshot, and
-`system.md`. The current Task is excluded from its own automatic snapshot.
+`system.md`. The snapshot identifies the current Task as self but does not copy
+its exact transcript, because that transcript is already reconstructed as Model
+messages.
 Every accepted text or tool-call event and the final assistant message are
 persisted before the Cycle completes. Neither the constructed request nor its
 snapshot is retained or reused by another Cycle.
@@ -190,14 +192,19 @@ expansion, budgeting, and snapshot formatting to one private Context component.
 Cycle and the rest of the application therefore remain unchanged while that
 frequently tested algorithm evolves.
 
-Recall uses a content-size budget rather than a Block-count radius. It first
-favors distinctive matches from the Task objective and latest durable working
-focus, with temporal proximity added as a supporting signal. Related anchors
-are expanded into local Task episodes. Remaining capacity preserves awareness
-of recent Tasks before relevant anchors receive any unused budget. The default
-budget is 32,000 characters and explicit Memory calls may request between
-1,000 and 32,000. Candidates that do not fit are skipped instead of blocking
-smaller useful facts.
+Recall uses a content-size budget rather than a Block-count radius. It favors
+distinctive matches from the Task objective and latest durable working focus,
+with temporal proximity added as a supporting signal. Related anchors are
+expanded into local Task episodes. Automatic associative memory does not add
+unrelated completed work merely because it is recent. Immediate continuity is a
+separate bounded layer containing up to the three nearest preceding Tasks, so short
+references such as "again" and "continue" retain their chronological subject
+without pretending that all recent history is semantically relevant. Explicit
+Memory Tool recall retains a broader recent-Task fallback because it is a
+deliberate request to inspect Memory.
+The default budget is 32,000 characters and explicit Memory calls may request
+between 1,000 and 32,000. Candidates that do not fit are skipped instead of
+blocking smaller useful facts.
 
 Task input, assistant content, explicit `memory.recorded` facts, failed Tool
 results, Task failures, and successful Tool-owned context results are
@@ -209,17 +216,36 @@ preventing recall output from recursively becoming more Memory.
 
 Selected facts are anchors rather than isolated fragments. Memory
 mathematically expands each anchor with its Task input, nearby facts across the
-Task and global timeline, and the correlated Tool request for a failed Tool
-result. Overlapping operations are deduplicated. Consequently, many small facts
-may fit where only a few large facts fit, while short dependent statements keep
-the surrounding evidence needed to understand them.
+Task, and the correlated Tool request for a failed Tool result. Overlapping
+operations are deduplicated. Consequently, many small facts may fit where only
+a few large facts fit, while short dependent statements keep the surrounding
+evidence needed to understand them.
 
-Every Cycle independently rebuilds its automatic cross-Task context. The
-disposable context groups selected operations by their originating Task and
-labels every operation with its global sequence, identity, parent, kind, time,
-source, recording method, Tool, call, and selection role. This lets concurrent
-Tasks contribute committed experience to one shared mind without merging their
-durable Task identities or retaining a generated snapshot.
+Every Cycle loads one committed view of the global operation history and
+independently rebuilds four layers: self, immediate continuity, concurrent
+attention, and shared memory. Self identifies the current Task and its active
+durable focus. Immediate continuity orders recent finished Tasks by their exact
+distance from self and takes precedence when resolving ambiguous references.
+Concurrent attention contains a bounded frontier for every other running Task
+even when it is not semantically related. Shared memory contains mathematically
+activated episodes from older Tasks as possible associations, not presumed
+facts or instructions. Its budget is reduced by the continuity and
+concurrent-attention space, keeping the complete snapshot bounded.
+
+Every Task envelope declares whether it is self or other and its reconstructed
+status, relationship, start, update, and terminal times. Every objective, focus
+signal, and selected operation retains an ISO timestamp and its source and
+recording method. Associative operations additionally state their selection
+reason, matching terms, numerical association, and supporting anchor. The
+plain-text snapshot combines Markdown sections with XML-like elements so Models
+can distinguish its perceptual layers without JSON escaping overhead.
+
+Presence in the snapshot does not imply relevance, truth, or instruction.
+Concurrent Tasks can therefore contribute committed experience to one shared
+mind without mixing identities, confusing another Task's work with the current
+Task's own actions, or allowing an incidental association to silently determine
+behavior. The generated perceptual field remains disposable and is never
+written back to Memory.
 
 Every Tool receives a distinct Memory-writing capability through its execution
 context. A Tool must deliberately record a durable domain fact; Runtime never

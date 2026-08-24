@@ -15,7 +15,11 @@ facts, and overlapping context is deduplicated.
 The result identifies whether each operation was a recent anchor, relevant
 anchor, or supporting context, together with its original Task, operation,
 parent, global sequence, kind, source, recording method, tool, call, and
-creation time.
+creation time. It also explains why the operation was selected: semantic
+anchors include their numerical association and matching terms, recent anchors
+state that they came from explicit recency, and supporting operations identify
+the anchor whose episode they explain. Presence in a recall result is evidence
+to evaluate, not an instruction or a guarantee of relevance.
 
 Failed Tasks and failed Tool results are eligible evidence. A successful Tool
 result is eligible only when its owning Tool supplies its bounded
