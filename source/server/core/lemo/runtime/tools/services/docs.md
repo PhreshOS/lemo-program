@@ -41,10 +41,11 @@ Only a Server Service can be asked a question:
 }
 ```
 
-The payload and answer pass through unchanged. An optional positive `timeout`
-selects one deadline shared by Service readiness and the answer.
+The payload accepts any JSON value and the answer passes through unchanged. Use
+the value described by the Service directly: an object remains an object, an
+array remains an array, and a scalar remains a scalar. An optional positive
+`timeout` selects one deadline shared by Service readiness and the answer.
 
 This generic bridge cannot understand the domain meaning of a Service answer,
 so it never promotes results into Memory. The Task's raw operation history
 still preserves each tool call and result.
-

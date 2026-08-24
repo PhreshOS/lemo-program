@@ -44,6 +44,8 @@ export default function toolInput(value: unknown, schema: unknown): unknown {
 
     if ((type === "number" || type === "integer") && numeric(value)) return Number(value)
 
+    if (type === "null" && decode(value) === null) return null
+
     return value
 }
 
@@ -85,6 +87,8 @@ function accepts(value: unknown, schema: Record<string, unknown>) {
     if (schema.type === "number" || schema.type === "integer") return typeof value === "number"
 
     if (schema.type === "string") return typeof value === "string"
+
+    if (schema.type === "null") return value === null
 
     return false
 }

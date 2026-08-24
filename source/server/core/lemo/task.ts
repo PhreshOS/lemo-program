@@ -1,6 +1,7 @@
 import type LLMModel from "../llm/model"
 import Cycle from "./cycle"
 import type LemoDatabase from "./database"
+import type Memory from "./memory"
 import type Operation from "./operation"
 import type Runtime from "./runtime/runtime"
 
@@ -27,6 +28,7 @@ export default class Task {
     private constructor(
         public readonly id: string,
         private readonly database: LemoDatabase,
+        private readonly memory: Memory,
         private readonly runtime: Runtime
     ) {
 
@@ -40,7 +42,7 @@ export default class Task {
         void this.completion.catch(() => {})
     }
 
-    public static async create(database: LemoDatabase, runtime: Runtime, request: TaskRequest) {
+    public static async create(database: LemoDatabase, memory: Memory, runtime: Runtime, request: TaskRequest) {
 
         if (!request.input.trim()) throw new Error("A Task requires input")
 
@@ -54,16 +56,16 @@ export default class Task {
             input: request.input
         })
 
-        const task = new Task(id, database, runtime)
+        const task = new Task(id, database, memory, runtime)
 
         task.start(request.model)
 
         return task
     }
 
-    public static async open(database: LemoDatabase, runtime: Runtime, id: string) {
+    public static async open(database: LemoDatabase, memory: Memory, runtime: Runtime, id: string) {
 
-        return await database.hasTask(id) ? new Task(id, database, runtime) : null
+        return await database.hasTask(id) ? new Task(id, database, memory, runtime) : null
     }
 
     /** Reconstructs the current Task status from its persisted operation chain. */
@@ -116,6 +118,7 @@ export default class Task {
 
                 const cycle = await Cycle.run(
                     this.database,
+                    this.memory,
                     this.id,
                     model,
                     await this.runtime.definitions(this.database, this.id)

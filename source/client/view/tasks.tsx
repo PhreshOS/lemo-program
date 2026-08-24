@@ -2,6 +2,8 @@ import type Application from "@client/core/application"
 import type Task from "@client/core/lemo/task"
 import type OllamaCloudModel from "@client/core/llm/providers/ollama-cloud/model"
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react"
+import Markdown, { type Components } from "react-markdown"
+import remarkGfm from "remark-gfm"
 
 const visibleTaskLimit = 20
 
@@ -9,20 +11,24 @@ export default function Tasks({ application, models }: Properties) {
 
     const [tasks, setTasks] = useState<readonly Task[]>([])
     const [input, setInput] = useState("")
-    const [selected, setSelected] = useState("")
+    const [selectedModel, setSelectedModel] = useState("")
+    const [selectedTask, setSelectedTask] = useState("")
     const [error, setError] = useState("")
     const [revision, render] = useState(0)
     const history = useRef<HTMLDivElement>(null)
+    const submission = useRef(0)
 
     const available = useMemo(() => new Map(models.map(model => [modelKey(model), model])), [models])
 
-    const model = available.get(selected) ?? models[0] ?? null
+    const model = available.get(selectedModel) ?? models[0] ?? null
+
+    const currentTask = tasks.find(task => task.id === selectedTask) ?? null
 
     useEffect(function () {
 
-        if (model && selected !== modelKey(model)) setSelected(modelKey(model))
+        if (model && selectedModel !== modelKey(model)) setSelectedModel(modelKey(model))
 
-    }, [model, selected])
+    }, [model, selectedModel])
 
     useEffect(function () {
 
@@ -30,7 +36,12 @@ export default function Tasks({ application, models }: Properties) {
 
         void application.lemo.tasks().then(value => {
 
-            if (active) setTasks(value.slice(-visibleTaskLimit))
+            if (!active) return
+
+            const visible = value.slice(-visibleTaskLimit)
+
+            setTasks(visible)
+            setSelectedTask(current => current || visible.at(-1)?.id || "")
         }).catch(failure => {
 
             if (active) setError(message(failure))
@@ -53,7 +64,7 @@ export default function Tasks({ application, models }: Properties) {
 
         history.current?.scrollTo({ top: history.current.scrollHeight, behavior: "smooth" })
 
-    }, [tasks, revision])
+    }, [selectedTask, revision])
 
     function submit(event: FormEvent) {
 
@@ -67,9 +78,13 @@ export default function Tasks({ application, models }: Properties) {
 
         setError("")
 
+        const request = ++submission.current
+
         void application.lemo.task({ input: question, model }).then(task => {
 
-            setTasks(current => [...current, task].slice(-visibleTaskLimit))
+            setTasks(current => [...current.filter(candidate => candidate.id !== task.id), task].slice(-visibleTaskLimit))
+
+            if (request === submission.current) setSelectedTask(task.id)
         }).catch(failure => {
 
             setError(message(failure))
@@ -88,45 +103,68 @@ export default function Tasks({ application, models }: Properties) {
     }
 
     return <section className="tasks" aria-label="Lemo Tasks">
-        <div className="task-list" ref={history} aria-live="polite">
-            {!tasks.length && <div className="empty-state">
-                <strong>What should we work on?</strong>
-                <p>Start a Task below. Every Task runs independently, so you can submit another while Lemo works.</p>
-            </div>}
+        <aside className="task-sidebar" aria-label="Tasks">
+            <header>
+                <strong>Tasks</strong>
+                <span>{tasks.length}</span>
+            </header>
 
-            {tasks.map(task => <TaskView key={task.id} task={task} />)}
-        </div>
-
-        <form className="composer" onSubmit={submit}>
-            <textarea
-                aria-label="Task input"
-                rows={2}
-                placeholder={model ? "Message Lemo…" : "Configure an active LLM Provider first."}
-                value={input}
-                onChange={event => setInput(event.target.value)}
-                onKeyDown={keyboard}
-            />
-
-            <div className="composer-bar">
-                <select
-                    aria-label="LLM Model"
-                    value={model ? modelKey(model) : ""}
-                    disabled={!models.length}
-                    onChange={event => setSelected(event.target.value)}
+            <nav className="task-navigation">
+                {[...tasks].reverse().map(task => <button
+                    className="task-link"
+                    data-status={task.status}
+                    aria-current={task.id === selectedTask ? "page" : undefined}
+                    key={task.id}
+                    type="button"
+                    onClick={() => setSelectedTask(task.id)}
                 >
-                    {!models.length && <option value="">No LLM Models</option>}
-                    {models.map(candidate => <option key={modelKey(candidate)} value={modelKey(candidate)}>
-                        {candidate.provider.name} · {candidate.id}
-                    </option>)}
-                </select>
+                    <span>{taskQuestion(task)}</span>
+                    <small>{statusLabel(task.status)}</small>
+                </button>)}
+            </nav>
+        </aside>
 
-                <span className="composer-hint">Enter to send · Shift Enter for a new line</span>
+        <div className="task-workspace">
+            <div className="task-list" ref={history} aria-live="polite">
+                {!currentTask && <div className="empty-state">
+                    <strong>What should we work on?</strong>
+                    <p>Start a Task below. Every Task runs independently, so you can submit another while Lemo works.</p>
+                </div>}
 
-                <button className="primary" type="submit" disabled={!input.trim() || !model}>Send</button>
+                {currentTask && <TaskView task={currentTask} />}
             </div>
 
-            {error && <p className="composer-error" role="alert">{error}</p>}
-        </form>
+            <form className="composer" onSubmit={submit}>
+                <textarea
+                    aria-label="Task input"
+                    rows={2}
+                    placeholder={model ? "Message Lemo…" : "Configure an active LLM Provider first."}
+                    value={input}
+                    onChange={event => setInput(event.target.value)}
+                    onKeyDown={keyboard}
+                />
+
+                <div className="composer-bar">
+                    <select
+                        aria-label="LLM Model"
+                        value={model ? modelKey(model) : ""}
+                        disabled={!models.length}
+                        onChange={event => setSelectedModel(event.target.value)}
+                    >
+                        {!models.length && <option value="">No LLM Models</option>}
+                        {models.map(candidate => <option key={modelKey(candidate)} value={modelKey(candidate)}>
+                            {candidate.provider.name} · {candidate.id}
+                        </option>)}
+                    </select>
+
+                    <span className="composer-hint">Enter to send · Shift Enter for a new line</span>
+
+                    <button className="primary" type="submit" disabled={!input.trim() || !model}>Send</button>
+                </div>
+
+                {error && <p className="composer-error" role="alert">{error}</p>}
+            </form>
+        </div>
     </section>
 }
 
@@ -134,120 +172,164 @@ function TaskView({ task }: Readonly<{ task: Task }>) {
 
     const history = task.operations()
 
-    const input = history.find(operation => operation.kind === "task.input")
-
-    const question = text(record(input?.payload)?.input) || "Task"
-
-    const messages = history
-        .filter(operation => operation.kind === "model.message")
-        .map(operation => text(record(operation.payload)?.content))
-        .filter(Boolean)
-
-    const finalMessage = text(record(history.findLast(operation => operation.kind === "task.completed")?.payload)?.output)
-
-    const response = finalMessage || messages.at(-1) || streamingText(history)
-
-    const activity = toolActivity(history)
+    const events = timeline(history)
 
     return <article className="task" data-status={task.status}>
-        <div className="user-message">{question}</div>
-
-        <div className="assistant-message">
-            <div className="assistant-heading">
-                <strong>Lemo</strong>
-                <span className="task-status">{statusLabel(task.status)}</span>
-            </div>
-
-            {activity.total > 0 && <details className="activity">
-                <summary>{activityLabel(activity)}</summary>
-
-                <div className="activity-groups">
-                    {activity.groups.map(group => <div key={group.name}>
-                        <strong>{group.name}</strong>
-                        <span>{groupLabel(group)}</span>
-                    </div>)}
+        {events.map(event => event.type === "user"
+            ? <div className="user-message" key={event.key}>{event.content}</div>
+            : event.type === "message"
+                ? <div className="assistant-message" key={event.key}>
+                    <strong className="event-author">Lemo</strong>
+                    <MarkdownMessage content={event.content} />
                 </div>
-            </details>}
+                : event.type === "tool"
+                    ? <div className="runtime-message" key={event.key}>
+                        <strong className="event-author">Runtime</strong>
+                        <div className="tool-event" data-status={event.status}>
+                            <code>{event.name}</code>
+                            <span>{toolStatus(event.status)}</span>
+                            {event.error && <small>{event.error}</small>}
+                        </div>
+                    </div>
+                    : <div className="assistant-message failure-message" key={event.key}>
+                        <strong className="event-author">Lemo</strong>
+                        <p role="alert">{event.content}</p>
+                    </div>)}
 
-            {response
-                ? <div className="response">{response}</div>
-                : task.status === "running" && <div className="working" aria-label="Lemo is working">
-                    <i />
-                    <i />
-                    <i />
-                </div>}
+        {task.status === "running" && <div className="working" aria-label="Lemo is working">
+            <i />
+            <i />
+            <i />
+        </div>}
 
-            {task.error && <p role="alert">{task.error.message}</p>}
-        </div>
+        {task.error && <p role="alert">{task.error.message}</p>}
     </article>
 }
 
-function toolActivity(operations: ReturnType<Task["operations"]>) {
+const markdownComponents: Components = {
+    a({ node, ...properties }) {
 
-    const groups = new Map<string, ToolGroup>()
+        void node
+
+        return <a {...properties} target="_blank" rel="noreferrer" />
+    }
+}
+
+function MarkdownMessage({ content }: Readonly<{ content: string }>) {
+
+    return <div className="markdown">
+        <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{content}</Markdown>
+    </div>
+}
+
+function taskQuestion(task: Task) {
+
+    const input = task.operations().find(operation => operation.kind === "task.input")
+
+    return text(record(input?.payload)?.input) || "Task"
+}
+
+function timeline(operations: ReturnType<Task["operations"]>): readonly TimelineEvent[] {
+
+    const results = toolResults(operations)
+    const events: TimelineEvent[] = []
+    let cycleHasText = false
 
     for (const operation of operations) {
 
         const payload = record(operation.payload)
 
+        if (operation.kind === "task.input") {
+
+            const content = text(payload?.input)
+
+            if (content) events.push({ type: "user", key: operation.id, content })
+        }
+
+        if (operation.kind === "cycle.started") cycleHasText = false
+
+        if (operation.kind === "model.event" && payload?.type === "text") {
+
+            const content = text(payload.content)
+
+            if (!content) continue
+
+            cycleHasText = true
+
+            const previous = events.at(-1)
+
+            if (previous?.type === "message") previous.content += content
+            else events.push({ type: "message", key: operation.id, content })
+        }
+
         if (operation.kind === "model.event" && payload?.type === "tool-call") {
 
             const call = record(payload.call)
+            const id = text(call?.id)
+            const name = text(call?.name)
 
-            if (typeof call?.name !== "string") continue
+            if (!id || !name) continue
 
-            const group = groups.get(call.name) ?? { name: call.name, calls: 0, completed: 0, failed: 0 }
+            const result = results.get(id)
 
-            group.calls++
-
-            groups.set(call.name, group)
+            events.push({
+                type: "tool",
+                key: operation.id,
+                name,
+                status: result ? result.ok ? "completed" : "failed" : "running",
+                error: result?.error
+            })
         }
 
-        if (operation.kind === "tool.result" && typeof payload?.name === "string") {
+        if (operation.kind === "model.message" && !cycleHasText) {
 
-            const group = groups.get(payload.name) ?? { name: payload.name, calls: 0, completed: 0, failed: 0 }
+            const content = text(payload?.content)
 
-            if (payload.ok === true) group.completed++
-            else group.failed++
+            if (content) events.push({ type: "message", key: operation.id, content })
+        }
 
-            groups.set(payload.name, group)
+        if (operation.kind === "task.failed") {
+
+            events.push({
+                type: "failure",
+                key: operation.id,
+                content: text(payload?.message) || "The Task failed"
+            })
         }
     }
 
-    const values = [...groups.values()]
+    return events
+}
 
-    return {
-        total: values.reduce((total, group) => total + group.calls, 0),
-        failed: values.reduce((total, group) => total + group.failed, 0),
-        pending: values.reduce((total, group) => total + Math.max(0, group.calls - group.completed - group.failed), 0),
-        groups: values
+function toolResults(operations: ReturnType<Task["operations"]>) {
+
+    const results = new Map<string, ToolResult>()
+
+    for (const operation of operations) {
+
+        if (operation.kind !== "tool.result") continue
+
+        const payload = record(operation.payload)
+        const call = text(payload?.call)
+
+        if (!call) continue
+
+        results.set(call, {
+            ok: payload?.ok === true,
+            error: payload?.ok === true ? undefined : text(payload?.error) || "The tool failed"
+        })
     }
+
+    return results
 }
 
-function activityLabel(activity: ReturnType<typeof toolActivity>) {
+function toolStatus(status: ToolStatus) {
 
-    const calls = `${activity.total} tool ${activity.total === 1 ? "call" : "calls"}`
+    if (status === "running") return "Running…"
 
-    if (activity.pending) return `${calls} · ${activity.pending} active`
+    if (status === "failed") return "Failed"
 
-    if (activity.failed) return `${calls} · ${activity.failed} failed`
-
-    return calls
-}
-
-function groupLabel(group: ToolGroup) {
-
-    const values = []
-
-    if (group.completed) values.push(`${group.completed} completed`)
-
-    if (group.failed) values.push(`${group.failed} failed`)
-
-    const pending = Math.max(0, group.calls - group.completed - group.failed)
-
-    if (pending) values.push(`${pending} active`)
-
-    return values.join(" · ") || `${group.calls} requested`
+    return "Completed"
 }
 
 function statusLabel(status: Task["status"]) {
@@ -257,20 +339,6 @@ function statusLabel(status: Task["status"]) {
     if (status === "failed") return "Failed"
 
     return "Completed"
-}
-
-function streamingText(operations: ReturnType<Task["operations"]>) {
-
-    const lastMessage = operations.findLastIndex(operation => operation.kind === "model.message")
-
-    return operations.slice(lastMessage + 1).flatMap(operation => {
-
-        if (operation.kind !== "model.event") return []
-
-        const payload = record(operation.payload)
-
-        return payload?.type === "text" ? text(payload.content) : []
-    }).join("")
 }
 
 function modelKey(model: OllamaCloudModel) {
@@ -303,11 +371,23 @@ function record(value: unknown) {
         : null
 }
 
-type ToolGroup = {
+type ToolStatus = "running" | "completed" | "failed"
+
+type ToolResult = Readonly<{
+    ok: boolean
+    error?: string
+}>
+
+type TimelineEvent = {
+    type: "user" | "message" | "failure"
+    key: string
+    content: string
+} | {
+    type: "tool"
+    key: string
     name: string
-    calls: number
-    completed: number
-    failed: number
+    status: ToolStatus
+    error?: string
 }
 
 type Properties = Readonly<{

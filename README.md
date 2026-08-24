@@ -90,20 +90,22 @@ than a generator. `task.status()`, `task.operations()`, and `task.result()`
 reconstruct durable state from the database. A fresh Lemo Process can recover a
 Task through `lemo.findTask(taskId)` without an in-memory Task registry.
 
-Input, exact Model requests, raw Model events, reconstructed assistant messages,
-tool calls and results, completion, and failure are recorded immediately as an
-unbroken parent chain under the Task identity. Disposable values needed only by
-the active operation may remain local, but no context intended for a later
-cycle is held in Process or Task memory.
+Input, raw Model events, reconstructed assistant messages, tool calls and
+results, completion, and failure are recorded immediately as an unbroken parent
+chain under the Task identity. A constructed Model request, including its
+Memory snapshot, is disposable and is never retained. Its durable source facts
+remain in the database, allowing every later Cycle to reconstruct it without
+holding context in Process or Task memory.
 
 ## Cycles
 
 A Cycle is an internal, disposable Model operation. It records its start, loads
-the Task's ordered raw operations, constructs a fresh request from those facts
-and `system.md`, records that exact request, and only then invokes the Model.
-Every accepted text or tool-call event and the final assistant message are
-persisted before the Cycle completes. The constructed request is never reused
-by another Cycle.
+the Task's ordered raw operations, reruns Memory retrieval from the original
+Task input, and constructs a fresh request from those facts, the disposable
+snapshot, and `system.md`. The current Task is excluded from its own automatic
+snapshot. Every accepted text or tool-call event and the final assistant
+message are persisted before the Cycle completes. Neither the constructed
+request nor its snapshot is retained or reused by another Cycle.
 
 Ollama Cloud maps this general message request directly to its streaming chat
 API.
@@ -144,11 +146,27 @@ to Server Runtime tools.
 
 Memory is an internal mathematical view over the existing raw operation log;
 it does not copy history into a second memory table or alter the schema. Recall
-reserves half of its radius for recent history, then fills the remaining half
-by combined lexical and temporal relevance. It currently returns at most 20
-results. Only task input, assistant content, and explicit future
-`memory.recorded` facts are candidates. Recall metadata and tool results are
+uses a content-size budget rather than a Block-count radius. Half of the budget
+preserves recent history, then the remaining half favors combined lexical and
+temporal relevance. The default budget is 12,000 characters and explicit
+Memory calls may request between 1,000 and 32,000. Task input, assistant
+content, explicit `memory.recorded` facts, failed Tool results, and Task
+failures are candidates. Successful Tool output and recall bookkeeping remain
 excluded, preventing Memory from recursively recalling its own output.
+
+Selected facts are anchors rather than isolated fragments. Memory
+mathematically expands each anchor with its Task input, nearby facts across the
+Task and global timeline, and the correlated Tool request for a failed Tool
+result. Overlapping operations are deduplicated. Consequently, many small facts
+may fit where only a few large facts fit, while short dependent statements keep
+the surrounding evidence needed to understand them.
+
+Every Cycle independently rebuilds its automatic cross-Task context. The
+disposable context groups selected operations by their originating Task and
+labels every operation with its global sequence, identity, parent, kind, time,
+source, recording method, Tool, call, and selection role. This lets concurrent
+Tasks contribute committed experience to one shared mind without merging their
+durable Task identities or retaining a generated snapshot.
 
 Every Tool receives a distinct Memory-writing capability through its execution
 context. A Tool must deliberately record a fact; Runtime never promotes tool

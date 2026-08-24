@@ -1,9 +1,20 @@
 # memory
 
 Recalls durable context from Lemo's shared history. Pass the current subject as
-`query`. You may request between 1 and 20 results; the default is 20.
+`query`. The optional `budget` is a character budget from 1,000 through 32,000;
+the default is 12,000.
 
-Half of the result radius preserves recent context. The other half favors
-history that is both lexically related to the query and temporally close. The
-result identifies the original Task and operation for every selected fact.
+Half of the budget preserves recent context. The other half favors history that
+is both lexically related to the query and temporally close. Selection ranks
+individual facts as anchors, then adds their Task input, nearby facts, and any
+correlated failed Tool request as disposable context. Small facts therefore do
+not consume the same share as large facts. Overlapping context is deduplicated.
 
+The result identifies whether each operation was a recent anchor, relevant
+anchor, or supporting context, together with its original Task, operation,
+parent, global sequence, kind, source, recording method, tool, call, and
+creation time.
+
+Failed Tasks and failed Tool results are eligible evidence. Successful Tool
+outputs remain excluded unless their owning Tool deliberately records a durable
+fact through its Memory context.

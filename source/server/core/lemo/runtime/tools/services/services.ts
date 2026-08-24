@@ -27,7 +27,7 @@ const input = z.discriminatedUnion("action", [
         endpoint: z.literal("server"),
         name: coordinates.name,
         event: z.string().trim().min(1),
-        payload: z.unknown().optional(),
+        payload: z.json().optional(),
         timeout
     }).strict()
 ])
@@ -36,6 +36,17 @@ const coordinateParameters = Object.freeze({
     program: Object.freeze({ type: "string" }),
     endpoint: Object.freeze({ type: "string", enum: Object.freeze(["server", "client"]) }),
     name: Object.freeze({ type: "string" })
+})
+
+const jsonParameters = Object.freeze({
+    oneOf: Object.freeze([
+        Object.freeze({ type: "object" }),
+        Object.freeze({ type: "array", items: Object.freeze({}) }),
+        Object.freeze({ type: "string" }),
+        Object.freeze({ type: "number" }),
+        Object.freeze({ type: "boolean" }),
+        Object.freeze({ type: "null" })
+    ])
 })
 
 /** Connects Lemo to one exact documented Endpoint Service. */
@@ -61,7 +72,7 @@ const services: Tool = {
                     endpoint: Object.freeze({ const: "server" }),
                     name: coordinateParameters.name,
                     event: Object.freeze({ type: "string" }),
-                    payload: Object.freeze({}),
+                    payload: jsonParameters,
                     timeout: Object.freeze({ type: "integer", minimum: 1 })
                 })
             ])
@@ -153,4 +164,3 @@ function variant(required: readonly string[], properties: Readonly<Record<string
         additionalProperties: false
     })
 }
-
