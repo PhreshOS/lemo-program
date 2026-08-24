@@ -1,51 +1,70 @@
 # services
 
-Connects Lemo to one exact documented PhreshOS Endpoint Service. Services are
-not a separate registry and this tool does not list them. Discover a Program's
-Service capability and read its name, policies, events, and payload contracts
-through the `programs` tool first.
+Connects Lemo to a Service only through documentation read from the authoritative
+Program Endpoint. Services are not a separate registry and this tool does not
+list them.
 
-Every operation uses the complete Service coordinates: Program identity,
-Endpoint kind, and Program-authored Service name.
+## Required flow
 
-## Status
+1. Use `programs.docs` for the exact Program Endpoint.
+2. Read its Service name, policies, events, and payload contracts.
+3. Connect using the returned contract identity and documented name:
 
 ```json
 {
-  "action": "status",
-  "program": "flambo",
-  "endpoint": "server",
+  "action": "connect",
+  "contract": "endpoint-contract:...",
   "name": "browser"
 }
 ```
 
-Returns whether that exact Service is currently enabled.
+The result contains a durable `service` handle. Use that handle for every later
+operation. A contract belongs to the current Task and becomes invalid if the
+installed documentation changes.
 
-## Wait Until Ready
+## Status and readiness
 
-Use `waitReady` with the same coordinates. `timeout` is an optional positive
-number of milliseconds; omission uses the SDK default.
+```json
+{ "action": "status", "service": "service:..." }
+```
+
+Use `waitReady` with the same handle. `timeout` is an optional positive number
+of milliseconds; omission uses the SDK default.
+
+## Create the providing Endpoint
+
+Use `createAndWaitReady` when the Service is not already available. The System
+creates or finds the Service's dedicated Process, starts only its providing
+Endpoint, and waits for the exact Service. Lemo must not reproduce that launch
+through the `processes` tool.
+
+```json
+{
+  "action": "createAndWaitReady",
+  "service": "service:..."
+}
+```
+
+For a Client Service only, optional `client` overrides may set its initial
+title, size, position, layer, location, or minimized state. `timeout` covers
+the complete creation and readiness operation.
 
 ## Ask a Server Service
-
-Only a Server Service can be asked a question:
 
 ```json
 {
   "action": "ask",
-  "program": "flambo",
-  "endpoint": "server",
-  "name": "browser",
+  "service": "service:...",
   "event": "workspace.create",
-  "payload": {}
+  "payload": { "client": true }
 }
 ```
 
-The payload accepts any JSON value and the answer passes through unchanged. Use
-the value described by the Service directly: an object remains an object, an
-array remains an array, and a scalar remains a scalar. An optional positive
-`timeout` selects one deadline shared by Service readiness and the answer.
+Only a Server Service can be asked. Follow the Endpoint documentation exactly.
+The payload accepts any JSON value and passes through unchanged. An optional
+positive `timeout` sets the answer deadline.
 
-This generic bridge cannot understand the domain meaning of a Service answer,
-so it never promotes results into Memory. The Task's raw operation history
-still preserves each tool call and result.
+Raw answers remain in the Task database. Large binary fields and oversized
+answers are reduced only when rebuilding text Model context, preventing images
+or frames from consuming later cycles. This generic bridge never promotes a
+Service result into Memory.

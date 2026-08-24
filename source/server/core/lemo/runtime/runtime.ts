@@ -142,7 +142,8 @@ export default class Runtime {
             call: call.id,
             name: call.name,
             ok: true,
-            output
+            output,
+            ...(tool.modelOutput ? { modelOutput: tool.modelOutput(output) } : {})
         })
     }
 }

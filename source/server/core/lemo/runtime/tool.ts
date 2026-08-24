@@ -9,6 +9,9 @@ export default interface Tool {
     readonly docs: string
 
     execute(input: unknown, context: ToolContext): Promise<unknown>
+
+    /** Optionally reduces a raw result only for the next Model context. */
+    modelOutput?(output: unknown): unknown
 }
 
 export type ToolContext = Readonly<{

@@ -1,6 +1,6 @@
 # Lemo
 
-The public PhreshOS agent Program.
+The official PhreshOS agent Program.
 
 ```bash
 bun install
@@ -154,12 +154,15 @@ creation, named Process resolution, and exit are deliberately written through
 the Tool's Memory context. The `endpoints` tool inspects and controls individual
 Server and Client Endpoint lifecycles, can wait for Server readiness, and
 records only successful start and stop operations. The `services` tool has no
-listing API: it connects directly to coordinates learned from Program Endpoint
-documentation, checks or awaits readiness, and passes Server Service questions
-and answers through without interpreting or promoting them into Memory. The
-`windows` tool reads and controls the authoritative Window belonging to a live
-Client Endpoint while correctly leaving local Surface presentation unavailable
-to Server Runtime tools.
+listing API. `programs.docs` issues a Task-bound contract for one exact version
+of Endpoint Service documentation; `services.connect` validates that contract
+and returns a durable Service handle. The Tool can then check readiness, ask a
+Server Service, or atomically create the dedicated providing Process and await
+the Service without reproducing Process launch rules. Raw answers remain in the
+Task database while large binary fields are removed only from disposable Model
+context. The `windows` tool reads and controls the authoritative Window
+belonging to a live Client Endpoint while correctly leaving local Surface
+presentation unavailable to Server Runtime tools.
 
 Memory is an internal mathematical view over the existing raw operation log;
 it does not copy history into a second memory table or alter the schema. Recall

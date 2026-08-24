@@ -17,9 +17,10 @@ result also includes the Client Endpoint's declared Window defaults.
 
 Use `{ "action": "docs", "program": "identity", "endpoint": "server" }` or
 select `client`. Documentation is available before the Endpoint or its Service
-starts. It defines the Service name, policies, and API contract.
+starts. It defines the Service name, policies, and API contract. The result also
+contains a Task-bound `contract` identity for that exact documentation. Pass it
+to `services.connect`; do not invent Service events or coordinates independently.
 
 Unknown Programs, missing Endpoints, and Endpoints without declared Service
 documentation are errors. This tool is read-only and does not record registry
 snapshots into Memory.
-

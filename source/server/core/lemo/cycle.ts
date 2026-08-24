@@ -133,7 +133,7 @@ function modelRequest(
             messages.push({
                 role: "tool",
                 name: payload.name,
-                content: JSON.stringify(payload)
+                content: JSON.stringify(modelToolResult(payload))
             })
         }
     }
@@ -146,6 +146,18 @@ function modelRequest(
     return Object.freeze({
         messages: Object.freeze(messages.map(message => Object.freeze(message))),
         tools
+    })
+}
+
+function modelToolResult(payload: Record<string, unknown>) {
+
+    if (payload.ok !== true || !("modelOutput" in payload)) return payload
+
+    return Object.freeze({
+        call: payload.call,
+        name: payload.name,
+        ok: true,
+        output: payload.modelOutput
     })
 }
 

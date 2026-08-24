@@ -5,7 +5,14 @@ import Lemo from "../source/server/core/lemo/lemo"
 import Memory from "../source/server/core/lemo/memory"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
+import {
+    issueEndpointContract,
+    issueServiceAccess,
+    readServiceAccess,
+    verifyEndpointContract
+} from "../source/server/core/lemo/runtime/service-access"
 import toolInput from "../source/server/core/lemo/runtime/tool-input"
+import { serviceModelOutput } from "../source/server/core/lemo/runtime/tools/services/services"
 
 assert.deepEqual(toolInput({
     action: "setGeometry",
@@ -69,6 +76,47 @@ assert.deepEqual(toolInput({ action: "ask", payload: "{}" }, serviceInput), {
 assert.deepEqual(toolInput({ action: "ask", payload: "null" }, serviceInput), {
     action: "ask",
     payload: null
+})
+
+const taskIdentity = crypto.randomUUID()
+const endpointContract = issueEndpointContract({
+    task: taskIdentity,
+    program: "flambo",
+    endpoint: "server",
+    documentation: "# Browser Service"
+})
+
+const verifiedContract = verifyEndpointContract(endpointContract, taskIdentity, "# Browser Service")
+
+assert.equal(verifiedContract.task, taskIdentity)
+assert.equal(verifiedContract.program, "flambo")
+assert.equal(verifiedContract.endpoint, "server")
+assert.match(verifiedContract.documentation, /^[a-f0-9]{64}$/)
+
+assert.throws(
+    () => verifyEndpointContract(endpointContract, taskIdentity, "# Changed Browser Service"),
+    /documentation changed/
+)
+
+const serviceAccess = issueServiceAccess(endpointContract, "browser")
+
+assert.deepEqual(readServiceAccess(serviceAccess), {
+    contract: endpointContract,
+    name: "browser"
+})
+
+assert.deepEqual(serviceModelOutput({
+    id: "snapshot",
+    image: "A".repeat(10_000),
+    title: "PhreshOS"
+}), {
+    id: "snapshot",
+    image: {
+        kind: "binary",
+        characters: 10_000,
+        note: "Binary content is retained in the database but omitted from text Model context."
+    },
+    title: "PhreshOS"
 })
 
 const database = new DatabaseSync(":memory:")

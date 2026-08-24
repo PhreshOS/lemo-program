@@ -8,7 +8,7 @@
         "@phreshos/client": "^0.1.14",
         "@phreshos/core": "^0.1.11",
         "@phreshos/react": "^0.1.7",
-        "@phreshos/server": "^0.1.12",
+        "@phreshos/server": "^0.1.13",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "react-markdown": "^10.1.0",
@@ -89,7 +89,7 @@
 
     "@phreshos/react": ["@phreshos/react@0.1.7", "", { "peerDependencies": { "@phreshos/client": "^0.1.13", "@phreshos/core": "^0.1.9", "react": "^19.2.0" } }, "sha512-JHR4QIGM4+24PYmKsrcWGqa8LRx59KdkRNCAMNg4HZGejt2R5gIotby7ACkh8riQyutWR6LoDF2wPrEqNPTM0A=="],
 
-    "@phreshos/server": ["@phreshos/server@0.1.12", "", { "dependencies": { "@msgpack/msgpack": "^3.1.3" }, "peerDependencies": { "@phreshos/core": "^0.1.11" } }, "sha512-O57f9cELzGXtSKSkEejVG3835yT2nYYj937XXzB8nX282dMOvT++8cHfv3OV76FZp4duwStaxKj+6ps46JmcDQ=="],
+    "@phreshos/server": ["@phreshos/server@0.1.13", "", { "dependencies": { "@msgpack/msgpack": "^3.1.3" }, "peerDependencies": { "@phreshos/core": "^0.1.11" } }, "sha512-1cdSpVXQXz02U76CzXYH33/y71EsXAvhupJ48CLI515SwBLh7JZ8b4N7QscvfSQHqcEqZhifd0uTY6J7ivnuvg=="],
 
     "@rolldown/binding-android-arm-eabi": ["@rolldown/binding-android-arm-eabi@1.2.5", "", { "os": "android", "cpu": "arm" }, "sha512-DLe/i+l8ynIBY7XEQ191TeZvCoowIGa18R+dIV30GW7DiOtp74i/xX8hs8GUjW5ARV7VZuie3d6AumSmCwbeRA=="],
 

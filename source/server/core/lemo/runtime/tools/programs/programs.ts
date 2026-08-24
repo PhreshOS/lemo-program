@@ -1,5 +1,6 @@
 import { host, type Program } from "@phreshos/server"
 import { z } from "zod"
+import { issueEndpointContract } from "../../service-access"
 import type Tool from "../../tool"
 import docs from "./docs.md?raw"
 
@@ -58,7 +59,7 @@ const programs: Tool = {
             ])
         })
     }),
-    async execute(value) {
+    async execute(value, context) {
 
         const request = input.parse(value)
 
@@ -99,6 +100,12 @@ const programs: Tool = {
         return Object.freeze({
             program: program.identity,
             endpoint: request.endpoint,
+            contract: issueEndpointContract({
+                task: context.task,
+                program: program.identity,
+                endpoint: request.endpoint,
+                documentation: content
+            }),
             content
         })
     }

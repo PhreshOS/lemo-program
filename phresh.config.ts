@@ -3,7 +3,7 @@ import { defineConfig } from "@phreshos/core"
 export default defineConfig({
     identity: "lemo",
     name: "Lemo",
-    description: "The PhreshOS agent.",
+    description: "The official PhreshOS agent.",
     version: "0.1.0",
     buildCommand: "vite-node scripts/build.ts",
     server: {
