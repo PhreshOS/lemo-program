@@ -13,14 +13,16 @@ Listings contain compact identity, metadata, and Endpoint declaration facts.
 Use `{ "action": "inspect", "program": "identity" }` for one Program. The
 result also includes the Client Endpoint's declared Window defaults.
 
-## Read Endpoint Service Documentation
+## Read Agent Documentation
 
-Use `{ "action": "docs", "program": "identity", "endpoint": "server" }` or
-select `client`. Documentation is available before the Endpoint or its Service
-starts. It defines the Service name, policies, events, and payload contracts.
-Use the documented name together with the Program identity and Endpoint when
-calling `services`; do not invent Service events or payloads.
+Every listing and inspection includes `hasAgent`. When it is `true`, use
+`{ "action": "agent", "program": "identity" }` to read the Program's operating
+knowledge before attempting Program-specific work.
 
-Unknown Programs, missing Endpoints, and Endpoints without declared Service
-documentation are errors. This tool is read-only and does not record registry
-snapshots into Memory.
+Agent documentation contains only knowledge controlled by that Program: its
+operating modes, policies, Endpoint responsibilities, event names, payloads,
+results, and cleanup requirements. Generic Process and Endpoint mechanics are
+defined by their own tools, not by Program documentation.
+
+Unknown Programs and Programs without agent documentation are errors. This tool
+is read-only and does not record registry snapshots into Memory.

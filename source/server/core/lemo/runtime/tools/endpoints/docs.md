@@ -17,9 +17,7 @@ local Process name.
 }
 ```
 
-Returns whether the Endpoint is declared, currently running, and currently
-providing a Service. Service identity and usage remain defined by the owning
-Program's Endpoint documentation.
+Returns whether the Endpoint is declared and currently running.
 
 ## Start and Stop
 
@@ -34,5 +32,39 @@ Use `waitReady` for a Server Endpoint. `timeout` is an optional positive number
 of milliseconds; omission uses the SDK default. Readiness waiting does not
 write Memory.
 
-Service communication is owned by the separate `services` tool.
+## Ask a Server Endpoint
 
+Use `ask` when the Program's agent documentation defines a request-response
+event on its Server Endpoint:
+
+```json
+{
+  "action": "ask",
+  "process": "process-identity",
+  "endpoint": "server",
+  "event": "workspace.create",
+  "payload": { "client": true }
+}
+```
+
+The optional positive `timeout` controls the complete readiness and answer
+deadline. Payloads pass through unchanged and must follow the Program's agent
+documentation exactly.
+
+## Publish to an Endpoint
+
+Use `publish` for a destination that accepts an event without returning an
+answer. Server and Client Endpoints are both supported, but the destination must
+already be running.
+
+```json
+{
+  "action": "publish",
+  "process": "process-identity",
+  "endpoint": "client",
+  "event": "refresh",
+  "payload": null
+}
+```
+
+Read the Program's agent documentation before using Program-specific events.

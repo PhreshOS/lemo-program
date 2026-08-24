@@ -146,21 +146,17 @@ Ordinary tools are not loaded into every Model request. Only the `tools`,
 tools were loaded, so every later Cycle reconstructs its available definitions
 from the Task operation chain. `time` is the first ordinary, Zod-validated tool
 and owns its implementation and documentation. The read-only `programs` tool
-lists and inspects authoritative PhreshOS Programs and reads their declared
-Endpoint Service documentation without copying temporary registry snapshots
-into Memory. The `processes` tool reads and controls live Processes through the
-actual Host and Program entities. Read operations remain ephemeral; successful
-creation, named Process resolution, and exit are deliberately written through
-the Tool's Memory context. The `endpoints` tool inspects and controls individual
-Server and Client Endpoint lifecycles, can wait for Server readiness, and
-records only successful start and stop operations. The `services` tool has no
-listing API. `programs.docs` issues a Task-bound contract for one exact version
-of Endpoint Service documentation; `services.connect` validates that contract
-and returns a durable Service handle. The Tool can then check readiness, ask a
-Server Service, or atomically create the dedicated providing Process and await
-the Service without reproducing Process launch rules. Raw answers remain in the
-Task database while large binary fields are removed only from disposable Model
-context. The `windows` tool reads and controls the authoritative Window
+lists and inspects authoritative PhreshOS Programs, projects whether each has
+agent documentation, and reads that Program-owned knowledge only when
+requested. It does not copy registry snapshots into Memory. The `processes`
+tool reads and controls live Processes through the actual Host and Program
+entities. Read operations remain ephemeral; successful creation, named Process
+resolution, and exit are deliberately written through the Tool's Memory
+context. The `endpoints` tool inspects and controls individual Server and Client
+Endpoint lifecycles, waits for Server readiness, asks Server Endpoints, and
+publishes to either Endpoint kind. It records only successful lifecycle changes
+in Memory; direct communication remains in the Task operation history. The
+`windows` tool reads and controls the authoritative Window
 belonging to a live Client Endpoint while correctly leaving local Surface
 presentation unavailable to Server Runtime tools.
 

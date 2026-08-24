@@ -14,7 +14,6 @@ import createMemory from "./tools/memory/memory"
 import programs from "./tools/programs/programs"
 import processes from "./tools/processes/processes"
 import prompt from "./tools/prompt/prompt"
-import services from "./tools/services/services"
 import time from "./tools/time/time"
 import createTools from "./tools/tools/tools"
 import windows from "./tools/windows/windows"
@@ -44,7 +43,6 @@ export default class Runtime {
             processes,
             prompt,
             endpoints,
-            services,
             windows
         )
 

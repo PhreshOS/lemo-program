@@ -5,8 +5,8 @@ import Lemo from "../source/server/core/lemo/lemo"
 import Memory from "../source/server/core/lemo/memory"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
+import { endpointModelOutput } from "../source/server/core/lemo/runtime/tools/endpoints/endpoints"
 import toolInput from "../source/server/core/lemo/runtime/tool-input"
-import { serviceModelOutput } from "../source/server/core/lemo/runtime/tools/services/services"
 
 assert.deepEqual(toolInput({
     action: "setGeometry",
@@ -46,43 +46,33 @@ const jsonValue = {
     ]
 }
 
-const serviceInput = {
+const endpointInput = {
     type: "object",
     properties: {
         action: { type: "string" },
-        service: {
-            type: "object",
-            properties: {
-                program: { type: "string" },
-                endpoint: { type: "string" },
-                name: { type: "string" }
-            }
-        },
         payload: jsonValue
     }
 }
 
 assert.deepEqual(toolInput({
     action: "ask",
-    service: "{\"program\":\"flambo\",\"endpoint\":\"server\",\"name\":\"browser\"}",
     payload: "{\"client\":true,\"viewport\":{\"width\":1280,\"height\":720}}"
-}, serviceInput), {
+}, endpointInput), {
     action: "ask",
-    service: { program: "flambo", endpoint: "server", name: "browser" },
     payload: { client: true, viewport: { width: 1280, height: 720 } }
 })
 
-assert.deepEqual(toolInput({ action: "ask", payload: "{}" }, serviceInput), {
+assert.deepEqual(toolInput({ action: "ask", payload: "{}" }, endpointInput), {
     action: "ask",
     payload: {}
 })
 
-assert.deepEqual(toolInput({ action: "ask", payload: "null" }, serviceInput), {
+assert.deepEqual(toolInput({ action: "ask", payload: "null" }, endpointInput), {
     action: "ask",
     payload: null
 })
 
-assert.deepEqual(serviceModelOutput({
+assert.deepEqual(endpointModelOutput({
     id: "snapshot",
     image: "A".repeat(10_000),
     title: "PhreshOS"
@@ -257,7 +247,7 @@ model = {
                     id: `${input}-tools`,
                     name: "tools",
                     input: {
-                        names: ["time", "programs", "processes", "endpoints", "services", "windows"]
+                        names: ["time", "programs", "processes", "endpoints", "windows"]
                     }
                 }
             }
@@ -275,7 +265,6 @@ model = {
                 "programs",
                 "processes",
                 "endpoints",
-                "services",
                 "windows"
             ])
 

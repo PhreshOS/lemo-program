@@ -13,9 +13,8 @@ const input = z.discriminatedUnion("action", [
         program: z.string().trim().min(1)
     }).strict(),
     z.object({
-        action: z.literal("docs"),
-        program: z.string().trim().min(1),
-        endpoint: z.enum(["server", "client"])
+        action: z.literal("agent"),
+        program: z.string().trim().min(1)
     }).strict()
 ])
 
@@ -24,7 +23,7 @@ const programs: Tool = {
     docs,
     definition: Object.freeze({
         name: "programs",
-        description: "List and inspect PhreshOS Programs or read an Endpoint's Service documentation.",
+        description: "List and inspect PhreshOS Programs or read their agent documentation.",
         parameters: Object.freeze({
             oneOf: Object.freeze([
                 Object.freeze({
@@ -47,11 +46,10 @@ const programs: Tool = {
                 }),
                 Object.freeze({
                     type: "object",
-                    required: Object.freeze(["action", "program", "endpoint"]),
+                    required: Object.freeze(["action", "program"]),
                     properties: Object.freeze({
-                        action: Object.freeze({ const: "docs" }),
-                        program: Object.freeze({ type: "string" }),
-                        endpoint: Object.freeze({ type: "string", enum: Object.freeze(["server", "client"]) })
+                        action: Object.freeze({ const: "agent" }),
+                        program: Object.freeze({ type: "string" })
                     }),
                     additionalProperties: false
                 })
@@ -77,28 +75,15 @@ const programs: Tool = {
 
         if (request.action === "inspect") return details(program, await program.installed())
 
-        const endpoint = program[request.endpoint]
-
-        if (!endpoint) {
-
-            throw new Error(`Program "${program.identity}" has no ${request.endpoint} Endpoint`)
-        }
-
-        if (!endpoint.hasService()) {
-
-            throw new Error(`Program "${program.identity}" does not declare a ${request.endpoint} Service`)
-        }
-
-        const content = await endpoint.docs()
+        const content = await program.agent()
 
         if (content === null) {
 
-            throw new Error(`Program "${program.identity}" has no installed ${request.endpoint} Service documentation`)
+            throw new Error(`Program "${program.identity}" has no agent documentation`)
         }
 
         return Object.freeze({
             program: program.identity,
-            endpoint: request.endpoint,
             content
         })
     }
@@ -113,6 +98,7 @@ async function summary(program: Program, knownInstalled?: boolean) {
         name: program.name,
         version: program.version,
         description: program.description,
+        hasAgent: program.hasAgent,
         installed: knownInstalled ?? await program.installed(),
         server: declaration(program.server),
         client: declaration(program.client)
@@ -139,6 +125,6 @@ async function details(program: Program, installed: boolean) {
 function declaration(endpoint: Program["server"] | Program["client"]) {
 
     return endpoint
-        ? Object.freeze({ start: endpoint.start, hasService: endpoint.hasService() })
+        ? Object.freeze({ start: endpoint.start })
         : null
 }
