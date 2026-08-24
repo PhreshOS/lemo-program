@@ -2,6 +2,12 @@
 
 Reads and controls live PhreshOS Processes.
 
+Process launch is Program-owned policy. Before `create`, `findOrCreate`, or
+`exit`, inspect the Program with `programs`. When it reports `hasAgent: true`,
+read the Program's agent documentation first and derive the launch and cleanup
+from it. Never guess whether Server and Client should run together, what a
+shared Process is named, or who owns its lifecycle.
+
 ## List
 
 Use `{ "action": "list" }` for every live Process visible to the Server. Add a
@@ -38,4 +44,3 @@ Listing and inspection do not write Memory. Successful creation, shared
 Process resolution, and exit are deliberately recorded with their Program and
 Process identities. Starting and stopping individual Endpoints belongs to the
 separate `endpoints` capability.
-

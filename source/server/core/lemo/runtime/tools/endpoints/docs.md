@@ -3,6 +3,11 @@
 Reads and controls one Server or Client Endpoint belonging to a live PhreshOS
 Process.
 
+Before starting, stopping, asking, or publishing, inspect the owning Program
+and read its agent documentation when `hasAgent` is true. Generic Endpoint
+mechanics do not reveal Program event names, payloads, lifecycle policy, or the
+correct Process topology.
+
 Every operation requires a Process identity and an Endpoint kind. When a
 Program identity is supplied, the Process value may instead be that Program's
 local Process name.

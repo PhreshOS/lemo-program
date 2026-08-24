@@ -23,7 +23,7 @@ const programs: Tool = {
     docs,
     definition: Object.freeze({
         name: "programs",
-        description: "List and inspect PhreshOS Programs or read their agent documentation.",
+        description: "Learn a PhreshOS Program and read its operating policy before acting on it.",
         parameters: Object.freeze({
             oneOf: Object.freeze([
                 Object.freeze({

@@ -17,7 +17,9 @@ result also includes the Client Endpoint's declared Window defaults.
 
 Every listing and inspection includes `hasAgent`. When it is `true`, use
 `{ "action": "agent", "program": "identity" }` to read the Program's operating
-knowledge before attempting Program-specific work.
+knowledge before loading or using operational tools for that Program. Read it
+before choosing a Process launch, Endpoint event, payload, lifecycle, or
+cleanup. Do not perform an operation first and consult the document afterward.
 
 Agent documentation contains only knowledge controlled by that Program: its
 operating modes, policies, Endpoint responsibilities, event names, payloads,
