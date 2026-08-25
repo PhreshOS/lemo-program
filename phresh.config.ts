@@ -6,6 +6,9 @@ export default defineConfig({
     description: "The official PhreshOS agent.",
     version: "0.1.4",
     icon: "icon.png",
+    categories: ["Productivity", "AI"],
+    keywords: ["agent", "tasks", "memory", "tools"],
+    website: "https://github.com/PhreshOS/lemo-program",
     buildCommand: "vite-node scripts/build.ts",
     server: {
         location: "dist/server",

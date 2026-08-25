@@ -9,6 +9,7 @@ dist
 # Made by `phresh pack` in the project root.
 /*.zip
 /*.zip.sha256
+/program.json
 
 # Editor and machine residue.
 .vscode
