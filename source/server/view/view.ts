@@ -16,13 +16,24 @@ export default async function view() {
 
     const program = await current.program()
 
-    const application = await Application.init(program.store, program.database, clientChannel)
+    const application = await Application.init(program.store, program.database, clientChannel, {
+        client: current.client,
+        identity: program.identity,
+        startup: program.startup
+    })
 
     application.subscribe(operation => current.publish("lemo.operation", operation))
 
     current.answer("llm-provider.state", function ({ payload }) {
 
         return application.llmProviderState(providerIdentity(payload))
+    })
+
+    current.answer<unknown, boolean>("manager.startup", () => application.startupEnabled())
+
+    current.answer<unknown, void>("manager.startup.configure", async function ({ payload }) {
+
+        await application.configureStartup(enabledRequest(payload))
     })
 
     current.answer<unknown, void>("llm-provider.configure", async function ({ payload }) {
@@ -100,6 +111,20 @@ export default async function view() {
 
         current.publish<LLMGenerationEvent>(request.generation, { type: "complete" })
     })
+
+    // Process creation must settle independently. Server Core owns this
+    // lifecycle, while View only starts it after every Server capability has
+    // been registered.
+    void application.start().catch(error => console.error(error))
+}
+
+function enabledRequest(value: unknown) {
+
+    if (!record(value) || typeof value.enabled !== "boolean") {
+        throw new Error("A Lemo startup request requires an enabled boolean")
+    }
+
+    return value.enabled
 }
 
 const clientChannel: ClientChannel = {

@@ -1,4 +1,4 @@
-import type { ProgramStore } from "@phreshos/core"
+import type { Launch, LaunchClient, ProgramStore } from "@phreshos/core"
 import type { LLMModelRecord, LLMModelRequest } from "./llm/model"
 import type { LLMProviderState } from "./llm/provider"
 import LLMProviders from "./llm/providers"
@@ -12,21 +12,33 @@ export default class Application {
 
     private constructor(
         private readonly providers: LLMProviders,
-        public readonly lemo: Lemo
+        public readonly lemo: Lemo,
+        private readonly environment: ApplicationEnvironment
     ) {}
 
-    public static async init(store: ProgramStore, database: LemoDatabaseSource, client: ClientChannel) {
+    public static async init(
+        store: ProgramStore,
+        database: LemoDatabaseSource,
+        channel: ClientChannel,
+        environment: ApplicationEnvironment
+    ) {
 
         const providers = await LLMProviders.init(store)
 
-        const lemo = await Lemo.wakeUp(database, client)
+        const lemo = await Lemo.wakeUp(database, channel)
 
-        return new Application(providers, lemo)
+        return new Application(providers, lemo, environment)
     }
 
     public get llmProviders() {
 
         return this.providers
+    }
+
+    /** Starts the paired Agent Client without extending Server construction. */
+    public start() {
+
+        return this.startAgent(this.environment.client)
     }
 
     public llmProviderState(identity: string): LLMProviderState {
@@ -69,6 +81,17 @@ export default class Application {
         if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
 
         yield* model.generate(request)
+    }
+
+    public async startupEnabled() {
+
+        return await this.environment.startup.get() !== null
+    }
+
+    public async configureStartup(enabled: boolean) {
+
+        if (enabled) await this.environment.startup.enable(fixedLaunch(this.environment.identity))
+        else await this.environment.startup.disable()
     }
 
     public async task(input: string, providerIdentity: string, modelIdentity: string): Promise<Task> {
@@ -137,4 +160,31 @@ export default class Application {
         return task
     }
 
+    private async startAgent(client: PairedClient) {
+
+        if (!await client.exists()) await client.start({ location: "/agent" })
+    }
+
+}
+
+function fixedLaunch(identity: string): Launch {
+
+    return Object.freeze({ name: identity, server: true, client: false })
+}
+
+export type ApplicationEnvironment = Readonly<{
+    client: PairedClient
+    identity: string
+    startup: Startup
+}>
+
+export interface PairedClient {
+    exists(): Promise<boolean>
+    start(overrides?: LaunchClient): Promise<void>
+}
+
+export interface Startup {
+    get(): Promise<Launch | null>
+    enable(launch?: Launch): Promise<void>
+    disable(): Promise<void>
 }

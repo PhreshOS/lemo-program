@@ -13,11 +13,15 @@ assert.equal(config.server?.location, "dist/server")
 
 assert.equal(config.server?.startCommand, "node main.js")
 
+assert.equal(config.server?.start, false)
+
 assert.equal(config.client?.location, "dist/client")
 
 assert.deepEqual(config.client?.size, { width: 600, height: 500 })
 
 assert(readFileSync("dist/client/index.html", "utf8").length > 0)
+
+assert.equal(readFileSync("dist/client/agent/index.html", "utf8"), readFileSync("dist/client/index.html", "utf8"))
 
 assert(readFileSync("dist/server/main.js", "utf8").length > 0)
 

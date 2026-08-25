@@ -11,6 +11,7 @@ export default defineConfig({
     website: "https://github.com/PhreshOS/lemo-program",
     buildCommand: "vite-node scripts/build.ts",
     server: {
+        start: false,
         location: "dist/server",
         startCommand: "node main.js",
         development: {

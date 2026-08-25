@@ -1,26 +1,23 @@
-import { current } from "@phreshos/client"
-import type {
-    LLMGenerationEvent,
-    LLMGenerationRequest,
-    LLMModelRecord
-} from "@server/core/llm/model"
-import type { LLMProviderState } from "@server/core/llm/provider"
+import type { Server } from "@phreshos/client"
 import LLMProviders from "./llm/providers"
+import { llmServerSources } from "./llm/server"
 import Lemo, { type LemoSource } from "./lemo/lemo"
 import type LLMModel from "./llm/model"
 import { taskSnapshot } from "./lemo/task"
 import Prompts, { type PromptSource } from "./prompts/prompts"
 
-const generationTimeout = 5 * 60 * 1000
-
 export default class Application {
 
-    public readonly llmProviders = new LLMProviders(serverModelsSource, serverProviderSource)
-    public readonly lemo = new Lemo(serverLemoSource)
+    public readonly llmProviders: LLMProviders
+    public readonly lemo: Lemo
     public readonly prompts: Prompts
 
-    public constructor(promptSource: PromptSource) {
+    public constructor(server: Server, promptSource: PromptSource) {
 
+        const sources = llmServerSources(server)
+
+        this.llmProviders = new LLMProviders(sources.models, sources.providers)
+        this.lemo = new Lemo(serverLemoSource(server))
         this.prompts = new Prompts(promptSource)
     }
 
@@ -37,191 +34,63 @@ export default class Application {
 
 }
 
-const serverLemoSource: LemoSource = {
-    async observe() {
+function serverLemoSource(server: Server): LemoSource {
 
-        const channel = eventChannel("lemo.operation")
+    return {
+        async observe() {
 
-        try {
-            const value = await current.server.ask<unknown>("lemo.tasks")
+            const channel = eventChannel(server, "lemo.operation")
 
-            if (!Array.isArray(value)) throw new Error("The Server returned an invalid Lemo Task list")
+            try {
+                const value = await server.ask<unknown>("lemo.tasks")
 
-            return Object.freeze({
-                snapshots: Object.freeze(value.map(taskSnapshot)),
-                events: channel.events,
-                close: channel.close
-            })
-        } catch (error) {
-            channel.close()
+                if (!Array.isArray(value)) throw new Error("The Server returned an invalid Lemo Task list")
 
-            throw error
+                return Object.freeze({
+                    snapshots: Object.freeze(value.map(taskSnapshot)),
+                    events: channel.events,
+                    close: channel.close
+                })
+            } catch (error) {
+                channel.close()
+
+                throw error
+            }
+        },
+        async create(input: string, model: LLMModel) {
+
+            return taskSnapshot(await server.ask<unknown>("lemo.task.create", {
+                input,
+                provider: model.provider.identity,
+                model: model.id
+            }))
+        },
+        control(task: string) {
+
+            return taskControl(server, task)
         }
-    },
-    async create(input: string, model: LLMModel) {
-
-        return taskSnapshot(await current.server.ask<unknown>("lemo.task.create", {
-            input,
-            provider: model.provider.identity,
-            model: model.id
-        }))
-    },
-    control(task: string) {
-
-        return taskControl(task)
     }
 }
 
-function taskControl(task: string) {
+function taskControl(server: Server, task: string) {
 
     return Object.freeze({
-        pause: () => controlTask("lemo.task.pause", task),
-        cancel: () => controlTask("lemo.task.cancel", task),
-        continue: () => controlTask("lemo.task.continue", task)
+        pause: () => controlTask(server, "lemo.task.pause", task),
+        cancel: () => controlTask(server, "lemo.task.cancel", task),
+        continue: () => controlTask(server, "lemo.task.continue", task)
     })
 }
 
-async function controlTask(operation: string, task: string) {
+async function controlTask(server: Server, operation: string, task: string) {
 
-    return taskSnapshot(await current.server.ask<unknown>(operation, { task }))
+    return taskSnapshot(await server.ask<unknown>(operation, { task }))
 }
 
-const serverProviderSource = {
-    async state(provider: string) {
-
-        return await current.server.ask<LLMProviderState>("llm-provider.state", { provider })
-    },
-    async configure(provider: string, configuration: unknown) {
-
-        await current.server.ask("llm-provider.configure", { provider, configuration })
-    },
-    async removeConfiguration(provider: string) {
-
-        await current.server.ask("llm-provider.remove-configuration", { provider })
-    },
-    async activate(provider: string) {
-
-        await current.server.ask("llm-provider.activate", { provider })
-    },
-    async deactivate(provider: string) {
-
-        await current.server.ask("llm-provider.deactivate", { provider })
-    }
-}
-
-const serverModelsSource = {
-    async models() {
-
-        return await current.server.ask<readonly LLMModelRecord[]>("llm-models")
-    },
-    async *generate(provider: string, model: string, request: LLMGenerationRequest["request"]) {
-
-        yield* stream(
-            "llm-generate",
-            generation => ({ generation, provider, model, request } satisfies LLMGenerationRequest)
-        )
-    }
-}
-
-async function *stream<Request>(operation: string, request: (generation: string) => Request) {
-
-    const generation = crypto.randomUUID()
+function eventChannel(server: Server, event: string) {
 
     const controller = new AbortController()
 
-    const events = current.server.events<unknown>(generation, {
-        capacity: eventQueueCapacity,
-        signal: controller.signal
-    })
-
-    const iterator = events[Symbol.asyncIterator]()
-
-    let next = iterator.next()
-
-    let failure: unknown
-
-    const completion = current.server.timeout(generationTimeout).ask<void>(operation, request(generation)).catch(error => {
-
-        failure = error
-
-        controller.abort()
-    })
-
-    try {
-        while (true) {
-
-            const result = await next
-
-            if (result.done) {
-
-                await completion
-
-                if (failure) throw failure
-
-                throw new Error("LLM generation stopped before completing")
-            }
-
-            next = iterator.next()
-
-            const event = generationEvent(result.value)
-
-            if (event.type !== "complete") yield event
-            else {
-
-                await completion
-
-                if (failure) throw failure
-
-                return
-            }
-        }
-    } finally {
-        controller.abort()
-
-        await iterator.return?.()
-    }
-}
-
-function generationEvent(value: unknown): LLMGenerationEvent {
-
-    if (!record(value) || (value.type !== "text" && value.type !== "tool-call" && value.type !== "complete")) {
-
-        throw new Error("Server returned an invalid LLM generation event")
-    }
-
-    if (value.type === "text") {
-
-        if (typeof value.content !== "string") throw new Error("Server returned invalid LLM text")
-
-        return { type: "text", content: value.content }
-    }
-
-    if (value.type === "tool-call") {
-
-        if (!record(value.call)) throw new Error("Server returned an invalid LLM tool call")
-
-        const id = typeof value.call.id === "string" ? value.call.id : ""
-
-        const name = typeof value.call.name === "string" ? value.call.name : ""
-
-        if (!id || !name) throw new Error("Server returned an invalid LLM tool call")
-
-        return { type: "tool-call", call: { id, name, input: value.call.input } }
-    }
-
-    return { type: "complete" }
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-}
-
-function eventChannel(event: string) {
-
-    const controller = new AbortController()
-
-    const source = current.server.events<unknown>(event, {
+    const source = server.events<unknown>(event, {
         capacity: eventQueueCapacity,
         signal: controller.signal
     })

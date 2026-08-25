@@ -14,6 +14,24 @@ const client = {
     publish() {},
     subscribe() { return () => {} }
 }
+let agentStarted = false
+const environment = {
+    identity: "lemo",
+    startup: {
+        async get() { return null },
+        async enable() {},
+        async disable() {}
+    },
+    client: {
+        async exists() { return agentStarted },
+        async start(overrides?: { location?: string }) {
+
+            assert.deepEqual(overrides, { location: "/agent" })
+
+            agentStarted = true
+        }
+    }
+}
 
 const store: ProgramStore = {
     async get<Value = unknown>(key: string): Promise<Value | undefined> {
@@ -42,7 +60,13 @@ const store: ProgramStore = {
     }
 }
 
-const unconfigured = await Application.init(store, database, client)
+const unconfigured = await Application.init(store, database, client, environment)
+
+assert.equal(agentStarted, false)
+
+await unconfigured.start()
+
+assert.equal(agentStarted, true)
 
 assert.equal(unconfigured.llmProviders.all().length, 1)
 
@@ -54,7 +78,7 @@ assert.equal(await store.get("opencode:active"), true)
 
 await store.set("ollama-cloud:config", { apiKey: "secret" })
 
-const application = await Application.init(store, database, client)
+const application = await Application.init(store, database, client, environment)
 
 assert.equal(application.llmProviders.all().length, 2)
 

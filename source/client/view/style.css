@@ -1259,78 +1259,11 @@ p {
     color: var(--status-error);
 }
 
-/* ==================== Settings Drawer ==================== */
-
-.settings-layer {
-    position: fixed;
-    z-index: 10;
-    inset: 0;
-    width: 100%;
-    max-width: none;
-    height: 100%;
-    max-height: none;
-    margin: 0;
-    padding: 0;
-    background: rgb(23 33 43 / 22%);
-    border: 0;
-}
-
-.settings-layer:not([open]) {
-    display: none;
-}
-
-.settings-layer[open] {
-    display: flex;
-    justify-content: flex-end;
-}
-
-.settings-layer::backdrop {
-    background: transparent;
-}
-
-.settings {
-    display: grid;
-    width: min(100%, 440px);
-    height: 100%;
-    padding: 22px;
-    align-content: start;
-    gap: 22px;
-    overflow: auto;
-    background: var(--bg-main);
-    border-left: 1px solid var(--border-main);
-    box-shadow: var(--shadow-lg);
-}
-
-.settings-layer[open] .settings {
-    animation: slideInRight 180ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-@keyframes slideInRight {
-    from { transform: translateX(100%); }
-    to { transform: translateX(0); }
-}
-
-.settings > header,
 .provider-settings > header {
     display: flex;
     align-items: start;
     justify-content: space-between;
     gap: 12px;
-}
-
-.settings h2 {
-    margin-top: 2px;
-    font-size: 20px;
-    font-weight: 750;
-    letter-spacing: -0.01em;
-}
-
-.settings header p {
-    color: var(--fg-subtle);
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
 }
 
 .provider-settings {
@@ -1445,6 +1378,104 @@ p {
     flex: 0 0 auto;
 }
 
+/* ==================== Manager ==================== */
+
+.manager-shell {
+    overflow: auto;
+}
+
+.manager-page {
+    width: min(100%, 760px);
+    min-height: 100%;
+    margin: 0 auto;
+    padding: 22px;
+}
+
+.manager-header,
+.manager-section-heading,
+.startup-setting {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+}
+
+.manager-header {
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border-subtle);
+}
+
+.manager-content {
+    display: grid;
+    padding-top: 20px;
+    gap: 16px;
+}
+
+.manager-section {
+    padding: 18px;
+    background: rgb(255 255 255 / 66%);
+    border: 1px solid var(--border-main);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+}
+
+.manager-section h2 {
+    margin-top: 2px;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+}
+
+.manager-section > div > p:not(.section-kicker) {
+    max-width: 520px;
+    margin-top: 5px;
+    color: var(--fg-muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.section-kicker {
+    color: var(--fg-subtle);
+    font-size: 10px;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.switch-control {
+    display: inline-flex;
+    min-width: 96px;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 7px;
+    font-size: 12px;
+    font-weight: 650;
+}
+
+.switch-control input {
+    width: 17px;
+    height: 17px;
+    accent-color: var(--primary);
+}
+
+.startup-setting .resource-error {
+    flex-basis: 100%;
+}
+
+.startup-setting:has(.resource-error) {
+    flex-wrap: wrap;
+}
+
+.providers-section {
+    display: grid;
+    gap: 12px;
+}
+
+.manager-model-count {
+    color: var(--fg-muted);
+    font-size: 11px;
+    font-weight: 650;
+}
+
 /* ==================== Responsive Queries ==================== */
 
 @media (max-width: 580px) {
@@ -1493,8 +1524,17 @@ p {
         max-width: 92%;
     }
 
-    .settings {
-        border-left: 0;
+    .manager-page {
+        padding: 14px;
+    }
+
+    .startup-setting {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .switch-control {
+        justify-content: flex-start;
     }
 }
 
@@ -1502,8 +1542,7 @@ p {
     .working-bars i,
     .status-pill.ready .status-dot,
     .status-badge.status-running .status-badge-dot,
-    .working-dot,
-    .settings-layer[open] .settings {
+    .working-dot {
         animation: none;
     }
 }
