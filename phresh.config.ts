@@ -4,7 +4,7 @@ export default defineConfig({
     identity: "lemo",
     name: "Lemo",
     description: "The official PhreshOS agent.",
-    version: "0.1.2",
+    version: "0.1.3",
     buildCommand: "vite-node scripts/build.ts",
     server: {
         location: "dist/server",
