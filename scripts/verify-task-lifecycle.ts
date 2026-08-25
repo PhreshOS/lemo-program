@@ -146,14 +146,14 @@ const secondPage = await raw.tasks({
 assert.equal(secondPage.tasks.length, 5)
 assert(!secondPage.tasks.some(task => firstPage.tasks.some(first => first.id === task.id)))
 
-const clientTasks = await recovered.clientTasks()
+const clientTasks = await recovered.taskProjection()
 
 assert.equal(clientTasks.length, 21)
 assert.equal(await clientTasks[0]!.status(), "paused")
-assert.equal((await Promise.all(clientTasks.map(task => task.status()))).filter(status => (
-    status === "completed"
-)).length, 20)
-assert(!clientTasks.some(task => task.id === "failed-client-task"))
+const clientTaskStatuses = await Promise.all(clientTasks.map(task => task.status()))
+
+assert.equal(clientTaskStatuses.filter(status => status !== "running" && status !== "paused").length, 20)
+assert(clientTasks.some(task => task.id === "failed-client-task"))
 
 recoverySource.close()
 

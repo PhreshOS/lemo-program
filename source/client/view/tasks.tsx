@@ -54,7 +54,7 @@ export default function Tasks({ application, models: modelResource }: Properties
 
     const taskResource = usePromise(async function () {
 
-        return await application.lemo.tasks()
+        return await application.lemo.start()
 
     }, [application])
 
@@ -62,7 +62,13 @@ export default function Tasks({ application, models: modelResource }: Properties
         application.lemo.task({ input: question, model })
     ))
 
-    const tasks = taskResource.solve ?? []
+    const projectedTasks = useTasks(application.lemo)
+
+    const tasks = taskResource.solve ? projectedTasks : []
+
+    const activeTasks = tasks.filter(task => executing(task.status))
+
+    const recentTasks = tasks.filter(task => !executing(task.status))
 
     const models = modelResource.solve ?? []
 
@@ -96,12 +102,12 @@ export default function Tasks({ application, models: modelResource }: Properties
         if (!taskResource.solve) return
 
         setSelectedTask(current => (
-            taskResource.solve.some(task => task.id === current)
+            tasks.some(task => task.id === current)
                 ? current
-                : taskResource.solve.at(-1)?.id ?? ""
+                : tasks[0]?.id ?? ""
         ))
 
-    }, [taskResource.solve])
+    }, [taskResource.solve, tasks])
 
     function handleInputChange(value: string) {
 
@@ -141,11 +147,6 @@ export default function Tasks({ application, models: modelResource }: Properties
         const task = await creation.safeExecute(question, model)
 
         if (task) {
-
-            taskResource.dispatch(current => [
-                ...current.filter(candidate => candidate.id !== task.id),
-                task
-            ].slice(-maximumClientTasks))
 
             setSelectedTask(task.id)
 
@@ -196,7 +197,18 @@ export default function Tasks({ application, models: modelResource }: Properties
                     <p>No previous tasks yet.</p>
                 </div>}
 
-                {taskResource.solve && [...tasks].reverse().map(task => <TaskLink
+                {taskResource.solve && activeTasks.map(task => <TaskLink
+                    key={task.id}
+                    task={task}
+                    selected={task.id === selectedTask}
+                    select={() => setSelectedTask(task.id)}
+                />)}
+
+                {taskResource.solve && recentTasks.length > 0 && <div className="task-section-separator">
+                    <span>Recent</span>
+                </div>}
+
+                {taskResource.solve && recentTasks.map(task => <TaskLink
                     key={task.id}
                     task={task}
                     selected={task.id === selectedTask}
@@ -732,6 +744,20 @@ function usePrompts(prompts: Application["prompts"]) {
     return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
+function useTasks(lemo: Application["lemo"]) {
+
+    const subscribe = useCallback((listener: () => void) => lemo.subscribe(listener), [lemo])
+
+    const snapshot = useCallback(() => lemo.tasks(), [lemo])
+
+    return useSyncExternalStore(subscribe, snapshot, snapshot)
+}
+
+function executing(status: Task["status"]) {
+
+    return status === "running" || status === "paused"
+}
+
 function message(value: unknown) {
 
     return value instanceof Error ? value.message : String(value)
@@ -778,5 +804,3 @@ type Properties = Readonly<{
     application: Application
     models: PromiseWithDependencies<readonly LLMModel[]>
 }>
-
-const maximumClientTasks = 30

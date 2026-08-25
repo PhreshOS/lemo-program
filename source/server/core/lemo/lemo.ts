@@ -63,8 +63,8 @@ export default class Lemo {
         return Task.open(this.database, this.executions, id)
     }
 
-    /** Returns the bounded Task projection initially needed by a Client. */
-    public async clientTasks(): Promise<readonly Task[]> {
+    /** Returns the bounded Task projection initially needed by a representation. */
+    public async taskProjection(): Promise<readonly Task[]> {
 
         const active = await this.database.tasks({
             limit: maximumExecutingTasks,
@@ -73,7 +73,7 @@ export default class Lemo {
         })
         const recent = await this.database.tasks({
             limit: recentClientTasks,
-            statuses: ["completed", "cancelled"],
+            statuses: ["completed", "failed", "cancelled"],
             order: "newest"
         })
 
@@ -87,6 +87,12 @@ export default class Lemo {
     public tasks(request: TaskListRequest): Promise<TaskPage> {
 
         return this.database.tasks(request)
+    }
+
+    /** Observes every operation after it becomes part of Lemo's authoritative history. */
+    public subscribe(subscriber: (operation: Operation) => void) {
+
+        return this.database.subscribeOperations(subscriber)
     }
 
     private createTask(request: TaskRequest, source: TaskSource): Promise<Task> {

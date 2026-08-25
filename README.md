@@ -279,14 +279,21 @@ a Task uses the selected local LLM Model handle, while Server Core resolves the
 authoritative Model and starts execution. Client View composes communication
 sources during initialization but does not coordinate operations.
 
-Each Client Task begins with a validated database snapshot and then applies
-only newly persisted operations. The handoff subscribes before requesting the
-snapshot and deduplicates any overlap, so fast Model output cannot create a
-gap. Reloading View reconstructs terminal Tasks from snapshots and reconnects
-running or paused Tasks. Client-side `pause()`, `continue()`, and `cancel()`
-operate through the local Task handle; View merely renders their controls and
-state. Client-side operation history is only a projection; Server SQLite
-remains authoritative.
+Server Core exposes one observation of every operation after it is committed
+to Lemo's authoritative history. Server View publishes that observation
+outward as `lemo.operation`; it does not create a private subscription for a
+particular Client or Task. Any representation can therefore observe Task input,
+Model output, Tool activity, interactions, and lifecycle changes in real time.
+
+Client Core subscribes to the outward stream before requesting its bounded
+database snapshot, then deduplicates any overlap, so fast Model output cannot
+create a gap. Its projection contains every running or paused Task from newest
+to oldest, followed by the 20 newest completed, failed, or cancelled Tasks in
+the same order. Client
+View renders a separator between those sections. Client-side `pause()`,
+`continue()`, and `cancel()` operate through the local Task handle; View merely
+renders their controls and state. Client-side operation history is only a
+projection; Server SQLite remains authoritative.
 
 Client Core also owns the minimal prompt contract it requires: receive a
 renderable prompt associated with a Task, expose it as a local entity, and send

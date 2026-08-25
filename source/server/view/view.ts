@@ -9,8 +9,6 @@ import type {
     LLMToolCall,
     LLMToolDefinition
 } from "@server/core/llm/model"
-import type Operation from "@server/core/lemo/operation"
-import type Task from "@server/core/lemo/task"
 import type { TaskSnapshot } from "@server/core/lemo/task"
 import type ClientChannel from "@server/core/client-channel"
 
@@ -19,6 +17,8 @@ export default async function view() {
     const program = await current.program()
 
     const application = await Application.init(program.store, program.database, clientChannel)
+
+    application.subscribe(operation => current.publish("lemo.operation", operation))
 
     current.answer("llm-provider.state", function ({ payload }) {
 
@@ -60,7 +60,7 @@ export default async function view() {
 
         const task = await application.task(request.input, request.provider, request.model)
 
-        return bindTask(task, request.subscription)
+        return task.snapshot()
     })
 
     current.answer<unknown, TaskSnapshot>("lemo.task.open", async function ({ payload }) {
@@ -71,7 +71,7 @@ export default async function view() {
 
         if (!task) throw new Error(`Unknown Lemo Task "${request.task}"`)
 
-        return bindTask(task, request.subscription)
+        return task.snapshot()
     })
 
     current.answer<unknown, TaskSnapshot>("lemo.task.pause", async function ({ payload }) {
@@ -116,44 +116,6 @@ const clientChannel: ClientChannel = {
     }
 }
 
-async function bindTask(task: Task, subscription: string): Promise<TaskSnapshot> {
-
-    const pending: Operation[] = []
-
-    let snapshotting = true
-
-    const unsubscribe = task.subscribe(operation => {
-
-        if (snapshotting) pending.push(operation)
-        else current.publish<Operation>(subscription, operation)
-    })
-
-    try {
-        const snapshot = await task.snapshot()
-
-        const included = new Set(snapshot.operations.map(operation => operation.id))
-
-        for (const operation of pending) {
-
-            if (!included.has(operation.id)) current.publish<Operation>(subscription, operation)
-        }
-
-        snapshotting = false
-
-        if (snapshot.status === "running" || snapshot.status === "paused") {
-            void task.result().then(unsubscribe, unsubscribe)
-        }
-        else unsubscribe()
-
-        return snapshot
-    } catch (error) {
-
-        unsubscribe()
-
-        throw error
-    }
-}
-
 function taskIdentity(value: unknown) {
 
     if (!record(value)) throw new Error("A Lemo Task control request must be an object")
@@ -187,34 +149,28 @@ function taskCreateRequest(value: unknown) {
 
     if (!record(value)) throw new Error("A Lemo Task request must be an object")
 
-    const subscription = text(value.subscription)
-
     const input = text(value.input)
 
     const provider = text(value.provider)
 
     const model = text(value.model)
 
-    if (!subscription) throw new Error("A Lemo Task request requires a subscription")
-
     if (!input) throw new Error("A Lemo Task request requires input")
 
     if (!provider || !model) throw new Error("A Lemo Task request requires an LLM Model")
 
-    return { subscription, input, provider, model }
+    return { input, provider, model }
 }
 
 function taskOpenRequest(value: unknown) {
 
     if (!record(value)) throw new Error("Opening a Lemo Task requires an object")
 
-    const subscription = text(value.subscription)
-
     const task = text(value.task)
 
-    if (!subscription || !task) throw new Error("Opening a Lemo Task requires identities")
+    if (!task) throw new Error("Opening a Lemo Task requires an identity")
 
-    return { subscription, task }
+    return { task }
 }
 
 function generationRequest(value: unknown): LLMGenerationRequest {

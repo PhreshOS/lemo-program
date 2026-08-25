@@ -23,17 +23,17 @@ const initial: TaskSnapshot = {
 }
 
 const source: LemoSource = {
-    async snapshots() {
+    async observe() {
 
-        return []
+        return { snapshots: [], events, close: events.close }
     },
     async create() {
 
-        return channelFor(initial, events)
+        return initial
     },
-    async open() {
+    control() {
 
-        return channelFor(initial, events)
+        return controlFor(initial)
     }
 }
 
@@ -114,17 +114,55 @@ assert.equal(changes, 2)
 
 const restored = new Lemo({
     ...source,
-    async snapshots() {
+    async observe() {
 
-        return [{ ...initial, status: "completed", operations: task.operations() }]
+        return {
+            snapshots: [{ ...initial, status: "completed", operations: task.operations() }],
+            events: channel(),
+            close() {}
+        }
     }
 })
 
-const tasks = await restored.tasks()
+const tasks = await restored.start()
 
 assert.equal(tasks.length, 1)
 
 assert.equal(tasks[0]?.status, "completed")
+
+const projectionEvents = channel()
+const projectionSnapshots = [
+    snapshot("active-old", "paused", 10),
+    snapshot("active-new", "running", 20),
+    ...Array.from({ length: 22 }, (_, index) => snapshot(
+        `terminal-${index}`,
+        index % 3 === 0 ? "failed" : index % 3 === 1 ? "cancelled" : "completed",
+        100 + index
+    ))
+]
+const projected = new Lemo({
+    ...source,
+    async observe() {
+
+        return {
+            snapshots: projectionSnapshots,
+            events: projectionEvents,
+            close: projectionEvents.close
+        }
+    }
+})
+
+await projected.start()
+
+assert.deepEqual(projected.tasks().slice(0, 2).map(task => task.id), ["active-new", "active-old"])
+assert.equal(projected.tasks().length, 22)
+assert(projected.tasks().slice(2).some(task => task.status === "failed"))
+
+projectionEvents.push(snapshot("active-latest", "running", 200).operations[0])
+
+await settled()
+
+assert.equal(projected.tasks()[0]?.id, "active-latest")
 
 const promptListeners = new Set<(value: unknown) => void>()
 let ready = 0
@@ -227,15 +265,41 @@ function channel() {
     }
 }
 
-function channelFor(snapshot: TaskSnapshot, events: ReturnType<typeof channel>) {
+function controlFor(snapshot: TaskSnapshot) {
 
     return {
-        snapshot,
-        events,
-        close: events.close,
         async pause() { return { ...snapshot, status: "paused" as const } },
         async cancel() { return { ...snapshot, status: "cancelled" as const } },
         async continue() { return { ...snapshot, status: "running" as const } }
+    }
+}
+
+function snapshot(id: string, status: TaskSnapshot["status"], createdAt: number): TaskSnapshot {
+
+    const input = {
+        sequence: createdAt * 2,
+        id: `${id}-input`,
+        task: id,
+        parent: null,
+        kind: "task.input",
+        payload: { input: id, model: { provider: "test", id: "model" } },
+        createdAt
+    }
+    const lifecycle = status === "running" ? [] : [{
+        sequence: createdAt * 2 + 1,
+        id: `${id}-${status}`,
+        task: id,
+        parent: input.id,
+        kind: `task.${status}`,
+        payload: {},
+        createdAt: createdAt + 1
+    }]
+
+    return {
+        id,
+        status,
+        before: null,
+        operations: [input, ...lifecycle]
     }
 }
 

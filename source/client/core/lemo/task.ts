@@ -3,12 +3,6 @@ import type { TaskSnapshot, TaskStatus } from "@server/core/lemo/task"
 
 export type TaskSubscriber = (task: Task) => void
 
-export type TaskChannel = Readonly<{
-    snapshot: TaskSnapshot
-    events: AsyncIterable<unknown>
-    close(): void
-}> & TaskControl
-
 export type TaskControl = Readonly<{
     pause(): Promise<TaskSnapshot>
     cancel(): Promise<TaskSnapshot>
@@ -34,16 +28,6 @@ export default class Task {
     public static from(snapshot: TaskSnapshot, control: TaskControl) {
 
         return new Task(snapshot.id, snapshot.operations, control)
-    }
-
-    public static connect(channel: TaskChannel) {
-
-        const task = Task.from(channel.snapshot, channel)
-
-        if (task.status === "running" || task.status === "paused") void task.follow(channel)
-        else channel.close()
-
-        return task
     }
 
     public get status(): TaskStatus {
@@ -87,36 +71,12 @@ export default class Task {
         this.synchronize(await this.control.continue())
     }
 
-    private async follow(channel: TaskChannel) {
+    public receive(value: unknown) {
 
-        try {
-            for await (const value of channel.events) {
-
-                this.apply(operation(value))
-
-                if (terminal(this.status)) break
-            }
-        } catch (cause) {
-
-            this.synchronizationError = cause instanceof Error ? cause : new Error(String(cause))
-
-            this.changed()
-        } finally {
-
-            channel.close()
-        }
+        this.apply(operation(value))
     }
 
-    private apply(value: Operation) {
-
-        if (value.task !== this.id || this.history.some(operation => operation.id === value.id)) return
-
-        this.history = [...this.history, value].sort((left, right) => left.sequence - right.sequence)
-
-        this.changed()
-    }
-
-    private synchronize(snapshot: TaskSnapshot) {
+    public synchronize(snapshot: TaskSnapshot) {
 
         if (snapshot.id !== this.id) throw new Error("The Server returned the wrong Lemo Task")
 
@@ -125,6 +85,29 @@ export default class Task {
         for (const operation of snapshot.operations) operations.set(operation.id, operation)
 
         this.history = [...operations.values()].sort((left, right) => left.sequence - right.sequence)
+        this.synchronizationError = null
+        this.changed()
+    }
+
+    public failSynchronization(cause: unknown) {
+
+        this.synchronizationError = cause instanceof Error ? cause : new Error(String(cause))
+        this.changed()
+    }
+
+    public get createdAt() {
+
+        return this.history.find(operation => operation.kind === "task.input")?.createdAt
+            ?? this.history[0]?.createdAt
+            ?? 0
+    }
+
+    private apply(value: Operation) {
+
+        if (value.task !== this.id || this.history.some(operation => operation.id === value.id)) return
+
+        this.history = [...this.history, value].sort((left, right) => left.sequence - right.sequence)
+
         this.changed()
     }
 
@@ -147,11 +130,6 @@ function status(operations: readonly Operation[]): TaskStatus {
     if (kind === "task.paused") return "paused"
 
     return "running"
-}
-
-function terminal(status: TaskStatus) {
-
-    return status === "completed" || status === "failed" || status === "cancelled"
 }
 
 const lifecycle = new Set([

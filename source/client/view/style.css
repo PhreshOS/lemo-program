@@ -375,6 +375,25 @@ p {
     font-size: 12px;
 }
 
+.task-section-separator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 7px 3px 3px;
+    color: var(--fg-subtle);
+    font-size: 9px;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+}
+
+.task-section-separator::after {
+    height: 1px;
+    flex: 1;
+    background: var(--border-main);
+    content: "";
+}
+
 .task-link {
     display: block;
     width: 100%;

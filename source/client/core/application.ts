@@ -32,30 +32,43 @@ export default class Application {
     public stop() {
 
         this.prompts.stop()
+        this.lemo.stop()
     }
 
 }
 
 const serverLemoSource: LemoSource = {
-    async snapshots() {
+    async observe() {
 
-        const value = await current.server.ask<unknown>("lemo.tasks")
+        const channel = eventChannel("lemo.operation")
 
-        if (!Array.isArray(value)) throw new Error("The Server returned an invalid Lemo Task list")
+        try {
+            const value = await current.server.ask<unknown>("lemo.tasks")
 
-        return Object.freeze(value.map(taskSnapshot))
+            if (!Array.isArray(value)) throw new Error("The Server returned an invalid Lemo Task list")
+
+            return Object.freeze({
+                snapshots: Object.freeze(value.map(taskSnapshot)),
+                events: channel.events,
+                close: channel.close
+            })
+        } catch (error) {
+            channel.close()
+
+            throw error
+        }
     },
-    create(input: string, model: LLMModel) {
+    async create(input: string, model: LLMModel) {
 
-        return taskChannel("lemo.task.create", {
+        return taskSnapshot(await current.server.ask<unknown>("lemo.task.create", {
             input,
             provider: model.provider.identity,
             model: model.id
-        })
+        }))
     },
-    open(task: string) {
+    control(task: string) {
 
-        return taskChannel("lemo.task.open", { task })
+        return taskControl(task)
     }
 }
 
@@ -117,7 +130,7 @@ async function *stream<Request>(operation: string, request: (generation: string)
     const controller = new AbortController()
 
     const events = current.server.events<unknown>(generation, {
-        capacity: Infinity,
+        capacity: eventQueueCapacity,
         signal: controller.signal
     })
 
@@ -204,14 +217,12 @@ function record(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-async function taskChannel(operation: string, payload: Record<string, unknown>) {
-
-    const subscription = crypto.randomUUID()
+function eventChannel(event: string) {
 
     const controller = new AbortController()
 
-    const source = current.server.events<unknown>(subscription, {
-        capacity: Infinity,
+    const source = current.server.events<unknown>(event, {
+        capacity: eventQueueCapacity,
         signal: controller.signal
     })
 
@@ -239,19 +250,7 @@ async function taskChannel(operation: string, payload: Record<string, unknown>) 
         }
     }
 
-    try {
-        const snapshot = taskSnapshot(await current.server.ask<unknown>(operation, { ...payload, subscription }))
-
-        return Object.freeze({
-            snapshot,
-            events,
-            close: () => controller.abort(),
-            ...taskControl(snapshot.id)
-        })
-    } catch (error) {
-
-        controller.abort()
-
-        throw error
-    }
+    return Object.freeze({ events, close: () => controller.abort() })
 }
+
+const eventQueueCapacity = 256

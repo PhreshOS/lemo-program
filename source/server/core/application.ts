@@ -6,6 +6,7 @@ import Lemo from "./lemo/lemo"
 import type { LemoDatabaseSource } from "./lemo/database"
 import type Task from "./lemo/task"
 import type ClientChannel from "./client-channel"
+import type Operation from "./lemo/operation"
 
 export default class Application {
 
@@ -81,12 +82,17 @@ export default class Application {
 
     public tasks() {
 
-        return this.lemo.clientTasks()
+        return this.lemo.taskProjection()
     }
 
     public findTask(identity: string) {
 
         return this.lemo.findTask(identity)
+    }
+
+    public subscribe(subscriber: (operation: Operation) => void) {
+
+        return this.lemo.subscribe(subscriber)
     }
 
     public async pauseTask(identity: string) {
