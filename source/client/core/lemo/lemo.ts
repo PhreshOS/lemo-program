@@ -11,7 +11,7 @@ export type LemoObservation = Readonly<{
 
 export interface LemoSource {
     observe(): Promise<LemoObservation>
-    create(input: string, model: LLMModel): Promise<TaskSnapshot>
+    create(command: string, input: string, model: LLMModel): Promise<void>
     control(task: string): TaskControl
 }
 
@@ -23,6 +23,8 @@ export default class Lemo {
     private initialization: Promise<readonly Task[]> | null = null
     private observation: LemoObservation | null = null
     private projection: readonly Task[] = Object.freeze([])
+    private readonly creations = new Map<string, PendingTask>()
+    private lifecycle = 0
 
     public constructor(private readonly source: LemoSource) {}
 
@@ -30,7 +32,26 @@ export default class Lemo {
 
         await this.start()
 
-        return this.upsert(await this.source.create(request.input, request.model))
+        const command = crypto.randomUUID()
+        let resolve!: (task: Task) => void
+        let reject!: (cause: unknown) => void
+        const publication = new Promise<Task>((solve, fail) => {
+
+            resolve = solve
+            reject = fail
+        })
+
+        this.creations.set(command, { resolve, reject })
+
+        try {
+            await this.source.create(command, request.input, request.model)
+
+            return await publication
+        } catch (cause) {
+            this.creations.delete(command)
+
+            throw cause
+        }
     }
 
     /** Starts the projection once and returns its current bounded snapshot. */
@@ -55,16 +76,25 @@ export default class Lemo {
 
     public stop() {
 
+        this.lifecycle++
         this.observation?.close()
         this.observation = null
         this.initialization = null
         this.records.clear()
+        this.rejectCreations(new Error("Lemo stopped before the Task was published"))
         this.changed()
     }
 
     private async initialize(): Promise<readonly Task[]> {
 
+        const lifecycle = this.lifecycle
         const observation = await this.source.observe()
+
+        if (lifecycle !== this.lifecycle) {
+            observation.close()
+
+            throw new Error("Lemo stopped while its projection was opening")
+        }
 
         this.observation = observation
 
@@ -90,10 +120,12 @@ export default class Lemo {
             for await (const value of observation.events) this.receive(value)
         } catch (cause) {
             for (const task of this.records.values()) task.failSynchronization(cause)
+            this.rejectCreations(cause)
         } finally {
             if (this.observation === observation) {
                 this.observation = null
                 this.initialization = null
+                this.rejectCreations(new Error("The Lemo operation stream closed"))
             }
 
             observation.close()
@@ -108,14 +140,28 @@ export default class Lemo {
 
         const existing = this.records.get(operation.task)
 
-        if (existing) existing.receive(operation)
+        let task: Task
+
+        if (existing) {
+            existing.receive(operation)
+            task = existing
+        }
         else {
-            this.records.set(operation.task, Task.from({
+            task = Task.from({
                 id: operation.task,
                 status: operationStatus(operation),
                 operations: Object.freeze([operation]),
                 before: null
-            }, this.source.control(operation.task)))
+            }, this.source.control(operation.task))
+            this.records.set(operation.task, task)
+        }
+
+        const command = operation.kind === "task.input" ? taskCommand(operation.payload) : null
+        const pending = command ? this.creations.get(command) : null
+
+        if (command && pending) {
+            this.creations.delete(command)
+            pending.resolve(task)
         }
 
         this.changed()
@@ -151,7 +197,19 @@ export default class Lemo {
 
         for (const subscriber of this.subscribers) subscriber()
     }
+
+    private rejectCreations(cause: unknown) {
+
+        for (const pending of this.creations.values()) pending.reject(cause)
+
+        this.creations.clear()
+    }
 }
+
+type PendingTask = Readonly<{
+    resolve(task: Task): void
+    reject(cause: unknown): void
+}>
 
 function executing(status: Task["status"]) {
 
@@ -192,6 +250,11 @@ function operationRecord(value: unknown): Operation {
     ) throw new Error("The Server published an incomplete Lemo operation")
 
     return Object.freeze({ sequence, id, task, parent, kind, payload: value.payload, createdAt })
+}
+
+function taskCommand(value: unknown) {
+
+    return record(value) ? text(value.command) || null : null
 }
 
 function nullableText(value: unknown) {

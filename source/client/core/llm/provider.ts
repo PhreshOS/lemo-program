@@ -17,6 +17,9 @@ export default interface LLMProvider {
 
 /** Generic boundary operations used by every concrete Client LLM Provider. */
 export interface LLMProviderSource {
+    open(providers: readonly string[]): Promise<void>
+    close(): void
+    subscribe(subscriber: () => void): () => void
     state(identity: string): Promise<LLMProviderState>
     configure(identity: string, value: unknown): Promise<void>
     removeConfiguration(identity: string): Promise<void>

@@ -14,6 +14,8 @@ const input = z.object({
 
 /** Recalls Memory through the invocation's complete Lemo context. */
 const memory: Tool = {
+    builtin: true,
+    order: 2,
     docs,
     definition: Object.freeze({
         name: "memory",

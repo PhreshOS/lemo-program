@@ -10,6 +10,7 @@ import type {
     LLMToolDefinition
 } from "@server/core/llm/model"
 import type { TaskSnapshot } from "@server/core/lemo/task"
+import type { OperationPage } from "@server/core/lemo/database"
 import type ClientChannel from "@server/core/client-channel"
 
 export default async function view() {
@@ -22,7 +23,11 @@ export default async function view() {
         startup: program.startup
     })
 
-    application.subscribe(operation => current.publish("lemo.operation", operation))
+    application.subscribe(event => {
+
+        if (event.type === "lemo.operation") current.publish(event.type, event.operation)
+        else current.publish(event.type, event)
+    })
 
     current.answer("llm-provider.state", function ({ payload }) {
 
@@ -43,17 +48,17 @@ export default async function view() {
         await application.configureLLMProvider(request.provider, request.configuration)
     })
 
-    current.answer("llm-provider.remove-configuration", async function ({ payload }) {
+    current.answer<unknown, void>("llm-provider.remove-configuration", async function ({ payload }) {
 
         await application.removeLLMProviderConfiguration(providerIdentity(payload))
     })
 
-    current.answer("llm-provider.activate", async function ({ payload }) {
+    current.answer<unknown, void>("llm-provider.activate", async function ({ payload }) {
 
         await application.activateLLMProvider(providerIdentity(payload))
     })
 
-    current.answer("llm-provider.deactivate", async function ({ payload }) {
+    current.answer<unknown, void>("llm-provider.deactivate", async function ({ payload }) {
 
         await application.deactivateLLMProvider(providerIdentity(payload))
     })
@@ -65,13 +70,11 @@ export default async function view() {
         return Object.freeze(await Promise.all((await application.tasks()).map(task => task.snapshot())))
     })
 
-    current.answer<unknown, TaskSnapshot>("lemo.task.create", async function ({ payload }) {
+    current.answer<unknown, void>("lemo.task.create", async function ({ payload }) {
 
         const request = taskCreateRequest(payload)
 
-        const task = await application.task(request.input, request.provider, request.model)
-
-        return task.snapshot()
+        await application.task(request.input, request.provider, request.model, request.command)
     })
 
     current.answer<unknown, TaskSnapshot>("lemo.task.open", async function ({ payload }) {
@@ -85,19 +88,29 @@ export default async function view() {
         return task.snapshot()
     })
 
-    current.answer<unknown, TaskSnapshot>("lemo.task.pause", async function ({ payload }) {
+    current.answer<unknown, OperationPage>("lemo.task.history", async function ({ payload }) {
 
-        return (await application.pauseTask(taskIdentity(payload))).snapshot()
+        const request = taskHistoryRequest(payload)
+        const task = await application.findTask(request.task)
+
+        if (!task) throw new Error(`Unknown Lemo Task "${request.task}"`)
+
+        return task.operationsPage(request.limit, request.before)
     })
 
-    current.answer<unknown, TaskSnapshot>("lemo.task.cancel", async function ({ payload }) {
+    current.answer<unknown, void>("lemo.task.pause", async function ({ payload }) {
 
-        return (await application.cancelTask(taskIdentity(payload))).snapshot()
+        await application.pauseTask(taskIdentity(payload))
     })
 
-    current.answer<unknown, TaskSnapshot>("lemo.task.continue", async function ({ payload }) {
+    current.answer<unknown, void>("lemo.task.cancel", async function ({ payload }) {
 
-        return (await application.continueTask(taskIdentity(payload))).snapshot()
+        await application.cancelTask(taskIdentity(payload))
+    })
+
+    current.answer<unknown, void>("lemo.task.continue", async function ({ payload }) {
+
+        await application.continueTask(taskIdentity(payload))
     })
 
     current.answer<unknown, void>("llm-generate", async function ({ payload }) {
@@ -180,11 +193,32 @@ function taskCreateRequest(value: unknown) {
 
     const model = text(value.model)
 
+    const command = text(value.command)
+
     if (!input) throw new Error("A Lemo Task request requires input")
 
     if (!provider || !model) throw new Error("A Lemo Task request requires an LLM Model")
 
-    return { input, provider, model }
+    if (!command) throw new Error("A Lemo Task request requires a command identity")
+
+    return { input, provider, model, command }
+}
+
+function taskHistoryRequest(value: unknown) {
+
+    if (!record(value)) throw new Error("A Lemo Task history request must be an object")
+
+    const task = text(value.task)
+    const limit = value.limit
+    const before = value.before
+
+    if (!task) throw new Error("A Lemo Task history request requires an identity")
+    if (!Number.isInteger(limit)) throw new Error("A Lemo Task history request requires an integer limit")
+    if (before !== undefined && !Number.isInteger(before)) {
+        throw new Error("A Lemo Task history cursor must be an integer")
+    }
+
+    return { task, limit: limit as number, before: before as number | undefined }
 }
 
 function taskOpenRequest(value: unknown) {

@@ -80,6 +80,7 @@ const jsonParameters = Object.freeze({
 
 /** Reads and controls individual Process Endpoints. */
 const endpoints: Tool = {
+    order: 8,
     docs,
     definition: Object.freeze({
         name: "endpoints",

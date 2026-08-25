@@ -79,6 +79,9 @@ assert.equal(await store.get("opencode:active"), true)
 await store.set("ollama-cloud:config", { apiKey: "secret" })
 
 const application = await Application.init(store, database, client, environment)
+const applicationEvents: unknown[] = []
+
+application.subscribe(event => applicationEvents.push(event))
 
 assert.equal(application.llmProviders.all().length, 2)
 
@@ -109,6 +112,18 @@ await application.activateLLMProvider("ollama-cloud")
 await application.activateLLMProvider("opencode")
 
 assert.deepEqual(application.llmProviderState("ollama-cloud"), { configured: true, active: true })
+
+await application.configureStartup(true)
+
+assert(applicationEvents.some(event => (
+    typeof event === "object"
+    && event !== null
+    && (event as { type?: unknown }).type === "llm-provider.changed"
+)))
+assert.deepEqual(applicationEvents.at(-1), {
+    type: "manager.startup.changed",
+    enabled: true
+})
 
 const requests: string[] = []
 const tool = {

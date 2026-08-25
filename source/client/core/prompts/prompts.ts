@@ -1,9 +1,7 @@
 import {
     promptInvalidSchema,
-    promptReadySchema,
     promptRecordSchema,
     promptReleaseSchema,
-    type PromptReady,
     type PromptResponse
 } from "./contract"
 import Prompt from "./prompt"
@@ -13,7 +11,7 @@ export interface PromptSource {
     release(listener: (value: unknown) => void): () => void
     invalid(listener: (value: unknown) => void): () => void
     respond(value: PromptResponse): void
-    ready(value: PromptReady): void
+    ready(): void
 }
 
 /** Client Core's local collection of prompts awaiting a response. */
@@ -36,7 +34,7 @@ export default class Prompts {
             this.source.invalid(value => this.invalid(value))
         ])
 
-        this.source.ready(promptReadySchema.parse({ client: crypto.randomUUID() }))
+        this.source.ready()
     }
 
     /** Stable snapshot replaced only after the pending collection changes. */

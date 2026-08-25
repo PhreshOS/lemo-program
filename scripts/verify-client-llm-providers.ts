@@ -9,6 +9,7 @@ let configured = false
 let active = false
 
 let received: OllamaCloudConfiguration | null = null
+const stateSubscribers = new Set<() => void>()
 
 const providers = new LLMProviders({
     async models() {
@@ -25,6 +26,14 @@ const providers = new LLMProviders({
         yield { type: "text" as const, content: " world" }
     }
 }, {
+    async open() {},
+    close() {},
+    subscribe(subscriber) {
+
+        stateSubscribers.add(subscriber)
+
+        return () => { stateSubscribers.delete(subscriber) }
+    },
     async state(identity) {
 
         return identity === "opencode"
@@ -38,28 +47,36 @@ const providers = new LLMProviders({
         received = configuration as OllamaCloudConfiguration
 
         configured = true
+        for (const subscriber of stateSubscribers) subscriber()
     },
     async removeConfiguration(identity) {
 
         assert.equal(identity, "ollama-cloud")
 
         configured = false
+        for (const subscriber of stateSubscribers) subscriber()
     },
     async activate(identity) {
 
         assert.equal(identity, "ollama-cloud")
 
         active = true
+        for (const subscriber of stateSubscribers) subscriber()
     },
     async deactivate(identity) {
 
         assert.equal(identity, "ollama-cloud")
 
         active = false
+        for (const subscriber of stateSubscribers) subscriber()
     }
 })
 
 assert.equal(providers.all().length, 2)
+
+let revisions = 0
+
+providers.subscribe(() => revisions++)
 
 const ollamaCloud = providers.get("ollama-cloud")
 const openCode = providers.get("opencode")
@@ -113,3 +130,4 @@ assert.deepEqual(await ollamaCloud.models(), [])
 await ollamaCloud.removeConfiguration()
 
 assert.equal(await ollamaCloud.configured(), false)
+assert.equal(revisions, 4)

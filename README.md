@@ -73,12 +73,20 @@ configuration where applicable, discover Models in one authoritative operation,
 and use each retained LLM Model directly. Client View integrates each Provider
 individually; it never receives the stored Ollama Cloud API key.
 
+Provider configuration and activation are authoritative Server state. Their
+mutation answers acknowledge only; after committing, Server Core publishes the
+new Provider state outward through the shared `llm-provider.changed` event.
+Every Manager and Agent representation retains that projection and refreshes
+the external Model catalog when its revision changes. No View manually reloads
+Provider state after issuing a command.
+
 LLM Providers are self-registering on each MVC side. Server Core discovers the
 `registration` exported by every `server/core/llm/providers/*/provider.ts`;
 Client Core does the same for `client/core/llm/providers/*/provider.ts`; and
 Client View discovers every `client/view/llm-providers/*.tsx` integration. The
 Server View exposes the shared Provider state, configuration, activation, Model
-discovery, and generation operations once. It has no Provider-specific events.
+discovery, and generation operations once. It has no Provider-specific
+boundary implementation.
 
 Consequently, adding a non-configurable LLM Provider requires five production
 files: Server Provider and Model, Client Provider and Model, and its Client View
@@ -148,10 +156,14 @@ holding context in Process or Task memory.
 
 ## Cycles
 
-A Cycle is an internal, disposable Model operation. It records its start, loads
-the Task's ordered raw operations, asks Memory for a freshly rebuilt context,
-and constructs a request from those facts, the disposable snapshot, and
-`system.md`. The snapshot identifies the current Task as self and reconstructs
+A Cycle is an internal, disposable Model operation. It records its start and
+reconstructs two bounded views from the same raw database. The recent raw view
+feeds Memory and includes lifecycle facts needed to perceive the current
+operation. The canonical transcript includes the Task input, complete
+`model.message` operations, and matching `tool.result` operations; raw streamed
+`model.event` chunks never consume transcript capacity. The Cycle constructs a
+request from those views, the disposable snapshot, and `system.md`. The snapshot
+identifies the current Task as self and reconstructs
 its origin, initial and active LLM Model identities, current run and Cycle
 identities, continuation reason, status, and lifecycle timestamps. Provider
 configuration and credentials remain Provider-owned and never enter Task
@@ -196,6 +208,11 @@ in Memory; direct communication remains in the Task operation history. The
 `windows` tool reads and controls the authoritative Window
 belonging to a live Client Endpoint while correctly leaving local Surface
 presentation unavailable to Server Runtime tools.
+
+Runtime discovers Tool modules from `runtime/tools/*/*.ts`, validates unique
+names, and orders them through each Tool's optional `order`. Adding a Tool does
+not require editing Runtime's catalog. A Tool marks itself `builtin` only when
+its definition must be present in every Model cycle.
 
 Memory is an internal mathematical view over the existing raw operation log;
 it does not copy history into a second memory table or alter the schema. Its
@@ -296,6 +313,12 @@ a Task uses the selected local LLM Model handle, while Server Core resolves the
 authoritative Model and starts execution. Client View composes communication
 sources during initialization but does not coordinate operations.
 
+Every state-changing Task request returns acknowledgment only. Task creation
+uses a command identity recorded with `task.input`; the local `lemo.task()`
+promise resolves when that correlated authoritative operation arrives.
+Pause, continue, and cancel likewise change the local Task only through a
+published operation, never through their mutation answer.
+
 Server Core exposes one observation of every operation after it is committed
 to Lemo's authoritative history. Server View publishes that observation
 outward as `lemo.operation`; it does not create a private subscription for a
@@ -311,6 +334,12 @@ View renders a separator between those sections. Client-side `pause()`,
 `continue()`, and `cancel()` operate through the local Task handle; View merely
 renders their controls and state. Client-side operation history is only a
 projection; Server SQLite remains authoritative.
+
+An initial Task snapshot contains at most 256 recent raw operations plus its
+input and an older-history cursor. Client Core can request older pages through
+the Task entity and retains at most 2,048 operations at once, so a live Task
+cannot create an unbounded Client collection or DOM. The raw Server history is
+never truncated.
 
 Client Core also owns the minimal prompt contract it requires: receive a
 renderable prompt associated with a Task, expose it as a local entity, and send
@@ -333,6 +362,10 @@ operations, Task status, prompt arrival, release, and response state therefore
 invalidate exactly the rendered consumers that use them, including in a React
 Compiler build; no unrelated render counter is used as a synchronization
 signal.
+
+Manager startup configuration follows the same rule as Tasks and Providers:
+the command acknowledges, Server Core publishes `manager.startup.changed`
+outward, and every Manager updates its retained projection from that event.
 
 ## Async View state
 

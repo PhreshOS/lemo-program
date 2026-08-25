@@ -15,6 +15,8 @@ import type { PromptAnswer, WaitAnswerRequest } from "./prompt-contract"
 export default interface Tool {
     readonly definition: LLMToolDefinition
     readonly docs: string
+    readonly builtin?: boolean
+    readonly order?: number
 
     execute(input: unknown, context: ToolContext): Promise<unknown>
 
@@ -51,6 +53,7 @@ export type ToolContext = Readonly<{
 export type ToolRecord = Readonly<{
     definition: LLMToolDefinition
     docs: string
+    builtin: boolean
 }>
 
 export type ToolTasks = Readonly<{

@@ -9,7 +9,6 @@ import type LemoDatabase from "./database"
 import type Memory from "./memory"
 import type Operation from "./operation"
 import { assertRunning, waitForRun, type TaskRun } from "./executions"
-import { taskSnapshotOperationLimit } from "./task"
 import system from "./system.md?raw"
 
 /** One disposable Model cycle reconstructed entirely from durable operations. */
@@ -32,8 +31,9 @@ export default class Cycle {
         })
 
         try {
-            const operations = await cycleOperations(database, run.task)
-            const request = modelRequest(operations, await memory.context(operations), tools)
+            const history = await cycleHistory(database, run.task)
+            const transcript = await cycleTranscript(database, run.task)
+            const request = modelRequest(transcript, await memory.context(history), tools)
 
             let output = ""
             const toolCalls: LLMToolCall[] = []
@@ -160,10 +160,20 @@ function modelRequest(
     })
 }
 
-async function cycleOperations(database: LemoDatabase, task: string) {
+async function cycleTranscript(database: LemoDatabase, task: string) {
+
+    const transcript = await database.transcriptOperations(task, maximumTranscriptOperations)
+    const input = await database.firstOperation(task, "task.input")
+
+    if (!input) throw new Error("A Task has no input operation")
+
+    return Object.freeze([input, ...transcript])
+}
+
+async function cycleHistory(database: LemoDatabase, task: string) {
 
     const page = await database.operations(task, {
-        limit: taskSnapshotOperationLimit,
+        limit: taskCycleOperationLimit,
         order: "newest"
     })
     const input = await database.firstOperation(task, "task.input")
@@ -172,6 +182,9 @@ async function cycleOperations(database: LemoDatabase, task: string) {
         ? Object.freeze([input, ...page.operations])
         : page.operations
 }
+
+const maximumTranscriptOperations = 512
+const taskCycleOperationLimit = 256
 
 function modelToolResult(payload: Record<string, unknown>) {
 

@@ -152,17 +152,12 @@ export const promptResponseSchema = z.discriminatedUnion("type", [
     })
 ])
 
-export const promptReadySchema = z.strictObject({
-    client: z.string().trim().min(1)
-})
-
 export type PromptField = Readonly<z.infer<typeof promptFieldSchema>>
 export type PromptRequest = Readonly<z.infer<typeof promptRequestSchema>>
 export type PromptRecord = Readonly<z.infer<typeof promptRecordSchema>>
 export type PromptRelease = Readonly<z.infer<typeof promptReleaseSchema>>
 export type PromptInvalid = Readonly<z.infer<typeof promptInvalidSchema>>
 export type PromptResponse = Readonly<z.infer<typeof promptResponseSchema>>
-export type PromptReady = Readonly<z.infer<typeof promptReadySchema>>
 
 export function validatePromptValues(request: PromptRequest, values: Readonly<Record<string, PromptValue>>) {
 

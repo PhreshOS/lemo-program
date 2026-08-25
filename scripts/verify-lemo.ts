@@ -850,6 +850,31 @@ assert(continuitySnapshot.includes(
 assert(continuitySnapshot.includes('reason="semantic-association"'))
 assert(continuitySnapshot.indexOf('task="immediate"') < continuitySnapshot.indexOf('task="older-association"'))
 
+const transcriptSource = new DatabaseSync(":memory:")
+const transcriptDatabase = await LemoDatabase.open(transcriptSource)
+
+await transcriptDatabase.createTask("transcript", { input: "Keep meaningful turns" })
+await transcriptDatabase.appendToTask("transcript", "model.message", { content: "Earlier answer" })
+
+for (let index = 0; index < 600; index++) {
+    await transcriptDatabase.appendToTask("transcript", "model.event", {
+        type: "text",
+        content: `raw-${index}`
+    })
+}
+
+await transcriptDatabase.appendToTask("transcript", "tool.result", {
+    call: "call",
+    name: "time",
+    ok: false,
+    error: "Recorded mistake"
+})
+
+const transcript = await transcriptDatabase.transcriptOperations("transcript", 512)
+
+assert.deepEqual(transcript.map(operation => operation.kind), ["model.message", "tool.result"])
+assert.equal(transcript.some(operation => operation.kind === "model.event"), false)
+
 database.close()
 compactSource.close()
 largeSource.close()
@@ -860,6 +885,7 @@ toolResultSource.close()
 mindSource.close()
 messageSource.close()
 continuitySource.close()
+transcriptSource.close()
 
 function deferred() {
 

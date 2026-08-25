@@ -6,6 +6,8 @@ const input = z.object({ name: z.string().trim().min(1) }).strict()
 
 /** Reads documentation through the invocation's complete Lemo context. */
 const docs: Tool = {
+    builtin: true,
+    order: 1,
     docs: documentation,
     definition: Object.freeze({
         name: "docs",

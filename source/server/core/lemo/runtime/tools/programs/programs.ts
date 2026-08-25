@@ -34,6 +34,7 @@ const input = z.discriminatedUnion("action", [
 
 /** Reads installed Program and Endpoint declarations from the authoritative Host. */
 const programs: Tool = {
+    order: 5,
     docs,
     definition: Object.freeze({
         name: "programs",

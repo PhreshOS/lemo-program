@@ -2,8 +2,10 @@ import Manager from "@client/core/manager"
 import type LLMProviders from "@client/core/llm/providers"
 import usePromise from "@libs/react-promise"
 import { CurrentProvider, useProgram } from "@phreshos/react"
+import { useCallback, useEffect, useSyncExternalStore } from "react"
 import LLMProviderViews from "./llm-providers"
 import { message, StartupState } from "./state"
+import useProviderRevision from "./use-provider-revision"
 
 export default function ManagerRoute() {
 
@@ -16,6 +18,8 @@ function ManagerLoader() {
 
     const program = useProgram()
     const manager = usePromise(() => Manager.open(program), [program])
+
+    useEffect(() => () => manager.solve?.stop(), [manager.solve])
 
     if (manager.isPending) return <StartupState title="Starting Lemo…" />
 
@@ -48,14 +52,20 @@ function ManagerView({ manager, providers }: Readonly<{
     providers: LLMProviders
 }>) {
 
-    const models = usePromise(() => providers.models(), [providers])
-    const startup = usePromise(() => manager.startup(), [manager])
+    const providerRevision = useProviderRevision(providers)
+    const startupRevision = useStartupRevision(manager)
+    const models = usePromise(() => providers.models(), [providers, providerRevision])
+    const startup = usePromise(() => manager.startup(), [manager, startupRevision])
     const launch = usePromise(() => manager.launch())
     const configureStartup = usePromise(async function (enabled: boolean) {
 
         await manager.enableStartup(enabled)
-        await startup.execute()
     })
+
+    useEffect(() => () => {
+
+        providers.stop()
+    }, [providers])
 
     const startupFailure = startup.exception?.current ?? configureStartup.exception?.current
 
@@ -125,4 +135,12 @@ function ManagerView({ manager, providers }: Readonly<{
             </div>
         </div>
     </main>
+}
+
+function useStartupRevision(manager: Manager) {
+
+    const subscribe = useCallback((listener: () => void) => manager.subscribeStartup(listener), [manager])
+    const snapshot = useCallback(() => manager.startupVersion(), [manager])
+
+    return useSyncExternalStore(subscribe, snapshot, snapshot)
 }

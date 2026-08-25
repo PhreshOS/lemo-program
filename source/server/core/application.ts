@@ -6,9 +6,11 @@ import Lemo from "./lemo/lemo"
 import type { LemoDatabaseSource } from "./lemo/database"
 import type Task from "./lemo/task"
 import type ClientChannel from "./client-channel"
-import type Operation from "./lemo/operation"
+import type { ApplicationEvent } from "./application-event"
 
 export default class Application {
+
+    private readonly subscribers = new Set<(event: ApplicationEvent) => void>()
 
     private constructor(
         private readonly providers: LLMProviders,
@@ -27,7 +29,11 @@ export default class Application {
 
         const lemo = await Lemo.wakeUp(database, channel)
 
-        return new Application(providers, lemo, environment)
+        const application = new Application(providers, lemo, environment)
+
+        lemo.subscribe(operation => application.publish({ type: "lemo.operation", operation }))
+
+        return application
     }
 
     public get llmProviders() {
@@ -46,24 +52,28 @@ export default class Application {
         return this.providers.state(identity)
     }
 
-    public configureLLMProvider(identity: string, value: unknown) {
+    public async configureLLMProvider(identity: string, value: unknown) {
 
-        return this.providers.configure(identity, value)
+        await this.providers.configure(identity, value)
+        this.publishProvider(identity)
     }
 
-    public removeLLMProviderConfiguration(identity: string) {
+    public async removeLLMProviderConfiguration(identity: string) {
 
-        return this.providers.removeConfiguration(identity)
+        await this.providers.removeConfiguration(identity)
+        this.publishProvider(identity)
     }
 
-    public activateLLMProvider(identity: string) {
+    public async activateLLMProvider(identity: string) {
 
-        return this.providers.activate(identity)
+        await this.providers.activate(identity)
+        this.publishProvider(identity)
     }
 
-    public deactivateLLMProvider(identity: string) {
+    public async deactivateLLMProvider(identity: string) {
 
-        return this.providers.deactivate(identity)
+        await this.providers.deactivate(identity)
+        this.publishProvider(identity)
     }
 
     public async modelRecords(): Promise<readonly LLMModelRecord[]> {
@@ -92,15 +102,22 @@ export default class Application {
 
         if (enabled) await this.environment.startup.enable(fixedLaunch(this.environment.identity))
         else await this.environment.startup.disable()
+
+        this.publish({ type: "manager.startup.changed", enabled })
     }
 
-    public async task(input: string, providerIdentity: string, modelIdentity: string): Promise<Task> {
+    public async task(
+        input: string,
+        providerIdentity: string,
+        modelIdentity: string,
+        command?: string
+    ): Promise<Task> {
 
         const model = await this.providers.model(providerIdentity, modelIdentity)
 
         if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
 
-        return this.lemo.task({ input, model })
+        return this.lemo.task({ input, model, command })
     }
 
     public tasks() {
@@ -113,9 +130,11 @@ export default class Application {
         return this.lemo.findTask(identity)
     }
 
-    public subscribe(subscriber: (operation: Operation) => void) {
+    public subscribe(subscriber: (event: ApplicationEvent) => void) {
 
-        return this.lemo.subscribe(subscriber)
+        this.subscribers.add(subscriber)
+
+        return () => { this.subscribers.delete(subscriber) }
     }
 
     public async pauseTask(identity: string) {
@@ -163,6 +182,26 @@ export default class Application {
     private async startAgent(client: PairedClient) {
 
         if (!await client.exists()) await client.start({ location: "/agent" })
+    }
+
+    private publishProvider(provider: string) {
+
+        this.publish({
+            type: "llm-provider.changed",
+            provider,
+            state: this.providers.state(provider)
+        })
+    }
+
+    private publish(event: ApplicationEvent) {
+
+        for (const subscriber of this.subscribers) {
+            try {
+                subscriber(event)
+            } catch {
+                this.subscribers.delete(subscriber)
+            }
+        }
     }
 
 }

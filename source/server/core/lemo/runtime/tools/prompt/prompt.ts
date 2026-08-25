@@ -50,6 +50,7 @@ const field = Object.freeze({
 
 /** Waits for the Client's first response to one user-facing form or HTML prompt. */
 const prompt: Tool = {
+    order: 7,
     docs,
     definition: Object.freeze({
         name: "prompt",

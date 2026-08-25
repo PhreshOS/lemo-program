@@ -106,6 +106,7 @@ const launchParameters = Object.freeze({
 
 /** Reads and controls live Processes through their authoritative Program owners. */
 const processes: Tool = {
+    order: 6,
     docs,
     definition: Object.freeze({
         name: "processes",

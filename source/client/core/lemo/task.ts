@@ -1,20 +1,23 @@
 import type Operation from "@server/core/lemo/operation"
+import type { OperationPage } from "@server/core/lemo/database"
 import type { TaskSnapshot, TaskStatus } from "@server/core/lemo/task"
 
 export type TaskSubscriber = (task: Task) => void
 
 export type TaskControl = Readonly<{
-    pause(): Promise<TaskSnapshot>
-    cancel(): Promise<TaskSnapshot>
-    continue(): Promise<TaskSnapshot>
+    pause(): Promise<void>
+    cancel(): Promise<void>
+    continue(): Promise<void>
+    history(limit: number, before: number): Promise<unknown>
 }>
 
 /** A local handle to one authoritative Server Task. */
 export default class Task {
 
-    private history: Operation[]
+    private history: readonly Operation[]
     private readonly subscribers = new Set<TaskSubscriber>()
     private synchronizationError: Error | null = null
+    private before: number | null
 
     private constructor(
         public readonly id: string,
@@ -22,12 +25,17 @@ export default class Task {
         private readonly control: TaskControl
     ) {
 
-        this.history = [...operations]
+        this.history = Object.freeze([...operations])
+        this.before = null
     }
 
     public static from(snapshot: TaskSnapshot, control: TaskControl) {
 
-        return new Task(snapshot.id, snapshot.operations, control)
+        const task = new Task(snapshot.id, snapshot.operations, control)
+
+        task.before = snapshot.before
+
+        return task
     }
 
     public get status(): TaskStatus {
@@ -58,17 +66,35 @@ export default class Task {
 
     public async pause() {
 
-        this.synchronize(await this.control.pause())
+        await this.control.pause()
     }
 
     public async cancel() {
 
-        this.synchronize(await this.control.cancel())
+        await this.control.cancel()
     }
 
     public async continue() {
 
-        this.synchronize(await this.control.continue())
+        await this.control.continue()
+    }
+
+    public get hasEarlierOperations() {
+
+        return this.before !== null && this.history.length < maximumRetainedOperations
+    }
+
+    public async loadEarlierOperations(limit = historyPageSize) {
+
+        if (!this.hasEarlierOperations || this.before === null) return
+
+        const page = operationPage(await this.control.history(
+            Math.min(limit, maximumRetainedOperations - this.history.length),
+            this.before
+        ))
+
+        this.before = page.next
+        this.merge(page.operations)
     }
 
     public receive(value: unknown) {
@@ -84,7 +110,8 @@ export default class Task {
 
         for (const operation of snapshot.operations) operations.set(operation.id, operation)
 
-        this.history = [...operations.values()].sort((left, right) => left.sequence - right.sequence)
+        this.history = retained([...operations.values()])
+        this.before = snapshot.before
         this.synchronizationError = null
         this.changed()
     }
@@ -106,8 +133,25 @@ export default class Task {
 
         if (value.task !== this.id || this.history.some(operation => operation.id === value.id)) return
 
-        this.history = [...this.history, value].sort((left, right) => left.sequence - right.sequence)
+        const previousFirst = this.history.find(operation => operation.kind !== "task.input")?.sequence
 
+        this.history = retained([...this.history, value])
+
+        const first = this.history.find(operation => operation.kind !== "task.input")?.sequence
+
+        if (previousFirst !== undefined && first !== undefined && first > previousFirst) this.before = first
+
+        this.changed()
+    }
+
+    private merge(values: readonly Operation[]) {
+
+        const operations = new Map(this.history.map(operation => [operation.id, operation]))
+
+        for (const operation of values) operations.set(operation.id, operation)
+
+        this.history = retained([...operations.values()])
+        this.synchronizationError = null
         this.changed()
     }
 
@@ -207,6 +251,33 @@ function operation(value: unknown): Operation {
     return Object.freeze({ sequence, id, task, parent, kind, payload: value.payload, createdAt })
 }
 
+function operationPage(value: unknown): OperationPage {
+
+    if (!record(value) || !Array.isArray(value.operations)) {
+        throw new Error("The Server returned an invalid Lemo operation page")
+    }
+
+    const next = value.next
+
+    if (next !== null && typeof next !== "number") {
+        throw new Error("The Server returned an invalid Lemo operation cursor")
+    }
+
+    return Object.freeze({
+        operations: Object.freeze(value.operations.map(operation)),
+        next
+    })
+}
+
+function retained(values: readonly Operation[]) {
+
+    const ordered = [...values].sort((left, right) => left.sequence - right.sequence)
+    const input = ordered.find(operation => operation.kind === "task.input")
+    const recent = ordered.filter(operation => operation !== input).slice(-(maximumRetainedOperations - 1))
+
+    return Object.freeze(input ? [input, ...recent] : recent)
+}
+
 function nullableText(value: unknown) {
 
     return value === null ? null : text(value)
@@ -221,3 +292,6 @@ function record(value: unknown): value is Record<string, unknown> {
 
     return typeof value === "object" && value !== null && !Array.isArray(value)
 }
+
+const historyPageSize = 256
+const maximumRetainedOperations = 2_048

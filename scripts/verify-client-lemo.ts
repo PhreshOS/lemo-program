@@ -27,13 +27,19 @@ const source: LemoSource = {
 
         return { snapshots: [], events, close: events.close }
     },
-    async create() {
+    async create(command) {
 
-        return initial
+        events.push({
+            ...initial.operations[0],
+            payload: {
+                ...(initial.operations[0]?.payload as Record<string, unknown>),
+                command
+            }
+        })
     },
     control() {
 
-        return controlFor(initial)
+        return controlFor()
     }
 }
 
@@ -265,12 +271,13 @@ function channel() {
     }
 }
 
-function controlFor(snapshot: TaskSnapshot) {
+function controlFor() {
 
     return {
-        async pause() { return { ...snapshot, status: "paused" as const } },
-        async cancel() { return { ...snapshot, status: "cancelled" as const } },
-        async continue() { return { ...snapshot, status: "running" as const } }
+        async pause() {},
+        async cancel() {},
+        async continue() {},
+        async history() { return { operations: [], next: null } }
     }
 }
 

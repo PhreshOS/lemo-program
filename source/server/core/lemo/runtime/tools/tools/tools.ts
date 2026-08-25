@@ -11,6 +11,8 @@ const input = z.object({
 
 /** Discovers tools through the invocation's complete Lemo context. */
 const tools: Tool = {
+    builtin: true,
+    order: 0,
     docs,
     definition: Object.freeze({
         name: "tools",
@@ -28,7 +30,7 @@ const tools: Tool = {
 
         const request = input.parse(value)
 
-        const available = context.tools.list().filter(tool => !builtIn.has(tool.definition.name))
+        const available = context.tools.list().filter(tool => !tool.builtin)
 
         const selected = request.all
             ? available
@@ -50,5 +52,3 @@ const tools: Tool = {
 }
 
 export default tools
-
-const builtIn = new Set(["tools", "docs", "memory"])

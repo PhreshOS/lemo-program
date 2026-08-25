@@ -389,9 +389,21 @@ function TaskView({ task, snapshot, prompts }: Readonly<{
 }>) {
 
     const events = timeline(snapshot.operations)
+    const earlier = usePromise(() => task.loadEarlierOperations())
 
     return <article className="task" data-status={snapshot.status}>
         <TaskControls task={task} status={snapshot.status} />
+
+        {task.hasEarlierOperations && <div className="history-pagination">
+            <button
+                type="button"
+                disabled={earlier.isPending}
+                onClick={() => void earlier.safeExecute()}
+            >
+                {earlier.isPending ? "Loading earlier activity…" : "Load earlier activity"}
+            </button>
+            {earlier.exception && <span role="alert">{message(earlier.exception.current)}</span>}
+        </div>}
 
         {events.map(event => event.type === "user"
             ? <div className="user-message-container" key={event.key}>

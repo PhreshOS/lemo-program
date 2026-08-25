@@ -12,18 +12,7 @@ import type { ToolContext, ToolRecord, ToolTasks } from "./tool"
 import toolInput from "./tool-input"
 import type { WaitAnswerRequest } from "./prompt-contract"
 import WaitAnswers from "./wait-answers"
-import docs from "./tools/docs/docs"
-import endpoints from "./tools/endpoints/endpoints"
-import memoryTool from "./tools/memory/memory"
-import programs from "./tools/programs/programs"
-import processes from "./tools/processes/processes"
-import prompt from "./tools/prompt/prompt"
-import time from "./tools/time/time"
-import tasks from "./tools/tasks/tasks"
-import toolsTool from "./tools/tools/tools"
-import windows from "./tools/windows/windows"
-
-const builtIn = new Set(["tools", "docs", "memory"])
+const modules = import.meta.glob<{ default: Tool }>("./tools/*/*.ts", { eager: true })
 
 /** Lemo's internal owner and executor of available tools. */
 export default class Runtime {
@@ -39,22 +28,19 @@ export default class Runtime {
         private readonly taskContext: (invocation: ToolContext["invocation"], model: LLMModel) => ToolTasks
     ) {
 
-        const catalog: Tool[] = []
-
         this.answers = new WaitAnswers(client)
 
-        catalog.push(
-            toolsTool,
-            docs,
-            memoryTool,
-            time,
-            tasks,
-            programs,
-            processes,
-            prompt,
-            endpoints,
-            windows
-        )
+        const catalog = Object.values(modules)
+            .map(module => module.default)
+            .sort((left, right) => (
+                (left.order ?? defaultToolOrder) - (right.order ?? defaultToolOrder)
+                || left.definition.name.localeCompare(right.definition.name)
+            ))
+
+        if (catalog.some(tool => !tool.definition.name.trim())) throw new Error("A Tool name cannot be empty")
+        if (new Set(catalog.map(tool => tool.definition.name)).size !== catalog.length) {
+            throw new Error("Tool names must be unique")
+        }
 
         this.tools = new Map(catalog.map(tool => [tool.definition.name, tool]))
     }
@@ -65,7 +51,7 @@ export default class Runtime {
         const loaded = loadedTools(await this.database.latestOperation(task, "tool.tools.loaded"))
 
         return Object.freeze([...this.tools.values()]
-            .filter(tool => builtIn.has(tool.definition.name) || loaded.has(tool.definition.name))
+            .filter(tool => tool.builtin || loaded.has(tool.definition.name))
             .map(tool => tool.definition))
     }
 
@@ -205,6 +191,8 @@ export default class Runtime {
     }
 }
 
+const defaultToolOrder = 1_000
+
 function loadedTools(operation: Operation | null) {
 
     const loaded = new Set<string>()
@@ -224,7 +212,7 @@ function loadedTools(operation: Operation | null) {
 
 function toolRecord(tool: Tool): ToolRecord {
 
-    return Object.freeze({ definition: tool.definition, docs: tool.docs })
+    return Object.freeze({ definition: tool.definition, docs: tool.docs, builtin: tool.builtin === true })
 }
 
 function record(value: unknown) {

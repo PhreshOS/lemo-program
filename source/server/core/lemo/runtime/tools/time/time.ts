@@ -6,6 +6,7 @@ const input = z.object({}).strict()
 
 /** Returns the Server's current absolute time. */
 const time: Tool = {
+    order: 3,
     docs,
     definition: Object.freeze({
         name: "time",

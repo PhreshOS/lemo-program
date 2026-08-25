@@ -54,6 +54,7 @@ const input = z.discriminatedUnion("action", [
 
 /** Accesses Lemo Tasks through the invocation's ordinary Lemo context. */
 const tasks: Tool = {
+    order: 4,
     docs,
     definition: Object.freeze({
         name: "tasks",

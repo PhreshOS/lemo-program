@@ -9,6 +9,7 @@ export type { TaskStatus, TaskSummary } from "./database"
 export type TaskRequest = Readonly<{
     input: string
     model: LLMModel
+    command?: string
 }>
 
 export type TaskSnapshot = Readonly<{
@@ -50,6 +51,7 @@ export default class Task {
                 id: request.model.id
             },
             source,
+            ...(request.command ? { command: request.command } : {}),
             input: request.input
         })
 

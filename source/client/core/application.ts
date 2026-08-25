@@ -5,6 +5,7 @@ import Lemo, { type LemoSource } from "./lemo/lemo"
 import type LLMModel from "./llm/model"
 import { taskSnapshot } from "./lemo/task"
 import Prompts, { type PromptSource } from "./prompts/prompts"
+import serverEvents from "./server-events"
 
 export default class Application {
 
@@ -24,12 +25,15 @@ export default class Application {
     public start() {
 
         this.prompts.start()
+
+        return this.llmProviders.start()
     }
 
     public stop() {
 
         this.prompts.stop()
         this.lemo.stop()
+        this.llmProviders.stop()
     }
 
 }
@@ -39,7 +43,7 @@ function serverLemoSource(server: Server): LemoSource {
     return {
         async observe() {
 
-            const channel = eventChannel(server, "lemo.operation")
+            const channel = serverEvents(server, "lemo.operation")
 
             try {
                 const value = await server.ask<unknown>("lemo.tasks")
@@ -57,13 +61,14 @@ function serverLemoSource(server: Server): LemoSource {
                 throw error
             }
         },
-        async create(input: string, model: LLMModel) {
+        async create(command: string, input: string, model: LLMModel) {
 
-            return taskSnapshot(await server.ask<unknown>("lemo.task.create", {
+            await server.ask("lemo.task.create", {
+                command,
                 input,
                 provider: model.provider.identity,
                 model: model.id
-            }))
+            })
         },
         control(task: string) {
 
@@ -77,49 +82,16 @@ function taskControl(server: Server, task: string) {
     return Object.freeze({
         pause: () => controlTask(server, "lemo.task.pause", task),
         cancel: () => controlTask(server, "lemo.task.cancel", task),
-        continue: () => controlTask(server, "lemo.task.continue", task)
+        continue: () => controlTask(server, "lemo.task.continue", task),
+        history: (limit: number, before: number) => server.ask<unknown>("lemo.task.history", {
+            task,
+            limit,
+            before
+        })
     })
 }
 
 async function controlTask(server: Server, operation: string, task: string) {
 
-    return taskSnapshot(await server.ask<unknown>(operation, { task }))
+    await server.ask(operation, { task })
 }
-
-function eventChannel(server: Server, event: string) {
-
-    const controller = new AbortController()
-
-    const source = server.events<unknown>(event, {
-        capacity: eventQueueCapacity,
-        signal: controller.signal
-    })
-
-    const iterator = source[Symbol.asyncIterator]()
-
-    let next = iterator.next()
-
-    const events: AsyncIterable<unknown> = {
-        [Symbol.asyncIterator]() {
-
-            return {
-                async next() {
-
-                    const result = await next
-
-                    if (!result.done) next = iterator.next()
-
-                    return result
-                },
-                async return() {
-
-                    return await iterator.return?.() ?? { value: undefined, done: true }
-                }
-            }
-        }
-    }
-
-    return Object.freeze({ events, close: () => controller.abort() })
-}
-
-const eventQueueCapacity = 256

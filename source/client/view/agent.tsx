@@ -6,6 +6,7 @@ import { useEffect, useState } from "react"
 import promptSource from "./prompt-source"
 import { StartupState } from "./state"
 import Tasks from "./tasks"
+import useProviderRevision from "./use-provider-revision"
 
 export default function AgentRoute() {
 
@@ -23,7 +24,11 @@ function Agent() {
     const program = useProgram()
     const process = useProcess()
     const [application] = useState(() => new Application(process.server, promptSource))
-    const models = usePromise(() => application.llmProviders.models(), [application])
+    const providerRevision = useProviderRevision(application.llmProviders)
+    const models = usePromise(
+        () => application.llmProviders.models(),
+        [application, providerRevision]
+    )
 
     useEffect(function () {
 

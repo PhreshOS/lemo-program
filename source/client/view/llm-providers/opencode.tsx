@@ -4,6 +4,7 @@ import { default as OpenCodeProviderClass } from "@client/core/llm/providers/ope
 import type { LLMProviderState } from "@server/core/llm/provider"
 import usePromise, { type PromiseWithDependencies } from "@libs/react-promise"
 import type { LLMProviderViewProperties } from "../llm-providers"
+import useProviderRevision from "../use-provider-revision"
 
 export const identity = "opencode"
 
@@ -15,16 +16,14 @@ export default function OpenCodeConfiguration({ providers, models }: LLMProvider
 
     const provider: OpenCodeProvider = candidate
 
-    const resource = usePromise(() => provider.state(), [provider])
+    const revision = useProviderRevision(providers)
+    const resource = usePromise(() => provider.state(), [provider, revision])
 
     const mutation = usePromise(async function (active: boolean) {
 
         if (active) await provider.activate()
         else await provider.deactivate()
 
-        await resource.execute()
-
-        await models.execute()
     })
 
     const state = resource.solve

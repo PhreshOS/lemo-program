@@ -65,6 +65,7 @@ const sizeParameters = Object.freeze({
 
 /** Reads and controls the authoritative Window of one live Client Endpoint. */
 const windows: Tool = {
+    order: 9,
     docs,
     definition: Object.freeze({
         name: "windows",

@@ -20,9 +20,9 @@ const promptSource: PromptSource = {
 
         current.server.publish("lemo.prompt.response" satisfies PromptEvent, value)
     },
-    ready(value) {
+    ready() {
 
-        current.server.publish("lemo.prompt.ready" satisfies PromptEvent, value)
+        current.server.publish("lemo.prompt.ready" satisfies PromptEvent)
     }
 }
 

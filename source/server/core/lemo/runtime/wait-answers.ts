@@ -29,10 +29,6 @@ const response = z.discriminatedUnion("type", [
     })
 ])
 
-const ready = z.strictObject({
-    client: z.string().trim().min(1)
-})
-
 const defaultCapacity = 4
 const defaultTimeout = 2 * 60 * 1_000
 
@@ -69,7 +65,7 @@ export default class WaitAnswers {
         }
 
         client.subscribe("lemo.prompt.response" satisfies PromptEvent, value => this.receive(value))
-        client.subscribe("lemo.prompt.ready" satisfies PromptEvent, value => this.restore(value))
+        client.subscribe("lemo.prompt.ready" satisfies PromptEvent, () => this.restore())
     }
 
     public wait(context: WaitAnswerContext, request: WaitAnswerRequest, signal: AbortSignal): Promise<PromptAnswer> {
@@ -188,9 +184,7 @@ export default class WaitAnswers {
         this.client.publish("lemo.prompt.invalid" satisfies PromptEvent, { id, error })
     }
 
-    private restore(value: unknown) {
-
-        if (!ready.safeParse(value).success) return
+    private restore() {
 
         for (const entry of this.pending.values()) {
             this.client.publish("lemo.prompt.open" satisfies PromptEvent, entry.prompt)
