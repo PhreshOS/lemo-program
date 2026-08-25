@@ -2,6 +2,7 @@ import type { LLMToolDefinition } from "../../llm/model"
 import type {
     OperationPage,
     TaskListRequest,
+    TaskMessage,
     TaskPage,
     TaskSummary
 } from "../database"
@@ -59,6 +60,7 @@ export type ToolTasks = Readonly<{
         operations: OperationPage
     }>>
     create(input: string): Promise<TaskSummary>
+    send(task: string, message: string): Promise<TaskMessage>
     pause(task: string): Promise<TaskSummary>
     continue(task: string): Promise<TaskSummary>
     cancel(task: string): Promise<TaskSummary>

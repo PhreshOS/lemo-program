@@ -1,5 +1,6 @@
 import type LemoDatabase from "./database"
 import { maximumContextOperations, maximumTaskContextBatch } from "./database"
+import type { TaskMessage } from "./database"
 import type Operation from "./operation"
 import { taskStatus, type TaskStatus } from "./task"
 
@@ -62,7 +63,10 @@ export default class Context {
         if (!task) throw new Error("A context requires a Task identity")
 
         const objective = taskInput(operations)
-        const history = await this.history(objective, operations)
+        const [history, messages] = await Promise.all([
+            this.history(objective, operations),
+            this.database.contextMessages(task)
+        ])
         const states = taskStates(history)
         const self = states.get(task)
 
@@ -89,7 +93,7 @@ export default class Context {
         ))
         const results = retrieve(others, { query: self.objective, focus, budget }, false)
 
-        return contextSnapshot(self, focus, continuity, awareness, results, states)
+        return contextSnapshot(self, messages, focus, continuity, awareness, results, states)
     }
 
     public async recall(
@@ -545,6 +549,7 @@ function addFocus(
 
 function contextSnapshot(
     self: TaskState,
+    messages: readonly TaskMessage[],
     focus: readonly WorkingSignal[],
     continuity: readonly TaskContinuity[],
     awareness: Awareness,
@@ -580,6 +585,14 @@ function contextSnapshot(
         ...focus.map(signal => workingSignal(signal)),
         "</self>",
         "",
+        "## Messages",
+        "",
+        `<messages limit="10" count="${messages.length}" role="directed-task-communication">`,
+        "Only the 10 newest durable messages addressed to this Task are shown.",
+        'A delivery of "new" means this is the first cycle receiving the message.',
+        ...messages.map(message => directedMessage(message)),
+        "</messages>",
+        "",
         "## Immediate Continuity",
         "",
         '<immediate_continuity precedence="before-associative-memory">',
@@ -603,6 +616,21 @@ function contextSnapshot(
         "</shared_memory>",
         "</perceptual_field>"
     ].join("\n")
+}
+
+function directedMessage(message: TaskMessage) {
+
+    const attributes = [
+        ["sequence", String(message.sequence)],
+        ["id", message.id],
+        ["sourceTask", message.sourceTask],
+        ["sourceCall", message.sourceCall],
+        ["createdAt", timestamp(message.createdAt)],
+        ["deliveredAt", message.deliveredAt === null ? "" : timestamp(message.deliveredAt)],
+        ["delivery", message.deliveredAt === null ? "new" : "previously-delivered"]
+    ].map(([name, value]) => `${name}="${xml(value)}"`).join(" ")
+
+    return `  <message ${attributes}>${xml(message.content)}</message>`
 }
 
 function workingSignal(signal: WorkingSignal) {

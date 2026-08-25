@@ -9,6 +9,24 @@ CREATE INDEX IF NOT EXISTS tasks_created ON tasks (created_at, id)
 
 -- statement
 
+CREATE TABLE IF NOT EXISTS messages (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    source_task_id TEXT NOT NULL REFERENCES tasks(id),
+    source_call TEXT NOT NULL,
+    target_task_id TEXT NOT NULL REFERENCES tasks(id),
+    content TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    delivered_at INTEGER
+) STRICT
+
+-- statement
+
+CREATE INDEX IF NOT EXISTS messages_target
+ON messages (target_task_id, sequence DESC)
+
+-- statement
+
 CREATE TABLE IF NOT EXISTS operations (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     id TEXT NOT NULL UNIQUE,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { DatabaseSync } from "node:sqlite"
 import type { Subscribable } from "@phreshos/core"
-import LemoDatabase from "../source/server/core/lemo/database"
+import LemoDatabase, { maximumContextMessages } from "../source/server/core/lemo/database"
 import Lemo from "../source/server/core/lemo/lemo"
 import Memory from "../source/server/core/lemo/memory"
 import type LLMModel from "../source/server/core/llm/model"
@@ -9,6 +9,7 @@ import type LLMProvider from "../source/server/core/llm/provider"
 import endpoints, { endpointModelOutput } from "../source/server/core/lemo/runtime/tools/endpoints/endpoints"
 import processes from "../source/server/core/lemo/runtime/tools/processes/processes"
 import programs from "../source/server/core/lemo/runtime/tools/programs/programs"
+import tasks from "../source/server/core/lemo/runtime/tools/tasks/tasks"
 import windows from "../source/server/core/lemo/runtime/tools/windows/windows"
 import toolInput from "../source/server/core/lemo/runtime/tool-input"
 import waitEvent from "../source/server/core/lemo/runtime/wait-event"
@@ -20,6 +21,7 @@ assert.match(JSON.stringify(programs.definition.parameters), /"const":"wait"/)
 assert.match(JSON.stringify(processes.definition.parameters), /"const":"wait"/)
 assert.match(JSON.stringify(endpoints.definition.parameters), /"const":"wait"/)
 assert.match(JSON.stringify(windows.definition.parameters), /"const":"wait"/)
+assert.match(JSON.stringify(tasks.definition.parameters), /"const":"send"/)
 
 const immediateEvents = {
     async *events() { yield Object.freeze({ value: "received" }) }
@@ -156,6 +158,7 @@ const tables = database.prepare(`
 `).all().map(row => row.name)
 
 assert.deepEqual(tables, [
+    "messages",
     "operation_relationships",
     "operations",
     "tasks"
@@ -712,6 +715,88 @@ assert(mindSnapshot.includes('reason="possible-semantic-association"'))
 assert(!mindSnapshot.includes("completed-noise"))
 assert(!mindSnapshot.includes('<episode task="self"'))
 
+const messageSource = new DatabaseSync(":memory:")
+const messageDatabase = await LemoDatabase.open(messageSource)
+
+await messageDatabase.createTask("sender", { input: "Coordinate the work" })
+await messageDatabase.appendToTask("sender", "task.run.started", { run: "sender-run" })
+await messageDatabase.createTask("receiver", { input: "Perform the coordinated work" })
+await messageDatabase.appendToTask("receiver", "task.run.started", { run: "receiver-run" })
+
+for (let index = 0; index < 12; index++) {
+
+    await messageDatabase.sendMessage({
+        sourceTask: "sender",
+        sourceCall: `message-call-${index}`,
+        targetTask: "receiver",
+        content: `[directed-message:${String(index).padStart(2, "0")}]`
+    })
+}
+
+const receiverOperations = (await messageDatabase.operations("receiver", {
+    limit: 10,
+    order: "oldest"
+})).operations
+const firstMessageContext = await new Memory(messageDatabase).context(receiverOperations)
+
+assert(firstMessageContext.includes("## Messages"))
+assert.equal((firstMessageContext.match(/  <message /g) ?? []).length, maximumContextMessages)
+assert(!firstMessageContext.includes("[directed-message:00]"))
+assert(!firstMessageContext.includes("[directed-message:01]"))
+
+for (let index = 2; index < 12; index++) {
+
+    assert(firstMessageContext.includes(`[directed-message:${String(index).padStart(2, "0")}]`))
+}
+
+assert.equal((firstMessageContext.match(/delivery="new"/g) ?? []).length, maximumContextMessages)
+
+const storedMessages = messageSource.prepare(`
+    SELECT sequence, delivered_at
+    FROM messages
+    ORDER BY sequence
+    LIMIT 20
+`).all()
+
+assert.equal(storedMessages.length, 12)
+assert.equal(storedMessages.filter(message => message.delivered_at === null).length, 2)
+
+const delivered = new Map(storedMessages.map(message => [message.sequence, message.delivered_at]))
+const repeatedMessageContext = await new Memory(messageDatabase).context(receiverOperations)
+
+assert.equal((repeatedMessageContext.match(/delivery="new"/g) ?? []).length, 0)
+assert.equal(
+    (repeatedMessageContext.match(/delivery="previously-delivered"/g) ?? []).length,
+    maximumContextMessages
+)
+
+for (const message of messageSource.prepare(`
+    SELECT sequence, delivered_at
+    FROM messages
+    WHERE delivered_at IS NOT NULL
+    ORDER BY sequence
+    LIMIT 20
+`).all()) {
+
+    assert.equal(message.delivered_at, delivered.get(message.sequence))
+}
+
+await messageDatabase.appendToTask("receiver", "task.completed", { output: "done" })
+
+await assert.rejects(messageDatabase.sendMessage({
+    sourceTask: "sender",
+    sourceCall: "too-late",
+    targetTask: "receiver",
+    content: "This should not be accepted"
+}), /completed Task cannot receive messages/)
+
+await assert.rejects(messageDatabase.sendMessage({
+    sourceTask: "sender",
+    sourceCall: "self-message",
+    targetTask: "sender",
+    content: "This should not be accepted"
+}), /cannot send a message to itself/)
+
 const perceptualSource = new DatabaseSync(":memory:")
 const continuityMindDatabase = await LemoDatabase.open(perceptualSource)
 
@@ -752,6 +837,7 @@ fittingSource.close()
 activationSource.close()
 toolResultSource.close()
 mindSource.close()
+messageSource.close()
 continuitySource.close()
 
 function deferred() {

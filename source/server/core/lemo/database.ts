@@ -137,6 +137,81 @@ export default class LemoDatabase {
         return rows[0]?.total ?? 0
     }
 
+    /** Persists one directed message only while its receiving Task is running. */
+    public async sendMessage(input: TaskMessageInput): Promise<TaskMessage> {
+
+        if (!input.content.trim()) throw new Error("A Task message requires content")
+        if (!input.sourceCall.trim()) throw new Error("A Task message requires its source call")
+        if (input.sourceTask === input.targetTask) throw new Error("A Task cannot send a message to itself")
+
+        const id = crypto.randomUUID()
+        const createdAt = Date.now()
+        const rows = await this.query<TaskMessageRow>(`
+            ${taskStates}
+            INSERT INTO messages (
+                id,
+                source_task_id,
+                source_call,
+                target_task_id,
+                content,
+                created_at,
+                delivered_at
+            )
+            SELECT ?, ?, ?, ?, ?, ?, NULL
+            WHERE EXISTS (
+                SELECT 1
+                FROM task_states
+                WHERE id = ? AND status = 'running'
+            )
+            RETURNING sequence, id, source_task_id, source_call, target_task_id, content, created_at, delivered_at
+        `, [
+            id,
+            input.sourceTask,
+            input.sourceCall,
+            input.targetTask,
+            input.content,
+            createdAt,
+            input.targetTask
+        ])
+
+        const stored = rows[0]
+
+        if (stored) return taskMessage(stored)
+
+        const target = await this.task(input.targetTask)
+
+        if (!target) throw new Error(`Unknown Lemo Task "${input.targetTask}"`)
+
+        throw new Error(`A ${target.status} Task cannot receive messages`)
+    }
+
+    /** Delivers only the newest bounded message window for one Model cycle. */
+    public async contextMessages(task: string): Promise<readonly TaskMessage[]> {
+
+        const rows = await this.query<TaskMessageRow>(`
+            SELECT sequence, id, source_task_id, source_call, target_task_id, content, created_at, delivered_at
+            FROM messages
+            WHERE target_task_id = ?
+            ORDER BY sequence DESC
+            LIMIT ?
+        `, [task, maximumContextMessages])
+        const pending = rows.filter(row => row.delivered_at === null)
+
+        if (pending.length) {
+
+            await this.run(`
+                UPDATE messages
+                SET delivered_at = ?
+                WHERE delivered_at IS NULL
+                  AND id IN (${pending.map(() => "?").join(", ")})
+            `, [Date.now(), ...pending.map(message => message.id)])
+        }
+
+        return Object.freeze(rows
+            .sort((left, right) => left.sequence - right.sequence)
+            .map(taskMessage))
+    }
+
     /** Observes future persisted operations without retaining history. */
     public subscribe(task: string, subscriber: OperationSubscriber) {
 
@@ -480,6 +555,24 @@ export type TaskPage = Readonly<{
     next: TaskCursor | null
 }>
 
+export type TaskMessageInput = Readonly<{
+    sourceTask: string
+    sourceCall: string
+    targetTask: string
+    content: string
+}>
+
+export type TaskMessage = Readonly<{
+    sequence: number
+    id: string
+    sourceTask: string
+    sourceCall: string
+    targetTask: string
+    content: string
+    createdAt: number
+    deliveredAt: number | null
+}>
+
 export type OperationPageRequest = Readonly<{
     limit: number
     before?: number
@@ -571,6 +664,20 @@ function taskState(value: string): TaskStatus {
     return value
 }
 
+function taskMessage(row: TaskMessageRow): TaskMessage {
+
+    return Object.freeze({
+        sequence: row.sequence,
+        id: row.id,
+        sourceTask: row.source_task_id,
+        sourceCall: row.source_call,
+        targetTask: row.target_task_id,
+        content: row.content,
+        createdAt: row.created_at,
+        deliveredAt: row.delivered_at
+    })
+}
+
 function like(value: string) {
 
     return value.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")
@@ -610,12 +717,24 @@ type TaskSummaryRow = Readonly<{
     updated_at: number
 }>
 
+type TaskMessageRow = Readonly<{
+    sequence: number
+    id: string
+    source_task_id: string
+    source_call: string
+    target_task_id: string
+    content: string
+    created_at: number
+    delivered_at: number | null
+}>
+
 export type OperationSubscriber = (operation: Operation) => void
 
 export const maximumTaskPage = 100
 export const maximumOperationPage = 256
 export const maximumContextOperations = 2_048
 export const maximumTaskContextBatch = 100
+export const maximumContextMessages = 10
 
 const maximumSearchTerms = 12
 

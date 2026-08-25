@@ -96,10 +96,10 @@ const lemo = await Lemo.wakeUp(database, clientChannel)
 ```
 
 Lemo accepts the PhreshOS Program database or a normal Node.js `DatabaseSync`
-instance. Its schema retains Tasks, globally ordered raw operations, their
-original Task and parent relationships, and arbitrary relationships between
-operations. Raw payloads remain JSON without summaries, embeddings, retrieval
-scores, decay values, or inferred semantic structure.
+instance. Its schema retains Tasks, globally ordered raw operations, directed
+Task messages, their original Task and parent relationships, and arbitrary
+relationships between operations. Raw payloads remain JSON without summaries,
+embeddings, retrieval scores, decay values, or inferred semantic structure.
 
 ## Tasks
 
@@ -117,6 +117,15 @@ reconstruct durable state from the database. Each Task also exposes
 reversible, cancellation is terminal, and continuation always starts a fresh
 run reconstructed from durable history. A fresh Lemo Process can recover a Task
 through `lemo.findTask(taskId)` without an in-memory Task registry.
+
+Running Tasks communicate explicitly through the ordinary `tasks.send` Tool
+operation. Every directed message durably retains its sending Task, Tool-call
+identity, receiving Task, content, creation time, and first delivery time. The
+message table is not capped: each Cycle reads only the receiving Task's 10
+newest messages, in chronological order. A message first entering context is
+identified as new; subsequent Cycles retain its original `deliveredAt` value
+and identify it as previously delivered. A completed, failed, cancelled, or
+paused Task cannot receive a message.
 
 Every run has a durable identity and a disposable `AbortSignal`. Stopping a run
 interrupts Model streaming, Runtime Tools, and pending prompts. Calls left
@@ -222,15 +231,18 @@ a few large facts fit, while short dependent statements keep the surrounding
 evidence needed to understand them.
 
 Every Cycle loads one committed view of the global operation history and
-independently rebuilds four layers: self, immediate continuity, concurrent
-attention, and shared memory. Self identifies the current Task and its active
-durable focus. Immediate continuity orders recent finished Tasks by their exact
-distance from self and takes precedence when resolving ambiguous references.
-Concurrent attention contains a bounded frontier for every other running Task
-even when it is not semantically related. Shared memory contains mathematically
-activated episodes from older Tasks as possible associations, not presumed
-facts or instructions. Its budget is reduced by the continuity and
-concurrent-attention space, keeping the complete snapshot bounded.
+independently rebuilds five layers: self, directed messages, immediate
+continuity, concurrent attention, and shared memory. Self identifies the
+current Task and its active durable focus. Directed messages contain only the
+10 newest messages addressed to self and identify their source, creation time,
+delivery time, and whether this is their first appearance. Immediate continuity
+orders recent finished Tasks by their exact distance from self and takes
+precedence when resolving ambiguous references. Concurrent attention contains
+a bounded frontier for every other running Task even when it is not
+semantically related. Shared memory contains mathematically activated episodes
+from older Tasks as possible associations, not presumed facts or instructions.
+Its budget is reduced by the continuity and concurrent-attention space, keeping
+the associative portion bounded.
 
 Every Task envelope declares whether it is self or other and its reconstructed
 status, relationship, start, update, and terminal times. Every objective, focus

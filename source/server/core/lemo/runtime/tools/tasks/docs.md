@@ -17,6 +17,13 @@ this Task's LLM Model and records this invocation as its source. Lemo allows at
 most 10 running or paused Tasks in total; completed, failed, and cancelled
 Tasks do not consume execution capacity.
 
+Use `send` with a receiving `task` identity and `message` to communicate
+explicitly with another running Task. The message records this Task and Tool
+call as its source. Every message remains durable; the receiver's next Model
+cycle includes only its 10 newest messages in a dedicated Messages section.
+Messages already included in an earlier cycle carry their original delivery
+timestamp so the receiver can distinguish them from newly received messages.
+
 Use `pause`, `continue`, or `cancel` with a Task identity. A running Task cannot
 pause or cancel itself from inside its own active tool invocation.
 

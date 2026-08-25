@@ -127,6 +127,12 @@ export default class Lemo {
                     { type: "task", task: invocation.task, call: invocation.call }
                 )
             ).summary(),
+            send: (identity, message) => this.database.sendMessage({
+                sourceTask: invocation.task,
+                sourceCall: invocation.call,
+                targetTask: identity,
+                content: message
+            }),
             pause: async identity => {
 
                 this.assertOtherTask(invocation.task, identity, "pause")

@@ -36,6 +36,11 @@ const input = z.discriminatedUnion("action", [
         before: z.number().int().positive().optional()
     }).strict(),
     z.object({ action: z.literal("create"), input: z.string().trim().min(1) }).strict(),
+    z.object({
+        action: z.literal("send"),
+        task,
+        message: z.string().trim().min(1)
+    }).strict(),
     z.object({ action: z.literal("pause"), task }).strict(),
     z.object({ action: z.literal("continue"), task }).strict(),
     z.object({ action: z.literal("cancel"), task }).strict(),
@@ -52,7 +57,7 @@ const tasks: Tool = {
     docs,
     definition: Object.freeze({
         name: "tasks",
-        description: "Create, find, inspect, control, and wait for Lemo Tasks.",
+        description: "Create, find, inspect, message, control, and wait for Lemo Tasks.",
         parameters: Object.freeze({
             oneOf: Object.freeze([
                 variant(["action"], {
@@ -89,6 +94,11 @@ const tasks: Tool = {
                 variant(["action", "input"], {
                     action: Object.freeze({ const: "create" }),
                     input: Object.freeze({ type: "string" })
+                }),
+                variant(["action", "task", "message"], {
+                    action: Object.freeze({ const: "send" }),
+                    task: Object.freeze({ type: "string" }),
+                    message: Object.freeze({ type: "string" })
                 }),
                 controlVariant("pause"),
                 controlVariant("continue"),
@@ -141,6 +151,8 @@ const tasks: Tool = {
         }
 
         if (request.action === "create") return context.tasks.create(request.input)
+
+        if (request.action === "send") return context.tasks.send(request.task, request.message)
 
         if (request.action === "pause") return context.tasks.pause(request.task)
 
