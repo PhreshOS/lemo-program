@@ -151,9 +151,12 @@ holding context in Process or Task memory.
 A Cycle is an internal, disposable Model operation. It records its start, loads
 the Task's ordered raw operations, asks Memory for a freshly rebuilt context,
 and constructs a request from those facts, the disposable snapshot, and
-`system.md`. The snapshot identifies the current Task as self but does not copy
-its exact transcript, because that transcript is already reconstructed as Model
-messages.
+`system.md`. The snapshot identifies the current Task as self and reconstructs
+its origin, initial and active LLM Model identities, current run and Cycle
+identities, continuation reason, status, and lifecycle timestamps. Provider
+configuration and credentials remain Provider-owned and never enter Task
+context. The snapshot does not copy the Task's exact transcript, because that
+transcript is already reconstructed as Model messages.
 Every accepted text or tool-call event and the final assistant message are
 persisted before the Cycle completes. Neither the constructed request nor its
 snapshot is retained or reused by another Cycle.
@@ -245,9 +248,11 @@ Its budget is reduced by the continuity and concurrent-attention space, keeping
 the associative portion bounded.
 
 Every Task envelope declares whether it is self or other and its reconstructed
-status, relationship, start, update, and terminal times. Every objective, focus
-signal, and selected operation retains an ISO timestamp and its source and
-recording method. Associative operations additionally state their selection
+status, relationship, start, update, and terminal times. Self additionally
+declares whether the Task came directly from the user or another Task and, for
+delegated work, identifies the source Task and Tool call. Every objective,
+focus signal, and selected operation retains an ISO timestamp and its source
+and recording method. Associative operations additionally state their selection
 reason, matching terms, numerical association, and supporting anchor. The
 plain-text snapshot combines Markdown sections with XML-like elements so Models
 can distinguish its perceptual layers without JSON escaping overhead.

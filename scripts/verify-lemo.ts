@@ -200,6 +200,9 @@ model = {
 
         assert(snapshot)
         assert(snapshot.content.includes('<self task='))
+        assert.match(snapshot.content, /<execution run="[^"]+" reason="(?:created|continued)" startedAt="[^"]+" cycle="[^"]+" cycleStartedAt="[^"]+">/)
+        assert(snapshot.content.includes('<llm_model role="active" provider="test" id="test-model" />'))
+        assert(snapshot.content.includes('<llm_model role="initial" provider="test" id="test-model" />'))
         assert(snapshot.content.includes('<immediate_continuity precedence="before-associative-memory">'))
         assert(snapshot.content.includes('<active_tasks omitted='))
         assert(snapshot.content.includes('<shared_memory role="possible-associations"'))
@@ -291,6 +294,9 @@ model = {
         }
 
         if (input === "delegated child") {
+
+            assert.match(snapshot.content, /<origin type="task" task="[^"]+" call="create-child" \/>/)
+            assert.match(snapshot.content, /<objective source="task:[^"]+" method="task-input"/)
 
             yield { type: "text" as const, content: "delegated child:complete" }
 
@@ -680,8 +686,20 @@ assert.deepEqual((storedToolResult?.payload as Record<string, unknown>).output, 
 const mindSource = new DatabaseSync(":memory:")
 const mindDatabase = await LemoDatabase.open(mindSource)
 
-await mindDatabase.createTask("self", { input: "Recover the browser workspace" })
-await mindDatabase.appendToTask("self", "task.run.started", { run: "self-run" })
+await mindDatabase.createTask("self", {
+    input: "Recover the browser workspace",
+    source: { type: "user" },
+    model: { provider: "test", id: "test-model" }
+})
+await mindDatabase.appendToTask("self", "task.run.started", {
+    run: "self-run",
+    reason: "created",
+    model: { provider: "test", id: "test-model" }
+})
+await mindDatabase.appendToTask("self", "cycle.started", {
+    run: "self-run",
+    model: { provider: "test", id: "test-model" }
+})
 await mindDatabase.createTask("running-related", { input: "Monitor browser workspace changes" })
 await mindDatabase.appendToTask("running-related", "task.run.started", { run: "related-run" })
 await mindDatabase.appendToTask("running-related", "model.message", {
@@ -706,6 +724,9 @@ const mindSnapshot = await new Memory(mindDatabase).context(
 )
 
 assert(mindSnapshot.includes('<self task="self" perspective="self" relation="self" status="running"'))
+assert(mindSnapshot.includes('<origin type="user" task="" call="" />'))
+assert(mindSnapshot.includes('<execution run="self-run" reason="created"'))
+assert(mindSnapshot.includes('<llm_model role="active" provider="test" id="test-model" />'))
 assert(mindSnapshot.includes('<task task="running-related" perspective="other" relation="concurrent" status="running"'))
 assert(mindSnapshot.includes('<task task="running-unrelated" perspective="other" relation="concurrent" status="running"'))
 assert(mindSnapshot.includes('<episode task="completed-related" perspective="other" relation="associative" status="completed"'))
