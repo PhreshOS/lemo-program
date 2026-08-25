@@ -1,5 +1,12 @@
 import type { LLMToolDefinition } from "../../llm/model"
+import type {
+    OperationPage,
+    TaskListRequest,
+    TaskPage,
+    TaskSummary
+} from "../database"
 import type { MemoryRecord } from "../memory"
+import type { MemoryRecallOptions, MemoryRecallRequest, MemoryResult } from "../memory"
 import type Operation from "../operation"
 import type { PromptAnswer, WaitAnswerRequest } from "./prompt-contract"
 
@@ -19,12 +26,56 @@ export default interface Tool {
 }
 
 export type ToolContext = Readonly<{
-    task: string
-    call: string
-    signal: AbortSignal
-    record(kind: string, payload: unknown): Promise<Operation>
+    invocation: Readonly<{
+        task: string
+        call: string
+        signal: AbortSignal
+        record(kind: string, payload: unknown): Promise<Operation>
+    }>
     memory: Readonly<{
+        recall(request: MemoryRecallRequest, options?: MemoryRecallOptions): Promise<readonly MemoryResult[]>
         record(value: MemoryRecord): Promise<Operation>
     }>
-    waitAnswer(request: WaitAnswerRequest): Promise<PromptAnswer>
+    tools: Readonly<{
+        list(): readonly ToolRecord[]
+        find(name: string): ToolRecord | null
+        load(names: readonly string[]): Promise<void>
+    }>
+    tasks: ToolTasks
+    client: Readonly<{
+        waitAnswer(request: WaitAnswerRequest): Promise<PromptAnswer>
+    }>
+}>
+
+export type ToolRecord = Readonly<{
+    definition: LLMToolDefinition
+    docs: string
+}>
+
+export type ToolTasks = Readonly<{
+    list(request: TaskListRequest): Promise<TaskPage>
+    read(task: string, limit: number, before?: number): Promise<Readonly<{
+        task: TaskSummary
+        operations: OperationPage
+    }>>
+    create(input: string): Promise<TaskSummary>
+    pause(task: string): Promise<TaskSummary>
+    continue(task: string): Promise<TaskSummary>
+    cancel(task: string): Promise<TaskSummary>
+    wait(request: TaskWaitRequest): Promise<TaskEvent>
+}>
+
+export type TaskEventName = "created" | "running" | "paused" | "continued" | "completed" | "failed" | "cancelled"
+
+export type TaskWaitRequest = Readonly<{
+    tasks?: readonly string[]
+    events?: readonly TaskEventName[]
+    timeout?: number
+}>
+
+export type TaskEvent = Readonly<{
+    task: string
+    event: TaskEventName
+    operation: string
+    createdAt: number
 }>

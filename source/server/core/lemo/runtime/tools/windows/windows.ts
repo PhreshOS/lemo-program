@@ -101,7 +101,7 @@ const windows: Tool = {
             return Object.freeze({
                 process: process.identity,
                 event: request.event,
-                payload: await waitEvent(window, request.event, context.signal, request.timeout)
+                payload: await waitEvent(window, request.event, context.invocation.signal, request.timeout)
             })
         }
 

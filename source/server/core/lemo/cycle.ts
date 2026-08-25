@@ -9,6 +9,7 @@ import type LemoDatabase from "./database"
 import type Memory from "./memory"
 import type Operation from "./operation"
 import { assertRunning, waitForRun, type TaskRun } from "./executions"
+import { taskSnapshotOperationLimit } from "./task"
 import system from "./system.md?raw"
 
 /** One disposable Model cycle reconstructed entirely from durable operations. */
@@ -31,7 +32,7 @@ export default class Cycle {
         })
 
         try {
-            const operations = await database.operations(run.task)
+            const operations = await cycleOperations(database, run.task)
             const request = modelRequest(operations, await memory.context(operations), tools)
 
             let output = ""
@@ -106,6 +107,7 @@ function modelRequest(
         { role: "system", content: system.trim() },
         { role: "system", content: memory }
     ]
+    const calls = new Set<string>()
 
     for (const operation of operations) {
 
@@ -118,10 +120,14 @@ function modelRequest(
 
         if (operation.kind === "model.message" && typeof payload?.content === "string") {
 
+            const requested = toolCalls(payload.toolCalls)
+
+            for (const call of requested ?? []) calls.add(call.id)
+
             messages.push({
                 role: "assistant",
                 content: payload.content,
-                toolCalls: toolCalls(payload.toolCalls)
+                toolCalls: requested
             })
         }
 
@@ -131,6 +137,8 @@ function modelRequest(
 
                 throw new Error("A persisted Tool result has no call identity")
             }
+
+            if (!calls.has(payload.call)) continue
 
             messages.push({
                 role: "tool",
@@ -150,6 +158,19 @@ function modelRequest(
         messages: Object.freeze(messages.map(message => Object.freeze(message))),
         tools
     })
+}
+
+async function cycleOperations(database: LemoDatabase, task: string) {
+
+    const page = await database.operations(task, {
+        limit: taskSnapshotOperationLimit,
+        order: "newest"
+    })
+    const input = await database.firstOperation(task, "task.input")
+
+    return input && !page.operations.some(operation => operation.id === input.id)
+        ? Object.freeze([input, ...page.operations])
+        : page.operations
 }
 
 function modelToolResult(payload: Record<string, unknown>) {

@@ -287,6 +287,69 @@ model = {
             return
         }
 
+        if (input === "delegated child") {
+
+            yield { type: "text" as const, content: "delegated child:complete" }
+
+            return
+        }
+
+        if (input === "delegate work") {
+
+            if (cycle === 1) {
+
+                yield {
+                    type: "tool-call" as const,
+                    call: { id: "load-tasks", name: "tools", input: { names: ["tasks"] } }
+                }
+
+                return
+            }
+
+            if (cycle === 2) {
+
+                yield {
+                    type: "tool-call" as const,
+                    call: { id: "create-child", name: "tasks", input: {
+                        action: "create",
+                        input: "delegated child"
+                    } }
+                }
+
+                return
+            }
+
+            const results = request.messages.filter(message => (
+                message.role === "tool" && message.name === "tasks"
+            ))
+            const result = results[0]
+
+            assert(result)
+            const created = JSON.parse(result.content).output
+
+            assert.equal(created.source, "task")
+
+            if (cycle === 3) {
+
+                yield {
+                    type: "tool-call" as const,
+                    call: { id: "wait-child", name: "tasks", input: {
+                        action: "wait",
+                        tasks: [created.id],
+                        events: ["completed"]
+                    } }
+                }
+
+                return
+            }
+
+            assert.equal(JSON.parse(results.at(-1)!.content).output.event, "completed")
+
+            yield { type: "text" as const, content: "delegate work:complete" }
+
+            return
+        }
+
         if (cycle === 1) {
 
             assert.deepEqual(request.tools.map(tool => tool.name), ["tools", "docs", "memory"])
@@ -299,7 +362,7 @@ model = {
                     id: `${input}-tools`,
                     name: "tools",
                     input: {
-                        names: ["time", "programs", "processes", "endpoints", "windows"]
+                        names: ["time", "tasks", "programs", "processes", "endpoints", "windows"]
                     }
                 }
             }
@@ -314,6 +377,7 @@ model = {
                 "docs",
                 "memory",
                 "time",
+                "tasks",
                 "programs",
                 "processes",
                 "endpoints",
@@ -418,6 +482,7 @@ const recordedInput = operations.find(operation => operation.task_id === firstTa
 
 assert.deepEqual(JSON.parse(String(recordedInput?.payload)), {
     model: { provider: "test", id: "test-model" },
+    source: { type: "user" },
     input: "first"
 })
 
@@ -453,6 +518,10 @@ assert(memoryPayload.output.reduce((size, item) => (
         ? size + String(item.content).length + 180
         : size
 ), 0) <= 1_000)
+
+const delegated = await lemo.task({ input: "delegate work", model })
+
+assert.equal(await delegated.result(), "delegate work:complete")
 
 const failedTask = await lemo.task({ input: "produce unique task failure", model })
 
@@ -595,8 +664,10 @@ assert(toolResultContext.some(result => (
     && result.content.includes(workspaceIdentity)
 )))
 
-const storedToolResult = (await toolResultDatabase.operations("workspace-history"))
-    .find(operation => operation.kind === "tool.result")
+const storedToolResult = (await toolResultDatabase.operations("workspace-history", {
+    limit: 10,
+    order: "oldest"
+})).operations.find(operation => operation.kind === "tool.result")
 
 assert.deepEqual((storedToolResult?.payload as Record<string, unknown>).output, {
     workspaces: [{ workspace: workspaceIdentity }],
@@ -628,7 +699,7 @@ await mindDatabase.appendToTask("completed-noise", "model.message", { content: "
 await mindDatabase.appendToTask("completed-noise", "task.completed", { output: "done" })
 
 const mindSnapshot = await new Memory(mindDatabase).context(
-    await mindDatabase.operations("self")
+    (await mindDatabase.operations("self", { limit: 10, order: "oldest" })).operations
 )
 
 assert(mindSnapshot.includes('<self task="self" perspective="self" relation="self" status="running"'))
@@ -660,7 +731,7 @@ await continuityMindDatabase.createTask("follow-up", { input: "Yes, try again" }
 await continuityMindDatabase.appendToTask("follow-up", "task.run.started", { run: "follow-up-run" })
 
 const continuitySnapshot = await new Memory(continuityMindDatabase).context(
-    await continuityMindDatabase.operations("follow-up")
+    (await continuityMindDatabase.operations("follow-up", { limit: 10, order: "oldest" })).operations
 )
 
 assert(continuitySnapshot.includes(

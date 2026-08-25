@@ -5,6 +5,10 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 -- statement
 
+CREATE INDEX IF NOT EXISTS tasks_created ON tasks (created_at, id)
+
+-- statement
+
 CREATE TABLE IF NOT EXISTS operations (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
     id TEXT NOT NULL UNIQUE,
@@ -18,6 +22,10 @@ CREATE TABLE IF NOT EXISTS operations (
 -- statement
 
 CREATE INDEX IF NOT EXISTS operations_task ON operations (task_id, sequence)
+
+-- statement
+
+CREATE INDEX IF NOT EXISTS operations_task_kind ON operations (task_id, kind, sequence)
 
 -- statement
 

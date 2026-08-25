@@ -1,9 +1,10 @@
 import type LLMModel from "../llm/model"
 import type LemoDatabase from "./database"
+import type { TaskStatus, TaskSummary } from "./database"
 import type Executions from "./executions"
 import type Operation from "./operation"
 
-export type TaskStatus = "running" | "paused" | "cancelled" | "completed" | "failed"
+export type { TaskStatus, TaskSummary } from "./database"
 
 export type TaskRequest = Readonly<{
     input: string
@@ -14,6 +15,13 @@ export type TaskSnapshot = Readonly<{
     id: string
     status: TaskStatus
     operations: readonly Operation[]
+    before: number | null
+}>
+
+export type TaskSource = Readonly<{
+    type: "user" | "task"
+    task?: string
+    call?: string
 }>
 
 /** A durable Task identity whose state is reconstructed from its operations. */
@@ -25,7 +33,12 @@ export default class Task {
         private readonly executions: Executions
     ) {}
 
-    public static async create(database: LemoDatabase, executions: Executions, request: TaskRequest) {
+    public static async create(
+        database: LemoDatabase,
+        executions: Executions,
+        request: TaskRequest,
+        source: TaskSource
+    ) {
 
         if (!request.input.trim()) throw new Error("A Task requires input")
 
@@ -36,6 +49,7 @@ export default class Task {
                 provider: request.model.provider.identity,
                 id: request.model.id
             },
+            source,
             input: request.input
         })
 
@@ -48,27 +62,58 @@ export default class Task {
 
     public static async open(database: LemoDatabase, executions: Executions, id: string) {
 
-        return await database.hasTask(id) ? new Task(id, database, executions) : null
+        return await database.task(id) ? new Task(id, database, executions) : null
     }
 
     /** Reconstructs the current Task status from its persisted operation chain. */
     public async status(): Promise<TaskStatus> {
 
-        return taskStatus(await this.operations())
+        return (await this.summary()).status
     }
 
-    /** Loads the complete raw Task history in its global operation order. */
-    public operations() {
+    /** Loads the latest bounded Task history in its global operation order. */
+    public async operations() {
 
-        return this.database.operations(this.id)
+        return (await this.database.operations(this.id, {
+            limit: taskSnapshotOperationLimit,
+            order: "newest"
+        })).operations
     }
 
-    /** Returns one internally consistent durable Task projection. */
+    /** Returns one internally consistent bounded durable Task projection. */
     public async snapshot(): Promise<TaskSnapshot> {
 
-        const operations = await this.operations()
+        const page = await this.database.operations(this.id, {
+            limit: taskSnapshotOperationLimit,
+            order: "newest"
+        })
+        const input = await this.database.firstOperation(this.id, "task.input")
+        const operations = input && !page.operations.some(operation => operation.id === input.id)
+            ? Object.freeze([input, ...page.operations])
+            : page.operations
 
-        return Object.freeze({ id: this.id, status: taskStatus(operations), operations })
+        return Object.freeze({
+            id: this.id,
+            status: (await this.summary()).status,
+            operations,
+            before: page.next
+        })
+    }
+
+    /** Returns the bounded summary used by Task lists. */
+    public async summary(): Promise<TaskSummary> {
+
+        const summary = await this.database.task(this.id)
+
+        if (!summary) throw new Error(`Unknown Lemo Task "${this.id}"`)
+
+        return summary
+    }
+
+    /** Returns an explicitly bounded page of this Task's chronology. */
+    public operationsPage(limit: number, before?: number) {
+
+        return this.database.operations(this.id, { limit, before, order: "newest" })
     }
 
     /** Observes only operations persisted after this subscription. */
@@ -94,7 +139,7 @@ export default class Task {
 
     public async model() {
 
-        const input = (await this.operations()).find(operation => operation.kind === "task.input")
+        const input = await this.database.firstOperation(this.id, "task.input")
         const payload = record(input?.payload)
         const model = record(payload?.model)
         const provider = typeof model?.provider === "string" ? model.provider : ""
@@ -108,7 +153,7 @@ export default class Task {
     /** Resolves from persisted state or waits for this live Task execution. */
     public async result(): Promise<string> {
 
-        const outcome = taskOutcome(await this.operations())
+        const outcome = await this.outcome()
 
         if (outcome.type === "completed") return outcome.output
 
@@ -118,7 +163,7 @@ export default class Task {
 
             const check = () => {
 
-                void settle(this.operations(), resolve, reject, unsubscribe).catch(error => {
+                void settle(this.outcome(), resolve, reject, unsubscribe).catch(error => {
 
                     unsubscribe()
                     reject(error)
@@ -129,6 +174,28 @@ export default class Task {
 
             check()
         })
+    }
+
+    private async outcome(): Promise<TaskOutcome> {
+
+        const summary = await this.summary()
+
+        if (summary.status === "running" || summary.status === "paused") {
+
+            return { type: summary.status }
+        }
+
+        if (summary.status === "cancelled") {
+
+            return { type: "cancelled", error: new Error("The Task was cancelled") }
+        }
+
+        const final = await this.database.latestOperation(
+            this.id,
+            summary.status === "completed" ? "task.completed" : "task.failed"
+        )
+
+        return taskOutcome(final ? [final] : [])
     }
 }
 
@@ -170,20 +237,20 @@ function taskOutcome(operations: readonly Operation[]): TaskOutcome {
 }
 
 async function settle(
-    operations: Promise<readonly Operation[]>,
+    outcome: Promise<TaskOutcome>,
     resolve: (output: string) => void,
     reject: (error: Error) => void,
     unsubscribe: () => void
 ) {
 
-    const outcome = taskOutcome(await operations)
+    const result = await outcome
 
-    if (outcome.type !== "completed" && outcome.type !== "failed" && outcome.type !== "cancelled") return
+    if (result.type !== "completed" && result.type !== "failed" && result.type !== "cancelled") return
 
     unsubscribe()
 
-    if (outcome.type === "completed") resolve(outcome.output)
-    else reject(outcome.error)
+    if (result.type === "completed") resolve(result.output)
+    else reject(result.error)
 }
 
 function record(value: unknown) {
@@ -216,3 +283,5 @@ const lifecycle = new Set([
     "task.completed",
     "task.failed"
 ])
+
+export const taskSnapshotOperationLimit = 256

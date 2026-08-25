@@ -138,7 +138,7 @@ const endpoints: Tool = {
                 process: process.identity,
                 endpoint: request.endpoint,
                 event: request.event,
-                payload: await waitEvent(target, request.event, context.signal, request.timeout)
+                payload: await waitEvent(target, request.event, context.invocation.signal, request.timeout)
             })
         }
 

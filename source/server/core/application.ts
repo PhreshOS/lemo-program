@@ -81,7 +81,7 @@ export default class Application {
 
     public tasks() {
 
-        return this.lemo.tasks()
+        return this.lemo.clientTasks()
     }
 
     public findTask(identity: string) {

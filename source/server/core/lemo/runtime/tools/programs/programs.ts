@@ -103,11 +103,11 @@ const programs: Tool = {
                     scope: "program",
                     program: eventProgram(program),
                     event: request.event,
-                    payload: await waitEvent(program, request.event, context.signal, request.timeout)
+                    payload: await waitEvent(program, request.event, context.invocation.signal, request.timeout)
                 })
             }
 
-            const payload = await waitEvent(host.program, request.event, context.signal, request.timeout)
+            const payload = await waitEvent(host.program, request.event, context.invocation.signal, request.timeout)
 
             return Object.freeze({
                 scope: "host",

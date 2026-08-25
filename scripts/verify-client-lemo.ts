@@ -10,6 +10,7 @@ const events = channel()
 const initial: TaskSnapshot = {
     id: "task-one",
     status: "running",
+    before: null,
     operations: [{
         sequence: 1,
         id: "input",

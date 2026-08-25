@@ -173,6 +173,7 @@ export function taskSnapshot(value: unknown): TaskSnapshot {
     const id = text(value.id)
 
     const state = value.status
+    const before = value.before
 
     if (
         !id
@@ -183,6 +184,7 @@ export function taskSnapshot(value: unknown): TaskSnapshot {
             && state !== "completed"
             && state !== "failed"
         )
+        || (before !== null && typeof before !== "number")
     ) {
 
         throw new Error("The Server returned an incomplete Lemo Task")
@@ -191,7 +193,8 @@ export function taskSnapshot(value: unknown): TaskSnapshot {
     return Object.freeze({
         id,
         status: state,
-        operations: Object.freeze(value.operations.map(operation))
+        operations: Object.freeze(value.operations.map(operation)),
+        before
     })
 }
 

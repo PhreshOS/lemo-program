@@ -4,7 +4,6 @@ import type LemoDatabase from "./database"
 import type Memory from "./memory"
 import type Operation from "./operation"
 import type Runtime from "./runtime/runtime"
-import { taskStatus } from "./task"
 
 export type TaskRun = Readonly<{
     task: string
@@ -28,20 +27,30 @@ export default class Executions {
     public constructor(
         private readonly database: LemoDatabase,
         private readonly memory: Memory,
-        private readonly runtime: Runtime
+        private readonly runtime: Runtime,
+        private readonly maximum: number
     ) {}
 
     /** Converts work left by a previous Process into a durable paused state. */
     public async recover() {
 
-        for (const task of await this.database.tasks()) {
+        const page = await this.database.tasks({
+            limit: this.maximum + 1,
+            statuses: ["running", "paused"],
+            order: "oldest"
+        })
 
-            const operations = await this.database.operations(task)
+        if (page.tasks.length > this.maximum) {
 
-            if (taskStatus(operations) !== "running") continue
+            throw new Error(`Lemo has more than ${this.maximum} running or paused Tasks`)
+        }
 
-            await this.database.appendToTask(task, "task.paused", {
-                run: currentRun(operations),
+        for (const task of page.tasks) {
+
+            if (task.status !== "running") continue
+
+            await this.database.appendToTask(task.id, "task.paused", {
+                run: await this.currentRun(task.id),
                 reason: "interrupted"
             })
         }
@@ -51,10 +60,10 @@ export default class Executions {
 
         return this.exclusive(task, async () => {
 
-            const operations = await this.database.operations(task)
+            const summary = await this.database.task(task)
 
-            if (taskStatus(operations) !== "running") throw new Error("Only a running new Task can start")
-            if (currentRun(operations)) throw new Error("This Task already has a run")
+            if (summary?.status !== "running") throw new Error("Only a running new Task can start")
+            if (await this.currentRun(task)) throw new Error("This Task already has a run")
 
             await this.begin(task, model, "created")
         })
@@ -64,19 +73,19 @@ export default class Executions {
 
         return this.exclusive(task, async () => {
 
-            const status = taskStatus(await this.database.operations(task))
+            const status = (await this.requireTask(task)).status
 
             if (status === "paused") return
             if (status !== "running") throw new Error(`A ${status} Task cannot be paused`)
 
             await this.stopActive(task, "Task paused")
 
-            const operations = await this.database.operations(task)
+            const current = await this.requireTask(task)
 
-            if (taskStatus(operations) !== "running") return
+            if (current.status !== "running") return
 
             await this.database.appendToTask(task, "task.paused", {
-                run: currentRun(operations),
+                run: await this.currentRun(task),
                 reason: "requested"
             })
         })
@@ -86,7 +95,7 @@ export default class Executions {
 
         return this.exclusive(task, async () => {
 
-            const status = taskStatus(await this.database.operations(task))
+            const status = (await this.requireTask(task)).status
 
             if (status === "cancelled") return
             if (status === "completed" || status === "failed") {
@@ -95,13 +104,12 @@ export default class Executions {
 
             await this.stopActive(task, "Task cancelled")
 
-            const operations = await this.database.operations(task)
-            const settled = taskStatus(operations)
+            const settled = (await this.requireTask(task)).status
 
             if (settled === "completed" || settled === "failed") return
 
             await this.database.appendToTask(task, "task.cancelled", {
-                run: currentRun(operations),
+                run: await this.currentRun(task),
                 reason: "requested"
             })
         })
@@ -111,9 +119,9 @@ export default class Executions {
 
         return this.exclusive(task, async () => {
 
-            const operations = await this.database.operations(task)
+            const summary = await this.requireTask(task)
 
-            if (taskStatus(operations) !== "paused") throw new Error("Only a paused Task can continue")
+            if (summary.status !== "paused") throw new Error("Only a paused Task can continue")
 
             await this.begin(task, model, "continued")
         })
@@ -169,14 +177,14 @@ export default class Executions {
                     this.memory,
                     run,
                     model,
-                    await this.runtime.definitions(this.database, run.task)
+                    await this.runtime.definitions(run.task)
                 )
 
                 assertRunning(run.signal)
 
                 if (cycle.toolCalls.length) {
 
-                    await this.runtime.execute(run, cycle.toolCalls)
+                    await this.runtime.execute(run, model, cycle.toolCalls)
 
                     continue
                 }
@@ -225,52 +233,80 @@ export default class Executions {
 
     private async recordInterruptedTools(task: string, run: string, reason: string) {
 
-        const operations = await this.database.operations(task)
-        const began = operations.findLastIndex(operation => {
+        const started = await this.database.latestOperation(task, "task.run.started")
 
-            if (operation.kind !== "task.run.started") return false
+        if (!started || record(started.payload)?.run !== run) return
 
-            return record(operation.payload)?.run === run
-        })
+        const completed = new Set<string>()
+        let after = started.sequence
 
-        if (began < 0) return
+        while (true) {
 
-        const current = operations.slice(began)
-        const completed = new Set(current.flatMap(operation => {
+            const page = await this.database.operations(task, {
+                limit: 256,
+                after,
+                order: "oldest"
+            })
 
-            if (operation.kind !== "tool.result") return []
+            for (const operation of page.operations) {
 
-            const call = record(operation.payload)?.call
+                if (operation.kind !== "tool.result") continue
 
-            return typeof call === "string" ? [call] : []
-        }))
+                const call = record(operation.payload)?.call
 
-        for (const operation of current) {
-
-            if (operation.kind !== "model.message") continue
-
-            const calls = record(operation.payload)?.toolCalls
-
-            if (!Array.isArray(calls)) continue
-
-            for (const value of calls) {
-
-                const call = record(value)
-                const id = typeof call?.id === "string" ? call.id : ""
-                const name = typeof call?.name === "string" ? call.name : ""
-
-                if (!id || !name || completed.has(id)) continue
-
-                await this.database.appendToTask(task, "tool.result", {
-                    call: id,
-                    name,
-                    ok: false,
-                    error: `${reason} before the Tool completed`
-                })
-
-                completed.add(id)
+                if (typeof call === "string") completed.add(call)
             }
+
+            for (const operation of page.operations) {
+
+                if (operation.kind !== "model.message") continue
+
+                const calls = record(operation.payload)?.toolCalls
+
+                if (!Array.isArray(calls)) continue
+
+                for (const value of calls) {
+
+                    const call = record(value)
+                    const id = typeof call?.id === "string" ? call.id : ""
+                    const name = typeof call?.name === "string" ? call.name : ""
+
+                    if (!id || !name || completed.has(id)) continue
+
+                    await this.database.appendToTask(task, "tool.result", {
+                        call: id,
+                        name,
+                        ok: false,
+                        error: `${reason} before the Tool completed`
+                    })
+
+                    completed.add(id)
+                }
+            }
+
+            const latest = page.operations.at(-1)
+
+            if (page.next === null || !latest) break
+
+            after = latest.sequence
         }
+    }
+
+    private async currentRun(task: string) {
+
+        const operation = await this.database.latestOperation(task, "task.run.started")
+        const payload = record(operation?.payload)
+
+        return typeof payload?.run === "string" ? payload.run : null
+    }
+
+    private async requireTask(task: string) {
+
+        const summary = await this.database.task(task)
+
+        if (!summary) throw new Error(`Unknown Lemo Task "${task}"`)
+
+        return summary
     }
 
     private assertActive(task: string, active: Active) {
@@ -328,22 +364,6 @@ export function waitForRun<Value>(operation: Promise<Value>, signal: AbortSignal
             }
         )
     })
-}
-
-function currentRun(operations: readonly Operation[]) {
-
-    for (let index = operations.length - 1; index >= 0; index--) {
-
-        const operation = operations[index]
-
-        if (operation?.kind !== "task.run.started") continue
-
-        const payload = record(operation.payload)
-
-        return typeof payload?.run === "string" ? payload.run : null
-    }
-
-    return null
 }
 
 function record(value: unknown) {

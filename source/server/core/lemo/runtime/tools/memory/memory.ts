@@ -1,5 +1,4 @@
 import { z } from "zod"
-import type Memory from "../../../memory"
 import {
     defaultMemoryBudget,
     maximumMemoryBudget,
@@ -13,41 +12,40 @@ const input = z.object({
     budget: z.number().int().min(minimumMemoryBudget).max(maximumMemoryBudget).optional()
 }).strict()
 
-/** Creates Runtime's initially available access to Lemo's internal Memory. */
-export default function memory(memory: Memory): Tool {
+/** Recalls Memory through the invocation's complete Lemo context. */
+const memory: Tool = {
+    docs,
+    definition: Object.freeze({
+        name: "memory",
+        description: "Recall related durable context from Lemo's shared history.",
+        parameters: Object.freeze({
+            type: "object",
+            required: Object.freeze(["query"]),
+            properties: Object.freeze({
+                query: Object.freeze({ type: "string" }),
+                budget: Object.freeze({
+                    type: "integer",
+                    minimum: minimumMemoryBudget,
+                    maximum: maximumMemoryBudget
+                })
+            }),
+            additionalProperties: false
+        })
+    }),
+    async execute(value, context) {
 
-    return {
-        docs,
-        definition: Object.freeze({
-            name: "memory",
-            description: "Recall related durable context from Lemo's shared history.",
-            parameters: Object.freeze({
-                type: "object",
-                required: Object.freeze(["query"]),
-                properties: Object.freeze({
-                    query: Object.freeze({ type: "string" }),
-                    budget: Object.freeze({
-                        type: "integer",
-                        minimum: minimumMemoryBudget,
-                        maximum: maximumMemoryBudget
-                    })
-                }),
-                additionalProperties: false
-            })
-        }),
-        async execute(value, context) {
+        const request = input.parse(value)
 
-            const request = input.parse(value)
+        const results = await context.memory.recall(request)
 
-            const results = await memory.recall(request)
+        await context.invocation.record("recalled", {
+            query: request.query,
+            budget: request.budget ?? defaultMemoryBudget,
+            operations: results.map(result => result.operation)
+        })
 
-            await context.record("recalled", {
-                query: request.query,
-                budget: request.budget ?? defaultMemoryBudget,
-                operations: results.map(result => result.operation)
-            })
-
-            return results
-        }
+        return results
     }
 }
+
+export default memory

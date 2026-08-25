@@ -1,4 +1,5 @@
 import type LemoDatabase from "./database"
+import { maximumContextOperations, maximumTaskContextBatch } from "./database"
 import type Operation from "./operation"
 import { taskStatus, type TaskStatus } from "./task"
 
@@ -60,7 +61,8 @@ export default class Context {
 
         if (!task) throw new Error("A context requires a Task identity")
 
-        const history = await this.database.allOperations()
+        const objective = taskInput(operations)
+        const history = await this.history(objective, operations)
         const states = taskStates(history)
         const self = states.get(task)
 
@@ -95,10 +97,52 @@ export default class Context {
         options: MemoryRecallOptions = {}
     ): Promise<readonly MemoryResult[]> {
 
-        const operations = (await this.database.allOperations())
-            .filter(operation => operation.task !== options.excludeTask)
+        const operations = await this.history(
+            request.query,
+            [],
+            options.excludeTask,
+            request.focus ?? []
+        )
 
         return retrieve(operations, request, true)
+    }
+
+    private async history(
+        query: string,
+        retained: readonly Operation[],
+        excludeTask?: string,
+        focus: readonly MemoryFocus[] = []
+    ) {
+
+        const terms = [...tokens([query, ...focus.map(value => value.content)].join(" "))]
+            .filter(term => term.length > 1)
+        const [recent, relevant] = await Promise.all([
+            this.database.recentContextOperations(maximumContextOperations, excludeTask),
+            this.database.searchContextOperations(terms, maximumContextOperations, excludeTask)
+        ])
+        const selected = new Map<string, Operation>()
+
+        for (const operation of [...recent, ...relevant, ...retained]) {
+
+            selected.set(operation.id, operation)
+        }
+
+        const tasks = [...new Set([...selected.values()].flatMap(operation => (
+            operation.task ? [operation.task] : []
+        )))]
+
+        for (let index = 0; index < tasks.length; index += maximumTaskContextBatch) {
+
+            const context = await this.database.taskContextOperations(
+                tasks.slice(index, index + maximumTaskContextBatch)
+            )
+
+            for (const operation of context) selected.set(operation.id, operation)
+        }
+
+        return Object.freeze([...selected.values()]
+            .filter(operation => operation.task !== excludeTask)
+            .sort((left, right) => left.sequence - right.sequence))
     }
 }
 

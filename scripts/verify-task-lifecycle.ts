@@ -3,6 +3,7 @@ import { DatabaseSync } from "node:sqlite"
 import type ClientChannel from "../source/server/core/client-channel"
 import LemoDatabase from "../source/server/core/lemo/database"
 import Lemo from "../source/server/core/lemo/lemo"
+import type Task from "../source/server/core/lemo/task"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
 
@@ -63,6 +64,31 @@ await cancelled.cancel()
 assert.equal(await cancelled.status(), "cancelled")
 await assert.rejects(cancelled.result(), /cancelled/)
 
+const capacity: Task[] = []
+
+for (let index = 0; index < 10; index++) {
+
+    capacity.push(await lemo.task({ input: `capacity-${index}`, model }))
+}
+
+await assert.rejects(
+    lemo.task({ input: "capacity-overflow", model }),
+    /at most 10 running or paused Tasks/
+)
+
+await capacity[0]!.pause()
+
+await assert.rejects(
+    lemo.task({ input: "paused-capacity-overflow", model }),
+    /at most 10 running or paused Tasks/
+)
+
+await capacity[0]!.cancel()
+
+const replacement = await lemo.task({ input: "capacity-replacement", model })
+
+for (const task of [...capacity.slice(1), replacement]) await task.cancel()
+
 database.close()
 
 const recoverySource = new DatabaseSync(":memory:")
@@ -87,6 +113,47 @@ assert.deepEqual((await orphan.operations()).at(-1)?.payload, {
     run: "dead-run",
     reason: "interrupted"
 })
+
+for (let index = 0; index < 25; index++) {
+
+    const identity = `completed-${String(index).padStart(2, "0")}`
+
+    await raw.createTask(identity, { input: identity })
+    await raw.appendToTask(identity, "task.completed", { output: identity })
+}
+
+await raw.createTask("failed-client-task", { input: "failed-client-task" })
+await raw.appendToTask("failed-client-task", "task.failed", { message: "failed" })
+
+const firstPage = await raw.tasks({
+    limit: 5,
+    statuses: ["completed"],
+    search: "completed",
+    order: "newest"
+})
+
+assert.equal(firstPage.tasks.length, 5)
+assert(firstPage.next)
+
+const secondPage = await raw.tasks({
+    limit: 5,
+    cursor: firstPage.next,
+    statuses: ["completed"],
+    search: "completed",
+    order: "newest"
+})
+
+assert.equal(secondPage.tasks.length, 5)
+assert(!secondPage.tasks.some(task => firstPage.tasks.some(first => first.id === task.id)))
+
+const clientTasks = await recovered.clientTasks()
+
+assert.equal(clientTasks.length, 21)
+assert.equal(await clientTasks[0]!.status(), "paused")
+assert.equal((await Promise.all(clientTasks.map(task => task.status()))).filter(status => (
+    status === "completed"
+)).length, 20)
+assert(!clientTasks.some(task => task.id === "failed-client-task"))
 
 recoverySource.close()
 

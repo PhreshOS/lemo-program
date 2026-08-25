@@ -167,15 +167,15 @@ const processes: Tool = {
                 ? await requiredProcess(request.process, request.program)
                 : null
             const payload = scoped
-                ? await waitEvent(scoped, request.event, context.signal, request.timeout)
+                ? await waitEvent(scoped, request.event, context.invocation.signal, request.timeout)
                 : request.program
                     ? await waitEvent(
                         (await requiredProgram(request.program)).process,
                         request.event,
-                        context.signal,
+                        context.invocation.signal,
                         request.timeout
                     )
-                    : await waitEvent(host.process, request.event, context.signal, request.timeout)
+                    : await waitEvent(host.process, request.event, context.invocation.signal, request.timeout)
 
             return Object.freeze({
                 scope: scoped ? "process" : request.program ? "program" : "host",

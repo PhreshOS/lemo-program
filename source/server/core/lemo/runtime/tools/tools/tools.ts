@@ -9,47 +9,46 @@ const input = z.object({
     message: "Choose tool names or request all tools"
 })
 
-/** Creates Runtime's tool-discovery capability over its authoritative catalog. */
-export default function tools(catalog: () => readonly Tool[]): Tool {
+/** Discovers tools through the invocation's complete Lemo context. */
+const tools: Tool = {
+    docs,
+    definition: Object.freeze({
+        name: "tools",
+        description: "Discover and load available Runtime tools for later Model cycles.",
+        parameters: Object.freeze({
+            type: "object",
+            properties: Object.freeze({
+                names: Object.freeze({ type: "array", items: Object.freeze({ type: "string" }) }),
+                all: Object.freeze({ type: "boolean" })
+            }),
+            additionalProperties: false
+        })
+    }),
+    async execute(value, context) {
 
-    return {
-        docs,
-        definition: Object.freeze({
-            name: "tools",
-            description: "Discover and load available Runtime tools for later Model cycles.",
-            parameters: Object.freeze({
-                type: "object",
-                properties: Object.freeze({
-                    names: Object.freeze({ type: "array", items: Object.freeze({ type: "string" }) }),
-                    all: Object.freeze({ type: "boolean" })
-                }),
-                additionalProperties: false
+        const request = input.parse(value)
+
+        const available = context.tools.list().filter(tool => !builtIn.has(tool.definition.name))
+
+        const selected = request.all
+            ? available
+            : request.names!.map(name => {
+
+                const tool = available.find(candidate => candidate.definition.name === name)
+
+                if (!tool) throw new Error(`Unknown tool "${name}"`)
+
+                return tool
             })
-        }),
-        async execute(value, context) {
 
-            const request = input.parse(value)
+        const names = [...new Set(selected.map(tool => tool.definition.name))]
 
-            const available = catalog().filter(tool => !builtIn.has(tool.definition.name))
+        await context.tools.load(names)
 
-            const selected = request.all
-                ? available
-                : request.names!.map(name => {
-
-                    const tool = available.find(candidate => candidate.definition.name === name)
-
-                    if (!tool) throw new Error(`Unknown tool "${name}"`)
-
-                    return tool
-                })
-
-            const names = [...new Set(selected.map(tool => tool.definition.name))]
-
-            await context.record("loaded", { names })
-
-            return selected.map(tool => tool.definition)
-        }
+        return selected.map(tool => tool.definition)
     }
 }
+
+export default tools
 
 const builtIn = new Set(["tools", "docs", "memory"])

@@ -18,8 +18,6 @@ import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import PromptView from "./prompts/prompt"
 
-const visibleTaskLimit = 20
-
 const suggestionPrompts = [
     {
         icon: "⚡",
@@ -56,7 +54,7 @@ export default function Tasks({ application, models: modelResource }: Properties
 
     const taskResource = usePromise(async function () {
 
-        return (await application.lemo.tasks()).slice(-visibleTaskLimit)
+        return await application.lemo.tasks()
 
     }, [application])
 
@@ -147,7 +145,7 @@ export default function Tasks({ application, models: modelResource }: Properties
             taskResource.dispatch(current => [
                 ...current.filter(candidate => candidate.id !== task.id),
                 task
-            ].slice(-visibleTaskLimit))
+            ].slice(-maximumClientTasks))
 
             setSelectedTask(task.id)
 
@@ -780,3 +778,5 @@ type Properties = Readonly<{
     application: Application
     models: PromiseWithDependencies<readonly LLMModel[]>
 }>
+
+const maximumClientTasks = 30

@@ -86,7 +86,7 @@ const prompt: Tool = {
     }),
     async execute(value, context) {
 
-        return await context.waitAnswer(waitAnswerRequestSchema.parse(value))
+        return await context.client.waitAnswer(waitAnswerRequestSchema.parse(value))
     }
 }
 
