@@ -27,6 +27,6 @@ jobs:
           node -e 'const fs = require("node:fs"); const version = require("./package.json").version; const config = fs.readFileSync("phresh.config.ts", "utf8"); if (process.argv[1] !== `v${version}` || !config.includes(`version: "${version}"`)) throw new Error(`Tag and Program versions must all be ${version}`)' "$GITHUB_REF_NAME"
       - run: bun run pack
       - name: Publish verified Program
-        run: gh release create "$GITHUB_REF_NAME" ./*.zip ./*.zip.sha256 --verify-tag --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" metadata.json icon.png ./*.zip ./*.zip.sha256 --verify-tag --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,7 +1,7 @@
 {
     "name": "lemo-program",
     "private": true,
-    "version": "0.1.3",
+    "version": "0.1.4",
     "description": "The official PhreshOS agent Program.",
     "type": "module",
     "packageManager": "bun@1.3.14",
@@ -11,7 +11,7 @@
         "dev": "phresh dev",
         "start": "phresh start",
         "pack": "phresh pack",
-        "verify": "node --run check && node --run build && vite-node scripts/verify-llm-providers.ts && vite-node scripts/verify-client-llm-providers.ts && vite-node scripts/verify-client-lemo.ts && vite-node scripts/verify-lemo.ts && vite-node scripts/verify-prompt.ts && vite-node scripts/verify-task-lifecycle.ts && vite-node scripts/verify-build.ts"
+        "verify": "node --run check && node --run build && vite-node scripts/verify-metadata.ts && vite-node scripts/verify-llm-providers.ts && vite-node scripts/verify-client-llm-providers.ts && vite-node scripts/verify-client-lemo.ts && vite-node scripts/verify-lemo.ts && vite-node scripts/verify-prompt.ts && vite-node scripts/verify-task-lifecycle.ts && vite-node scripts/verify-build.ts"
     },
     "author": "Zohayr SLILEH",
     "license": "MIT",

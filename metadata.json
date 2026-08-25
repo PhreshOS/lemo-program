@@ -1,0 +1,11 @@
+{
+    "schema": 1,
+    "identity": "lemo",
+    "version": "0.1.4",
+    "name": "Lemo",
+    "description": "An agent that works across PhreshOS through Tasks, Memory, and Tools.",
+    "icon": "icon.png",
+    "categories": ["Productivity", "AI"],
+    "keywords": ["agent", "tasks", "memory", "tools"],
+    "website": "https://github.com/PhreshOS/lemo-program"
+}
