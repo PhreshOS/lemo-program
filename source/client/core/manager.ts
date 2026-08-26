@@ -13,17 +13,19 @@ const fixedLaunch = (program: Program) => Object.freeze({
 export default class Manager {
 
     private process: Process | null = null
+    private processLifecycle: (() => void) | null = null
+    private exiting: Promise<void> | null = null
     private startupEnabled: boolean | null = null
     private startupRevision = 0
     private readonly startupSubscribers = new Set<() => void>()
     private startupChannel: ReturnType<typeof serverEvents> | null = null
     private startupError: unknown
 
-    private constructor(private readonly program: Program) {}
+    private constructor(private readonly program: Program, private readonly managerProcess: Process) {}
 
-    public static async open(program: Program) {
+    public static async open(program: Program, managerProcess: Process) {
 
-        const manager = new Manager(program)
+        const manager = new Manager(program, managerProcess)
 
         await manager.ensureProcess()
         await manager.openStartupProjection()
@@ -83,6 +85,8 @@ export default class Manager {
 
     public stop() {
 
+        this.processLifecycle?.()
+        this.processLifecycle = null
         this.startupChannel?.close()
         this.startupChannel = null
     }
@@ -94,11 +98,40 @@ export default class Manager {
 
     private async ensureProcess() {
 
-        if (!this.process || await this.process.exited()) {
-            this.process = await this.program.process.findOrCreate(fixedLaunch(this.program))
+        let process = this.process
+
+        if (!process || await process.exited()) {
+            process = await this.program.process.findOrCreate(fixedLaunch(this.program))
+            this.followProcess(process)
         }
 
-        return this.process
+        return process
+    }
+
+    private followProcess(process: Process) {
+
+        this.processLifecycle?.()
+        this.process = process
+
+        const stopEndpoint = process.subscribe("endpointStop", endpoint => {
+
+            if (endpoint === process.server) this.exitManager()
+        })
+        const stopExit = process.subscribe("exit", () => this.exitManager())
+
+        this.processLifecycle = () => {
+
+            stopEndpoint()
+            stopExit()
+        }
+    }
+
+    private exitManager() {
+
+        if (this.exiting) return
+
+        this.exiting = this.managerProcess.exit()
+        void this.exiting.catch(error => console.error(error))
     }
 
     private async openStartupProjection() {

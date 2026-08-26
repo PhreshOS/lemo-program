@@ -1,7 +1,7 @@
 import Manager from "@client/core/manager"
 import type LLMProviders from "@client/core/llm/providers"
 import usePromise from "@libs/react-promise"
-import { CurrentProvider, useProgram } from "@phreshos/react"
+import { CurrentProvider, useProcess, useProgram } from "@phreshos/react"
 import { useCallback, useEffect, useSyncExternalStore } from "react"
 import LLMProviderViews from "./llm-providers"
 import { message, StartupState } from "./state"
@@ -9,7 +9,7 @@ import useProviderRevision from "./use-provider-revision"
 
 export default function ManagerRoute() {
 
-    return <CurrentProvider provide={["program"]} fallback={<StartupState title="Opening Lemo Manager…" />}>
+    return <CurrentProvider provide={["program", "process"]} fallback={<StartupState title="Opening Lemo Manager…" />}>
         <ManagerLoader />
     </CurrentProvider>
 }
@@ -17,7 +17,8 @@ export default function ManagerRoute() {
 function ManagerLoader() {
 
     const program = useProgram()
-    const manager = usePromise(() => Manager.open(program), [program])
+    const process = useProcess()
+    const manager = usePromise(() => Manager.open(program, process), [program, process])
 
     useEffect(() => () => manager.solve?.stop(), [manager.solve])
 
