@@ -17,14 +17,22 @@ const client = z.object({
     layer: z.enum(["window", "under", "over"]).optional(),
     location: z.string().optional(),
     minimize: z.boolean().optional()
-}).strict()
+}).strict().describe(
+    "Selects the Client Endpoint and optionally overrides its Window. Omission of individual Window properties preserves Program defaults."
+)
 
 const launch = z.object({
     name: z.string().trim().min(1).optional(),
-    server: z.boolean().optional(),
-    client: z.union([z.boolean(), client]).optional(),
+    server: z.boolean().optional().describe(
+        "Selects the Server Endpoint. Omission inherits the Program's server start default; pass false to disable it explicitly."
+    ),
+    client: z.union([z.boolean(), client]).optional().describe(
+        "Selects the Client Endpoint. Omission inherits the Program's client start default; pass false to disable it explicitly."
+    ),
     options: z.record(z.string(), z.string()).optional()
-}).strict()
+}).strict().describe(
+    "Complete Process launch. Endpoint selections inherit Program defaults when omitted, so server-only and client-only launches must disable the other Endpoint explicitly."
+)
 
 const input = z.discriminatedUnion("action", [
     z.object({

@@ -1,6 +1,8 @@
 # programs
 
-Reads the authoritative PhreshOS Program registry.
+Reads the authoritative PhreshOS Program registry and Program-owned agent
+documentation. Use it before operating on another Program; a Program identity
+is not enough to infer its Process topology or Endpoint contract.
 
 ## List Programs
 
@@ -20,6 +22,11 @@ Every listing and inspection includes `hasAgent`. When it is `true`, use
 knowledge before loading or using operational tools for that Program. Read it
 before choosing a Process launch, Endpoint event, payload, lifecycle, or
 cleanup. Do not perform an operation first and consult the document afterward.
+
+The document may specify exact Process launches. Preserve every explicit
+`server`, `client`, name, and option property. In a Process launch, an omitted
+Endpoint selection may inherit a Program default; omission is not equivalent
+to `false`.
 
 Agent documentation contains only knowledge controlled by that Program: its
 operating modes, policies, Endpoint responsibilities, event names, payloads,

@@ -54,7 +54,10 @@ event on its Server Endpoint:
 
 The optional positive `timeout` controls the complete readiness and answer
 deadline. Payloads pass through unchanged and must follow the Program's agent
-documentation exactly.
+documentation exactly. An accepted request means only what that Program's
+contract says it means. When a request changes authoritative state, expect an
+acknowledgment and observe the corresponding publication instead of treating
+the acknowledgment as the new state.
 
 ## Publish to an Endpoint
 

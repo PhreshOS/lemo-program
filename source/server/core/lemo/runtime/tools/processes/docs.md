@@ -1,62 +1,117 @@
 # processes
 
-Reads and controls live PhreshOS Processes.
+Discovers and controls live PhreshOS Processes. A Process may contain a Server
+Endpoint, a Client Endpoint, or both. The owning Program defines which topology
+is valid.
 
-Process launch is Program-owned policy. Before `create`, `findOrCreate`, or
-`exit`, inspect the Program with `programs`. When it reports `hasAgent: true`,
-read the Program's agent documentation first and derive the launch and cleanup
-from it. Never guess whether Server and Client should run together, what a
-shared Process is named, or who owns its lifecycle.
+## Required preparation
 
-## List
+Before `create`, `findOrCreate`, or `exit`:
 
-Use `{ "action": "list" }` for every live Process visible to the Server. Add a
-Program identity to list only that Program's Processes:
+1. inspect the Program with `programs`;
+2. when `hasAgent` is true, read its agent document;
+3. use the exact topology, name, options, and cleanup policy it defines.
 
-```json
-{ "action": "list", "program": "flambo" }
-```
+Do not infer Program policy from the user's goal or from this generic Tool.
 
-## Inspect
+## Launch semantics
 
-Use `{ "action": "inspect", "process": "process-identity" }`. When `program`
-is supplied, `process` may instead be that Program's local Process name.
+`launch.server` and `launch.client` are optional because omission means **use
+the Program's declared default**. Omission does not mean `false`.
 
-## Create
+- Use `server: true` or `server: false` to select explicitly.
+- Use `client: true`, `client: false`, or a Client Window object.
+- A Client Window object selects the Client and overrides only the supplied
+  Window properties.
+- To create a Server-only Process, always pass both `server: true` and
+  `client: false`.
+- To create a Client-only Process, always pass both `server: false` and a
+  Client selection.
 
-Use `{ "action": "create", "program": "identity", "launch": {} }`. The
-optional `launch` value follows the complete PhreshOS Process launch contract:
-it can select Server and Client Endpoints, configure the Client Window, assign
-a Program-local name, and provide immutable string options.
-
-## Find or Create
-
-Use `findOrCreate` with a required named launch. Equivalent concurrent requests
-resolve the same Process. A conflicting launch for an existing name is an
-error.
-
-## Exit
-
-Use `{ "action": "exit", "process": "process-identity" }` to end a complete
-Process and all of its live Endpoints.
-
-Listing and inspection do not write Memory. Successful creation, shared
-Process resolution, and exit are deliberately recorded with their Program and
-Process identities. Starting and stopping individual Endpoints belongs to the
-separate `endpoints` capability.
-
-## Wait for Process Events
-
-Use `wait` to receive one `endpointStart`, `endpointStop`, `create`, or `exit`
-event. Without coordinates it observes the Host Process registry:
+Server-only example:
 
 ```json
-{ "action": "wait", "event": "create", "timeout": 30000 }
+{
+  "action": "create",
+  "program": "program-identity",
+  "launch": {
+    "name": "shared-server",
+    "server": true,
+    "client": false
+  }
+}
 ```
 
-Supply only `program` to observe that Program's Process registry. Supply
-`process`, with optional `program` for local-name resolution, to observe one
-Process; an individual Process emits every listed event except `create`.
-Results identify their scope and contain a JSON-safe Process, Endpoint, or exit
-payload. The timeout defaults to 10 seconds, and pausing or cancelling the Task
-releases the temporary subscription immediately.
+Client-only example:
+
+```json
+{
+  "action": "create",
+  "program": "program-identity",
+  "launch": {
+    "name": "visible-client",
+    "server": false,
+    "client": {
+      "title": "Program",
+      "size": { "width": "50%", "height": "100%" }
+    }
+  }
+}
+```
+
+`options` contains immutable string values available to the new Process.
+Geometry numbers are pixels; use strings such as `"50%"` or `"1/2"` for
+workspace-relative values.
+
+## Actions
+
+### `list`
+
+Lists live Processes. Omit `program` for the Host-wide list, or provide a
+Program identity to scope it:
+
+```json
+{ "action": "list", "program": "terminal" }
+```
+
+### `inspect`
+
+Reads one live Process. `process` is normally its identity. When `program` is
+also supplied, `process` may be that Program's local Process name.
+
+### `create`
+
+Creates a new Process from the supplied launch. If `launch` is omitted, every
+Endpoint selection comes from the Program defaults. Use explicit selections
+whenever the required topology matters.
+
+### `findOrCreate`
+
+Requires a named launch. Equivalent concurrent requests resolve the same
+Process. If that name already belongs to a Process with a different resolved
+launch, the operation fails; it does not silently reuse or reshape it.
+
+### `exit`
+
+Ends the complete Process and all of its live Endpoints. Read Program cleanup
+policy first.
+
+### `wait`
+
+Waits for one `endpointStart`, `endpointStop`, `create`, or `exit` event.
+Without coordinates it observes the Host registry. With only `program`, it
+observes that Program. With `process`, it observes one Process; an individual
+Process does not emit `create`.
+
+```json
+{ "action": "wait", "event": "create", "program": "terminal", "timeout": 30000 }
+```
+
+The timeout defaults to 10 seconds. Pausing or cancelling the Task releases the
+wait immediately.
+
+## Memory behavior
+
+Listing and inspection are not copied into Memory. Successful creation,
+resolution, and exit record concise Process facts. Starting or stopping an
+individual Endpoint belongs to `endpoints`.
