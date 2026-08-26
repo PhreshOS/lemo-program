@@ -218,7 +218,10 @@ presentation unavailable to Server Runtime tools. The `files` tool owns a
 separate UTF-8 filesystem layer: paths begin at the user's home directory,
 directory reads are paginated, text reads are bounded, partial edits are
 revision-aware, and recursive copies stream their contents. It does not expose
-PhreshOS Storage or retain a working directory.
+PhreshOS Storage or retain a working directory. The `shell` tool inspects the
+host's available shells and runs independent non-interactive commands. Small
+results are inline; larger output stays in a temporary, paginated store instead
+of entering Lemo's database.
 
 Runtime discovers Tool modules from `runtime/tools/*/*.ts`, validates unique
 names, and orders them through each Tool's optional `order`. Adding a Tool does

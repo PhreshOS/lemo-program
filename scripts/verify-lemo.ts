@@ -6,12 +6,14 @@ import Lemo from "../source/server/core/lemo/lemo"
 import Memory from "../source/server/core/lemo/memory"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
+import type { ToolContext } from "../source/server/core/lemo/runtime/tool"
 import endpoints, { endpointModelOutput } from "../source/server/core/lemo/runtime/tools/endpoints/endpoints"
 import files from "../source/server/core/lemo/runtime/tools/files/files"
 import memoryTool from "../source/server/core/lemo/runtime/tools/memory/memory"
 import processes from "../source/server/core/lemo/runtime/tools/processes/processes"
 import programs from "../source/server/core/lemo/runtime/tools/programs/programs"
 import promptTool from "../source/server/core/lemo/runtime/tools/prompt/prompt"
+import shellTool from "../source/server/core/lemo/runtime/tools/shell/shell"
 import tasks from "../source/server/core/lemo/runtime/tools/tasks/tasks"
 import timeTool from "../source/server/core/lemo/runtime/tools/time/time"
 import toolsTool from "../source/server/core/lemo/runtime/tools/tools/tools"
@@ -36,6 +38,7 @@ for (const tool of [
     programs,
     processes,
     promptTool,
+    shellTool,
     endpoints,
     windows,
     files
@@ -77,6 +80,46 @@ assert.deepEqual(endpoints.parse({
         payload: { client: true }
     }
 })
+
+const shellContext = {
+    invocation: { signal: new AbortController().signal }
+} as unknown as ToolContext
+const shellInspection = await shellTool.execute(
+    shellTool.parse({ action: "inspect" }).input,
+    shellContext
+) as Readonly<{ default: string, available: readonly unknown[] }>
+
+assert(shellInspection.default)
+assert(shellInspection.available.length > 0)
+
+const inlineShellResult = await shellTool.execute(
+    shellTool.parse({ action: "run", command: "printf shell-ready" }).input,
+    shellContext
+) as Readonly<{ output: Readonly<{ type: string, content: string }> }>
+
+assert.deepEqual(inlineShellResult.output, {
+    type: "inline",
+    bytes: 11,
+    content: "shell-ready"
+})
+
+const largeShellResult = await shellTool.execute(
+    shellTool.parse({ action: "run", command: "printf '%020000d' 0" }).input,
+    shellContext
+) as Readonly<{ output: Readonly<{ type: string, id: string, bytes: number }> }>
+
+assert.equal(largeShellResult.output.type, "temporary")
+assert.equal(largeShellResult.output.bytes, 20_000)
+
+const retainedShellOutput = await shellTool.execute(shellTool.parse({
+    action: "read",
+    output: largeShellResult.output.id,
+    offset: 19_990,
+    limit: 10
+}).input, shellContext) as Readonly<{ content: string, next: number | null }>
+
+assert.equal(retainedShellOutput.content, "0000000000")
+assert.equal(retainedShellOutput.next, null)
 
 const immediateEvents = {
     async *events() { yield Object.freeze({ value: "received" }) }
