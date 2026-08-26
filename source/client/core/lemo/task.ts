@@ -1,6 +1,7 @@
 import type Operation from "@server/core/lemo/operation"
 import type { OperationPage } from "@server/core/lemo/database"
 import type { TaskSnapshot, TaskStatus } from "@server/core/lemo/task"
+import { taskOperation } from "./operation"
 
 export type TaskSubscriber = (task: Task) => void
 
@@ -99,7 +100,7 @@ export default class Task {
 
     public receive(value: unknown) {
 
-        this.apply(operation(value))
+        this.apply(taskOperation(value))
     }
 
     public synchronize(snapshot: TaskSnapshot) {
@@ -215,40 +216,9 @@ export function taskSnapshot(value: unknown): TaskSnapshot {
     return Object.freeze({
         id,
         status: state,
-        operations: Object.freeze(value.operations.map(operation)),
+        operations: Object.freeze(value.operations.map(taskOperation)),
         before
     })
-}
-
-function operation(value: unknown): Operation {
-
-    if (!record(value)) throw new Error("The Server returned an invalid Lemo operation")
-
-    const sequence = value.sequence
-
-    const id = text(value.id)
-
-    const task = nullableText(value.task)
-
-    const parent = nullableText(value.parent)
-
-    const kind = text(value.kind)
-
-    const createdAt = value.createdAt
-
-    if (
-        typeof sequence !== "number"
-        || !id
-        || !task
-        || (value.parent !== null && !parent)
-        || !kind
-        || typeof createdAt !== "number"
-    ) {
-
-        throw new Error("The Server returned an incomplete Lemo operation")
-    }
-
-    return Object.freeze({ sequence, id, task, parent, kind, payload: value.payload, createdAt })
 }
 
 function operationPage(value: unknown): OperationPage {
@@ -264,7 +234,7 @@ function operationPage(value: unknown): OperationPage {
     }
 
     return Object.freeze({
-        operations: Object.freeze(value.operations.map(operation)),
+        operations: Object.freeze(value.operations.map(taskOperation)),
         next
     })
 }
@@ -276,11 +246,6 @@ function retained(values: readonly Operation[]) {
     const recent = ordered.filter(operation => operation !== input).slice(-(maximumRetainedOperations - 1))
 
     return Object.freeze(input ? [input, ...recent] : recent)
-}
-
-function nullableText(value: unknown) {
-
-    return value === null ? null : text(value)
 }
 
 function text(value: unknown) {

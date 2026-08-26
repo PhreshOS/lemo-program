@@ -18,33 +18,6 @@ import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import PromptView from "./prompts/prompt"
 
-const suggestionPrompts = [
-    {
-        icon: "⚡",
-        title: "Explore Programs",
-        description: "List all installed programs and check their status",
-        prompt: "List all installed programs and check their status."
-    },
-    {
-        icon: "⚙",
-        title: "System Processes",
-        description: "Inspect live running processes and endpoints",
-        prompt: "Show all active processes and their endpoints."
-    },
-    {
-        icon: "📖",
-        title: "Available Tools",
-        description: "Discover all runtime tools and documentation",
-        prompt: "What tools and capabilities do you have available?"
-    },
-    {
-        icon: "⏱",
-        title: "Time & System State",
-        description: "Check current clock and overall system status",
-        prompt: "What is the current time and system state?"
-    }
-] as const
-
 const maximumVisibleModels = 100
 
 export default function Tasks({ application, models: modelResource }: Properties) {
@@ -136,21 +109,6 @@ export default function Tasks({ application, models: modelResource }: Properties
 
     }, [taskResource.solve, tasks])
 
-    function handleInputChange(value: string) {
-
-        setInput(value)
-    }
-
-    function handleSelectSuggestion(promptText: string) {
-
-        setInput(promptText)
-
-        if (textareaRef.current) {
-
-            textareaRef.current.focus()
-        }
-    }
-
     function startNewTask() {
 
         setSelectedTask("")
@@ -212,18 +170,6 @@ export default function Tasks({ application, models: modelResource }: Properties
             </header>
 
             <nav className="task-navigation">
-                {taskResource.isPending && <ResourceState title="Loading Tasks…" />}
-
-                {taskResource.exception && <ResourceState
-                    title="Tasks unavailable"
-                    error={taskResource.exception.current}
-                    retry={() => void taskResource.safeExecute()}
-                />}
-
-                {taskResource.solve && tasks.length === 0 && <div className="no-tasks-hint">
-                    <p>No previous tasks yet.</p>
-                </div>}
-
                 {taskResource.solve && activeTasks.map(task => <TaskLink
                     key={task.id}
                     task={task}
@@ -255,28 +201,8 @@ export default function Tasks({ application, models: modelResource }: Properties
                 />}
 
                 {taskResource.solve && !currentTask && <div className="empty-state">
-                    <div className="empty-state-badge">
-                        <span className="empty-state-icon">✨</span>
-                    </div>
-                    <strong>What should we work on today?</strong>
-                    <p>Lemo can manage programs, monitor processes, inspect windows, and run system tasks autonomously.</p>
-
-                    <div className="suggestions-grid">
-                        {suggestionPrompts.map(suggestion => (
-                            <button
-                                key={suggestion.title}
-                                type="button"
-                                className="suggestion-card"
-                                onClick={() => handleSelectSuggestion(suggestion.prompt)}
-                            >
-                                <span className="suggestion-icon">{suggestion.icon}</span>
-                                <div className="suggestion-text">
-                                    <strong>{suggestion.title}</strong>
-                                    <span>{suggestion.description}</span>
-                                </div>
-                            </button>
-                        ))}
-                    </div>
+                    <strong>What should we work on?</strong>
+                    <p>Describe a goal below to start a Task.</p>
                 </div>}
 
             </div>}
@@ -293,7 +219,7 @@ export default function Tasks({ application, models: modelResource }: Properties
                     rows={1}
                     placeholder={model ? "Message Lemo or ask to run a task…" : "Configure an active LLM Provider first."}
                     value={input}
-                    onChange={event => handleInputChange(event.target.value)}
+                    onChange={event => setInput(event.target.value)}
                     onKeyDown={keyboard}
                 />
 
@@ -488,12 +414,7 @@ function TaskView({ task, snapshot, prompts }: Readonly<{
         {snapshot.status === "running" && <div className="working-container">
             <div className="working" aria-label="Lemo is working">
                 <span className="working-dot" />
-                <span className="working-label">Lemo is working…</span>
-                <div className="working-bars">
-                    <i />
-                    <i />
-                    <i />
-                </div>
+                <span>Lemo is working…</span>
             </div>
         </div>}
 

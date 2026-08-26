@@ -263,7 +263,7 @@ visible to the Model.
 
 Automatic associative memory does not add unrelated completed work merely
 because it is recent. Immediate continuity is a separate bounded layer
-containing up to the three nearest preceding Tasks, so short references such as
+containing up to the six nearest preceding Tasks, so short references such as
 "again" and "continue" retain their chronological subject without pretending
 that all recent history is semantically relevant. Explicit Memory Tool recall
 retains a broader recent-Task fallback because it is a deliberate request to

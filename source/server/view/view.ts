@@ -2,16 +2,20 @@ import { current } from "@phreshos/server"
 import Application from "@server/core/application"
 import type {
     LLMGenerationEvent,
-    LLMGenerationRequest,
-    LLMMessage,
-    LLMModelRequest,
-    LLMModelRecord,
-    LLMToolCall,
-    LLMToolDefinition
+    LLMModelRecord
 } from "@server/core/llm/model"
 import type { TaskSnapshot } from "@server/core/lemo/task"
 import type { OperationPage } from "@server/core/lemo/database"
 import type ClientChannel from "@server/core/client-channel"
+import {
+    generationRequest,
+    providerConfiguration,
+    providerRequest,
+    startupConfiguration,
+    taskCreation,
+    taskHistory,
+    taskRequest
+} from "./contract"
 
 export default async function view() {
 
@@ -31,36 +35,36 @@ export default async function view() {
 
     current.answer("llm-provider.state", function ({ payload }) {
 
-        return application.llmProviderState(providerIdentity(payload))
+        return application.llmProviderState(providerRequest.parse(payload).provider)
     })
 
     current.answer<unknown, boolean>("manager.startup", () => application.startupEnabled())
 
     current.answer<unknown, void>("manager.startup.configure", async function ({ payload }) {
 
-        await application.configureStartup(enabledRequest(payload))
+        await application.configureStartup(startupConfiguration.parse(payload).enabled)
     })
 
     current.answer<unknown, void>("llm-provider.configure", async function ({ payload }) {
 
-        const request = providerConfiguration(payload)
+        const request = providerConfiguration.parse(payload)
 
         await application.configureLLMProvider(request.provider, request.configuration)
     })
 
     current.answer<unknown, void>("llm-provider.remove-configuration", async function ({ payload }) {
 
-        await application.removeLLMProviderConfiguration(providerIdentity(payload))
+        await application.removeLLMProviderConfiguration(providerRequest.parse(payload).provider)
     })
 
     current.answer<unknown, void>("llm-provider.activate", async function ({ payload }) {
 
-        await application.activateLLMProvider(providerIdentity(payload))
+        await application.activateLLMProvider(providerRequest.parse(payload).provider)
     })
 
     current.answer<unknown, void>("llm-provider.deactivate", async function ({ payload }) {
 
-        await application.deactivateLLMProvider(providerIdentity(payload))
+        await application.deactivateLLMProvider(providerRequest.parse(payload).provider)
     })
 
     current.answer<unknown, readonly LLMModelRecord[]>("llm-models", () => application.modelRecords())
@@ -72,25 +76,14 @@ export default async function view() {
 
     current.answer<unknown, void>("lemo.task.create", async function ({ payload }) {
 
-        const request = taskCreateRequest(payload)
+        const request = taskCreation.parse(payload)
 
         await application.task(request.input, request.provider, request.model, request.command)
     })
 
-    current.answer<unknown, TaskSnapshot>("lemo.task.open", async function ({ payload }) {
-
-        const request = taskOpenRequest(payload)
-
-        const task = await application.findTask(request.task)
-
-        if (!task) throw new Error(`Unknown Lemo Task "${request.task}"`)
-
-        return task.snapshot()
-    })
-
     current.answer<unknown, OperationPage>("lemo.task.history", async function ({ payload }) {
 
-        const request = taskHistoryRequest(payload)
+        const request = taskHistory.parse(payload)
         const task = await application.findTask(request.task)
 
         if (!task) throw new Error(`Unknown Lemo Task "${request.task}"`)
@@ -100,22 +93,22 @@ export default async function view() {
 
     current.answer<unknown, void>("lemo.task.pause", async function ({ payload }) {
 
-        await application.pauseTask(taskIdentity(payload))
+        await application.pauseTask(taskRequest.parse(payload).task)
     })
 
     current.answer<unknown, void>("lemo.task.cancel", async function ({ payload }) {
 
-        await application.cancelTask(taskIdentity(payload))
+        await application.cancelTask(taskRequest.parse(payload).task)
     })
 
     current.answer<unknown, void>("lemo.task.continue", async function ({ payload }) {
 
-        await application.continueTask(taskIdentity(payload))
+        await application.continueTask(taskRequest.parse(payload).task)
     })
 
     current.answer<unknown, void>("llm-generate", async function ({ payload }) {
 
-        const request = generationRequest(payload)
+        const request = generationRequest.parse(payload)
 
         for await (const event of application.generate(request.provider, request.model, request.request)) {
 
@@ -131,15 +124,6 @@ export default async function view() {
     void application.start().catch(error => console.error(error))
 }
 
-function enabledRequest(value: unknown) {
-
-    if (!record(value) || typeof value.enabled !== "boolean") {
-        throw new Error("A Lemo startup request requires an enabled boolean")
-    }
-
-    return value.enabled
-}
-
 const clientChannel: ClientChannel = {
     publish(event, payload) {
 
@@ -152,198 +136,4 @@ const clientChannel: ClientChannel = {
             listener((value as { payload: unknown }).payload)
         })
     }
-}
-
-function taskIdentity(value: unknown) {
-
-    if (!record(value)) throw new Error("A Lemo Task control request must be an object")
-
-    const task = text(value.task)
-
-    if (!task) throw new Error("A Lemo Task control request requires an identity")
-
-    return task
-}
-
-function providerIdentity(value: unknown) {
-
-    if (!record(value)) throw new Error("An LLM Provider request must be an object")
-
-    const provider = text(value.provider)
-
-    if (!provider) throw new Error("An LLM Provider request requires an identity")
-
-    return provider
-}
-
-function providerConfiguration(value: unknown) {
-
-    const provider = providerIdentity(value)
-
-    return { provider, configuration: (value as Record<string, unknown>).configuration }
-}
-
-function taskCreateRequest(value: unknown) {
-
-    if (!record(value)) throw new Error("A Lemo Task request must be an object")
-
-    const input = text(value.input)
-
-    const provider = text(value.provider)
-
-    const model = text(value.model)
-
-    const command = text(value.command)
-
-    if (!input) throw new Error("A Lemo Task request requires input")
-
-    if (!provider || !model) throw new Error("A Lemo Task request requires an LLM Model")
-
-    if (!command) throw new Error("A Lemo Task request requires a command identity")
-
-    return { input, provider, model, command }
-}
-
-function taskHistoryRequest(value: unknown) {
-
-    if (!record(value)) throw new Error("A Lemo Task history request must be an object")
-
-    const task = text(value.task)
-    const limit = value.limit
-    const before = value.before
-
-    if (!task) throw new Error("A Lemo Task history request requires an identity")
-    if (!Number.isInteger(limit)) throw new Error("A Lemo Task history request requires an integer limit")
-    if (before !== undefined && !Number.isInteger(before)) {
-        throw new Error("A Lemo Task history cursor must be an integer")
-    }
-
-    return { task, limit: limit as number, before: before as number | undefined }
-}
-
-function taskOpenRequest(value: unknown) {
-
-    if (!record(value)) throw new Error("Opening a Lemo Task requires an object")
-
-    const task = text(value.task)
-
-    if (!task) throw new Error("Opening a Lemo Task requires an identity")
-
-    return { task }
-}
-
-function generationRequest(value: unknown): LLMGenerationRequest {
-
-    if (!record(value)) throw new Error("An LLM generation request must be an object")
-
-    const generation = text(value.generation)
-
-    const provider = text(value.provider)
-
-    const model = text(value.model)
-
-    const request = modelRequest(value.request)
-
-    if (!generation) throw new Error("An LLM generation request requires an identity")
-
-    if (!provider) throw new Error("An LLM generation request requires an LLM Provider")
-
-    if (!model) throw new Error("An LLM generation request requires an LLM Model")
-
-    return { generation, provider, model, request }
-}
-
-function modelRequest(value: unknown): LLMModelRequest {
-
-    if (!record(value) || !Array.isArray(value.messages) || !value.messages.length) {
-
-        throw new Error("An LLM generation request requires messages")
-    }
-
-    if (!Array.isArray(value.tools)) throw new Error("An LLM generation request requires tools")
-
-    return Object.freeze({
-        messages: Object.freeze(value.messages.map(message)),
-        tools: Object.freeze(value.tools.map(tool))
-    })
-}
-
-function message(value: unknown): LLMMessage {
-
-    if (!record(value)) throw new Error("An LLM message must be an object")
-
-    const role = value.role
-
-    if (role !== "system" && role !== "user" && role !== "assistant" && role !== "tool") {
-
-        throw new Error("An LLM message has an invalid role")
-    }
-
-    if (typeof value.content !== "string") {
-
-        throw new Error("An LLM message requires content")
-    }
-
-    if (role === "tool") {
-
-        const call = text(value.call)
-
-        const name = text(value.name)
-
-        if (!call || !name) throw new Error("An LLM tool message requires call and Tool identities")
-
-        return Object.freeze({ role, call, name, content: value.content })
-    }
-
-    if (role === "assistant" && value.toolCalls !== undefined) {
-
-        if (!Array.isArray(value.toolCalls)) throw new Error("An assistant message has invalid tool calls")
-
-        return Object.freeze({
-            role,
-            content: value.content,
-            toolCalls: Object.freeze(value.toolCalls.map(toolCall))
-        })
-    }
-
-    return Object.freeze({ role, content: value.content })
-}
-
-function tool(value: unknown): LLMToolDefinition {
-
-    if (!record(value)) throw new Error("An LLM tool definition must be an object")
-
-    const name = text(value.name)
-
-    const description = text(value.description)
-
-    if (!name || !description || !record(value.parameters)) {
-
-        throw new Error("An LLM tool definition is invalid")
-    }
-
-    return Object.freeze({ name, description, parameters: Object.freeze({ ...value.parameters }) })
-}
-
-function toolCall(value: unknown): LLMToolCall {
-
-    if (!record(value)) throw new Error("An LLM tool call must be an object")
-
-    const id = text(value.id)
-
-    const name = text(value.name)
-
-    if (!id || !name) throw new Error("An LLM tool call is invalid")
-
-    return Object.freeze({ id, name, input: value.input })
-}
-
-function text(value: unknown) {
-
-    return typeof value === "string" ? value.trim() : ""
-}
-
-function record(value: unknown): value is Record<string, unknown> {
-
-    return typeof value === "object" && value !== null && !Array.isArray(value)
 }

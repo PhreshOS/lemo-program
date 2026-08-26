@@ -2,6 +2,7 @@ import type Operation from "@server/core/lemo/operation"
 import type { TaskSnapshot } from "@server/core/lemo/task"
 import type LLMModel from "../llm/model"
 import Task, { taskSnapshot, type TaskControl } from "./task"
+import operation from "./operation"
 
 export type LemoObservation = Readonly<{
     snapshots: readonly TaskSnapshot[]
@@ -134,29 +135,29 @@ export default class Lemo {
 
     private receive(value: unknown) {
 
-        const operation = operationRecord(value)
+        const received = operation(value)
 
-        if (!operation.task) return
+        if (!received.task) return
 
-        const existing = this.records.get(operation.task)
+        const existing = this.records.get(received.task)
 
         let task: Task
 
         if (existing) {
-            existing.receive(operation)
+            existing.receive(received)
             task = existing
         }
         else {
             task = Task.from({
-                id: operation.task,
-                status: operationStatus(operation),
-                operations: Object.freeze([operation]),
+                id: received.task,
+                status: operationStatus(received),
+                operations: Object.freeze([received]),
                 before: null
-            }, this.source.control(operation.task))
-            this.records.set(operation.task, task)
+            }, this.source.control(received.task))
+            this.records.set(received.task, task)
         }
 
-        const command = operation.kind === "task.input" ? taskCommand(operation.payload) : null
+        const command = received.kind === "task.input" ? taskCommand(received.payload) : null
         const pending = command ? this.creations.get(command) : null
 
         if (command && pending) {
@@ -229,37 +230,9 @@ function operationStatus(operation: Operation): TaskSnapshot["status"] {
     return "running"
 }
 
-function operationRecord(value: unknown): Operation {
-
-    if (!record(value)) throw new Error("The Server published an invalid Lemo operation")
-
-    const sequence = value.sequence
-    const id = text(value.id)
-    const task = nullableText(value.task)
-    const parent = nullableText(value.parent)
-    const kind = text(value.kind)
-    const createdAt = value.createdAt
-
-    if (
-        typeof sequence !== "number"
-        || !id
-        || (value.task !== null && !task)
-        || (value.parent !== null && !parent)
-        || !kind
-        || typeof createdAt !== "number"
-    ) throw new Error("The Server published an incomplete Lemo operation")
-
-    return Object.freeze({ sequence, id, task, parent, kind, payload: value.payload, createdAt })
-}
-
 function taskCommand(value: unknown) {
 
     return record(value) ? text(value.command) || null : null
-}
-
-function nullableText(value: unknown) {
-
-    return value === null ? null : text(value)
 }
 
 function text(value: unknown) {
