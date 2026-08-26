@@ -9,8 +9,8 @@ import { assertRunning, waitForRun, type TaskRun } from "../executions"
 import type ClientChannel from "@server/core/client-channel"
 import type Tool from "./tool"
 import type { ToolContext, ToolRecord, ToolTasks } from "./tool"
-import toolInput from "./tool-input"
-import type { WaitAnswerRequest } from "./prompt-contract"
+import { defaultApproval } from "./tool-approval"
+import { waitAnswerRequestSchema, type WaitAnswerRequest } from "./prompt-contract"
 import WaitAnswers from "./wait-answers"
 const modules = import.meta.glob<{ default: Tool }>("./tools/*/*.ts", { eager: true })
 
@@ -77,21 +77,53 @@ export default class Runtime {
             return
         }
 
-        const input = toolInput(call.input, tool.definition.parameters)
-
-        if (!same(input, call.input)) {
-
-            await run.append("tool.input.normalized", {
-                call: call.id,
-                name: call.name,
-                input
-            })
-        }
-
         const record = (kind: string, payload: unknown) => run.append(`tool.${call.name}.${kind}`, {
             call: call.id,
             payload
         })
+
+        let input: unknown
+
+        try {
+            const invocation = tool.parse(call.input)
+
+            input = invocation.input
+
+            if (!same(input, call.input)) {
+
+                await run.append("tool.input.normalized", {
+                    call: call.id,
+                    name: call.name,
+                    input
+                })
+            }
+
+            const mandatory = await tool.approval?.(input) ?? null
+
+            if (mandatory || invocation.approval) {
+                const approved = await this.approve(
+                    run,
+                    call,
+                    mandatory ?? defaultApproval(tool.definition.name, input),
+                    mandatory ? "tool" : "lemo",
+                    record
+                )
+
+                if (!approved) {
+                    await run.append("tool.result", {
+                        call: call.id,
+                        name: call.name,
+                        ok: false,
+                        error: "The user rejected this Tool invocation"
+                    })
+
+                    return
+                }
+            }
+        } catch (cause) {
+            await appendFailure(run, call, cause)
+            return
+        }
 
         const invocation = Object.freeze({
             task: run.task,
@@ -141,16 +173,7 @@ export default class Runtime {
         try {
             output = await waitForRun(tool.execute(input, context), run.signal)
         } catch (cause) {
-
-            const error = cause instanceof Error ? cause : new Error(String(cause))
-
-            await run.append("tool.result", {
-                call: call.id,
-                name: call.name,
-                ok: false,
-                error: error.message
-            })
-
+            await appendFailure(run, call, cause)
             return
         }
 
@@ -161,6 +184,25 @@ export default class Runtime {
             output,
             ...(tool.modelOutput ? { modelOutput: tool.modelOutput(output) } : {})
         })
+    }
+
+    private async approve(
+        run: TaskRun,
+        call: LLMToolCall,
+        approval: Readonly<{ title: string, content: string }>,
+        requestedBy: "lemo" | "tool",
+        record: (kind: string, payload: unknown) => Promise<Operation>
+    ) {
+
+        const request = waitAnswerRequestSchema.parse({ type: "approval", ...approval })
+
+        await record("approval.requested", { requestedBy, request })
+
+        const answer = await this.answers.wait({ task: run.task, call: call.id }, request, run.signal)
+
+        await record(`approval.${answer.type}`, { requestedBy })
+
+        return answer.type === "approved"
     }
 
     private async loadTools(
@@ -212,7 +254,23 @@ function loadedTools(operation: Operation | null) {
 
 function toolRecord(tool: Tool): ToolRecord {
 
-    return Object.freeze({ definition: tool.definition, docs: tool.docs, builtin: tool.builtin === true })
+    return Object.freeze({
+        definition: tool.definition,
+        docs: tool.docs,
+        builtin: tool.builtin === true
+    })
+}
+
+async function appendFailure(run: TaskRun, call: LLMToolCall, cause: unknown) {
+
+    const error = cause instanceof Error ? cause : new Error(String(cause))
+
+    await run.append("tool.result", {
+        call: call.id,
+        name: call.name,
+        ok: false,
+        error: error.message
+    })
 }
 
 function record(value: unknown) {

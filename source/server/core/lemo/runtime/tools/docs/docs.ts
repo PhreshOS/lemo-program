@@ -1,27 +1,20 @@
 import { z } from "zod"
-import type Tool from "../../tool"
+import defineTool from "../../define-tool"
 import documentation from "./docs.md?raw"
 
-const input = z.object({ name: z.string().trim().min(1) }).strict()
+const input = z.object({
+    name: z.string().trim().min(1).describe("Exact Tool name returned by tools discovery.")
+}).strict()
 
 /** Reads documentation through the invocation's complete Lemo context. */
-const docs: Tool = {
+const docs = defineTool({
     builtin: true,
     order: 1,
     docs: documentation,
-    definition: Object.freeze({
-        name: "docs",
-        description: "Read the complete documentation for one Runtime tool.",
-        parameters: Object.freeze({
-            type: "object",
-            required: Object.freeze(["name"]),
-            properties: Object.freeze({ name: Object.freeze({ type: "string" }) }),
-            additionalProperties: false
-        })
-    }),
-    async execute(value, context) {
-
-        const request = input.parse(value)
+    input,
+    name: "docs",
+    description: "Read the complete documentation for one Runtime tool. Pass its exact name.",
+    async execute(request, context) {
 
         const tool = context.tools.find(request.name)
 
@@ -29,6 +22,6 @@ const docs: Tool = {
 
         return { name: tool.definition.name, docs: tool.docs }
     }
-}
+})
 
 export default docs

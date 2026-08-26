@@ -1,6 +1,6 @@
 import { host, type Program } from "@phreshos/server"
 import { z } from "zod"
-import type Tool from "../../tool"
+import defineTool from "../../define-tool"
 import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
 
@@ -33,64 +33,13 @@ const input = z.discriminatedUnion("action", [
 ), { message: "A specific Program emits only forget and uninstall events" })
 
 /** Reads installed Program and Endpoint declarations from the authoritative Host. */
-const programs: Tool = {
+const programs = defineTool({
     order: 5,
     docs,
-    definition: Object.freeze({
-        name: "programs",
-        description: "Learn a PhreshOS Program and read its operating policy before acting on it.",
-        parameters: Object.freeze({
-            oneOf: Object.freeze([
-                Object.freeze({
-                    type: "object",
-                    required: Object.freeze(["action"]),
-                    properties: Object.freeze({
-                        action: Object.freeze({ const: "list" }),
-                        installedOnly: Object.freeze({ type: "boolean", default: true })
-                    }),
-                    additionalProperties: false
-                }),
-                Object.freeze({
-                    type: "object",
-                    required: Object.freeze(["action", "program"]),
-                    properties: Object.freeze({
-                        action: Object.freeze({ const: "inspect" }),
-                        program: Object.freeze({ type: "string" })
-                    }),
-                    additionalProperties: false
-                }),
-                Object.freeze({
-                    type: "object",
-                    required: Object.freeze(["action", "program"]),
-                    properties: Object.freeze({
-                        action: Object.freeze({ const: "agent" }),
-                        program: Object.freeze({ type: "string" })
-                    }),
-                    additionalProperties: false
-                }),
-                Object.freeze({
-                    type: "object",
-                    required: Object.freeze(["action", "event"]),
-                    properties: Object.freeze({
-                        action: Object.freeze({ const: "wait" }),
-                        event: Object.freeze({
-                            type: "string",
-                            enum: Object.freeze(["create", "forget", "install", "uninstall"])
-                        }),
-                        program: Object.freeze({
-                            type: "string",
-                            description: "When supplied, wait on this Program entity; only forget and uninstall are valid."
-                        }),
-                        timeout: Object.freeze({ type: "integer", minimum: 1 })
-                    }),
-                    additionalProperties: false
-                })
-            ])
-        })
-    }),
-    async execute(value, context) {
-
-        const request = input.parse(value)
+    input,
+    name: "programs",
+    description: "Learn a PhreshOS Program and read its operating policy before acting on it.",
+    async execute(request, context) {
 
         if (request.action === "wait") {
 
@@ -144,7 +93,7 @@ const programs: Tool = {
             content
         })
     }
-}
+})
 
 export default programs
 

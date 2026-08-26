@@ -190,6 +190,13 @@ Model call remains raw and unchanged; a distinct `tool.input.normalized`
 operation records any value actually normalized for execution. Unconstrained
 payloads and declared strings are never guessed or rewritten.
 
+Every Tool derives its Model-facing parameters from its sole Zod contract and
+one Runtime-owned approval template. Lemo may add a flat `approval: true` to any
+invocation, while a Tool may require approval from its own policy. Runtime
+normalizes and validates the complete input once, publishes one bounded approval
+interaction, and enters `execute` only after approval. Approval is invocation
+state, never a second Tool call.
+
 Ordinary tools are not loaded into every Model request. Only the `tools`,
 `docs`, and `memory` tools are initially visible. Tool discovery records which
 tools were loaded, so every later Cycle reconstructs its available definitions
@@ -207,7 +214,11 @@ publishes to either Endpoint kind. It records only successful lifecycle changes
 in Memory; direct communication remains in the Task operation history. The
 `windows` tool reads and controls the authoritative Window
 belonging to a live Client Endpoint while correctly leaving local Surface
-presentation unavailable to Server Runtime tools.
+presentation unavailable to Server Runtime tools. The `files` tool owns a
+separate UTF-8 filesystem layer: paths begin at the user's home directory,
+directory reads are paginated, text reads are bounded, partial edits are
+revision-aware, and recursive copies stream their contents. It does not expose
+PhreshOS Storage or retain a working directory.
 
 Runtime discovers Tool modules from `runtime/tools/*/*.ts`, validates unique
 names, and orders them through each Tool's optional `order`. Adding a Tool does

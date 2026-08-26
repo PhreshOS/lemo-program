@@ -1071,6 +1071,19 @@ p {
     color: var(--status-error);
 }
 
+.prompt-approval > p {
+    line-height: 1.5;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+}
+
+.prompt-approval-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
 .prompt-form {
     display: grid;
     gap: 12px;

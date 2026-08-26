@@ -18,6 +18,12 @@ export default interface Tool {
     readonly builtin?: boolean
     readonly order?: number
 
+    /** Normalizes and validates one approval-aware Model invocation. */
+    parse(input: unknown): ToolInvocation
+
+    /** Requires approval for a normalized invocation before execute is entered. */
+    approval?(input: unknown): ToolApproval | null | Promise<ToolApproval | null>
+
     execute(input: unknown, context: ToolContext): Promise<unknown>
 
     /**
@@ -27,6 +33,16 @@ export default interface Tool {
      */
     modelOutput?(output: unknown): unknown
 }
+
+export type ToolInvocation = Readonly<{
+    input: unknown
+    approval: boolean
+}>
+
+export type ToolApproval = Readonly<{
+    title: string
+    content: string
+}>
 
 export type ToolContext = Readonly<{
     invocation: Readonly<{

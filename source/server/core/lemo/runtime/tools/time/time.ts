@@ -1,30 +1,22 @@
 import { z } from "zod"
-import type Tool from "../../tool"
+import defineTool from "../../define-tool"
 import docs from "./docs.md?raw"
 
 const input = z.object({}).strict()
 
 /** Returns the Server's current absolute time. */
-const time: Tool = {
+const time = defineTool({
     order: 3,
     docs,
-    definition: Object.freeze({
-        name: "time",
-        description: "Return the current absolute time as ISO 8601 and Unix milliseconds.",
-        parameters: Object.freeze({
-            type: "object",
-            properties: Object.freeze({}),
-            additionalProperties: false
-        })
-    }),
-    async execute(value) {
-
-        input.parse(value)
+    input,
+    name: "time",
+    description: "Return the current absolute time as ISO 8601 and Unix milliseconds.",
+    async execute() {
 
         const now = new Date()
 
         return Object.freeze({ iso: now.toISOString(), unix: now.getTime() })
     }
-}
+})
 
 export default time

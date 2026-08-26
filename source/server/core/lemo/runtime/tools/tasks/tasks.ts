@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { maximumOperationPage, maximumTaskPage } from "../../../database"
-import type Tool from "../../tool"
+import defineTool from "../../define-tool"
 import docs from "./docs.md?raw"
 
 const status = z.enum(["running", "paused", "cancelled", "completed", "failed"])
@@ -53,80 +53,13 @@ const input = z.discriminatedUnion("action", [
 ])
 
 /** Accesses Lemo Tasks through the invocation's ordinary Lemo context. */
-const tasks: Tool = {
+const tasks = defineTool({
     order: 4,
     docs,
-    definition: Object.freeze({
-        name: "tasks",
-        description: "Create, find, inspect, message, control, and wait for Lemo Tasks.",
-        parameters: Object.freeze({
-            oneOf: Object.freeze([
-                variant(["action"], {
-                    action: Object.freeze({ const: "list" }),
-                    limit: Object.freeze({ type: "integer", minimum: 1, maximum: maximumTaskPage }),
-                    cursor: Object.freeze({
-                        type: "object",
-                        required: Object.freeze(["id", "createdAt"]),
-                        properties: Object.freeze({
-                            id: Object.freeze({ type: "string" }),
-                            createdAt: Object.freeze({ type: "integer", minimum: 0 })
-                        }),
-                        additionalProperties: false
-                    }),
-                    search: Object.freeze({ type: "string" }),
-                    statuses: Object.freeze({
-                        type: "array",
-                        items: Object.freeze({
-                            type: "string",
-                            enum: Object.freeze(["running", "paused", "cancelled", "completed", "failed"])
-                        })
-                    }),
-                    sourceTask: Object.freeze({ type: "string" }),
-                    createdAfter: Object.freeze({ type: "integer", minimum: 0 }),
-                    createdBefore: Object.freeze({ type: "integer", minimum: 0 }),
-                    order: Object.freeze({ type: "string", enum: Object.freeze(["newest", "oldest"]) })
-                }),
-                variant(["action", "task"], {
-                    action: Object.freeze({ const: "read" }),
-                    task: Object.freeze({ type: "string" }),
-                    limit: Object.freeze({ type: "integer", minimum: 1, maximum: maximumOperationPage }),
-                    before: Object.freeze({ type: "integer", minimum: 1 })
-                }),
-                variant(["action", "input"], {
-                    action: Object.freeze({ const: "create" }),
-                    input: Object.freeze({ type: "string" })
-                }),
-                variant(["action", "task", "message"], {
-                    action: Object.freeze({ const: "send" }),
-                    task: Object.freeze({ type: "string" }),
-                    message: Object.freeze({ type: "string" })
-                }),
-                controlVariant("pause"),
-                controlVariant("continue"),
-                controlVariant("cancel"),
-                variant(["action"], {
-                    action: Object.freeze({ const: "wait" }),
-                    tasks: Object.freeze({ type: "array", items: Object.freeze({ type: "string" }) }),
-                    events: Object.freeze({ type: "array", items: Object.freeze({
-                        type: "string",
-                        enum: Object.freeze([
-                            "created",
-                            "running",
-                            "paused",
-                            "continued",
-                            "completed",
-                            "failed",
-                            "cancelled"
-                        ])
-                    }) }),
-                    timeout: Object.freeze({ type: "integer", minimum: 1 })
-                })
-            ])
-        })
-    }),
-    async execute(value, context) {
-
-        const request = input.parse(value)
+    input,
+    name: "tasks",
+    description: "Create, find, inspect, message, control, and wait for Lemo Tasks.",
+    async execute(request, context) {
 
         if (request.action === "list") {
 
@@ -167,27 +100,9 @@ const tasks: Tool = {
             timeout: request.timeout
         })
     }
-}
+})
 
 export default tasks
-
-function controlVariant(action: "pause" | "continue" | "cancel") {
-
-    return variant(["action", "task"], {
-        action: Object.freeze({ const: action }),
-        task: Object.freeze({ type: "string" })
-    })
-}
-
-function variant(required: readonly string[], properties: Readonly<Record<string, unknown>>) {
-
-    return Object.freeze({
-        type: "object",
-        required: Object.freeze(required),
-        properties: Object.freeze(properties),
-        additionalProperties: false
-    })
-}
 
 const defaultTaskLimit = 20
 const defaultOperationLimit = 100

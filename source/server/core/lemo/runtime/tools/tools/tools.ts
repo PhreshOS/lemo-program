@@ -1,34 +1,24 @@
 import { z } from "zod"
-import type Tool from "../../tool"
+import defineTool from "../../define-tool"
 import docs from "./docs.md?raw"
 
 const input = z.object({
-    names: z.array(z.string().trim().min(1)).optional(),
-    all: z.boolean().optional()
+    names: z.array(z.string().trim().min(1)).optional()
+        .describe("Exact Tool names to load. This does not invoke those Tools."),
+    all: z.boolean().optional().describe("Load every ordinary Tool when true.")
 }).strict().refine(value => value.all === true || Boolean(value.names?.length), {
     message: "Choose tool names or request all tools"
 })
 
 /** Discovers tools through the invocation's complete Lemo context. */
-const tools: Tool = {
+const tools = defineTool({
     builtin: true,
     order: 0,
     docs,
-    definition: Object.freeze({
-        name: "tools",
-        description: "Discover and load available Runtime tools for later Model cycles.",
-        parameters: Object.freeze({
-            type: "object",
-            properties: Object.freeze({
-                names: Object.freeze({ type: "array", items: Object.freeze({ type: "string" }) }),
-                all: Object.freeze({ type: "boolean" })
-            }),
-            additionalProperties: false
-        })
-    }),
-    async execute(value, context) {
-
-        const request = input.parse(value)
+    input,
+    name: "tools",
+    description: "Discover and load Runtime tools for later Model cycles; never pass another Tool's input here.",
+    async execute(request, context) {
 
         const available = context.tools.list().filter(tool => !tool.builtin)
 
@@ -49,6 +39,6 @@ const tools: Tool = {
 
         return selected.map(tool => tool.definition)
     }
-}
+})
 
 export default tools

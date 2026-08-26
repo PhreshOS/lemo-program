@@ -26,7 +26,9 @@ const response = z.discriminatedUnion("type", [
         id: z.string().trim().min(1),
         type: z.literal("failed"),
         error: z.string().trim().min(1).max(1_000)
-    })
+    }),
+    z.strictObject({ id: z.string().trim().min(1), type: z.literal("approved") }),
+    z.strictObject({ id: z.string().trim().min(1), type: z.literal("rejected") })
 ])
 
 const defaultCapacity = 4
@@ -166,6 +168,16 @@ export default class WaitAnswers {
 
         if (parsed.data.type === "cancelled") {
             pending.resolve({ type: "cancelled" }, "cancelled")
+            return
+        }
+
+        if (parsed.data.type === "approved" || parsed.data.type === "rejected") {
+            try {
+                pending.resolve(validatePromptAnswer(pending.prompt.request, { type: parsed.data.type }))
+            } catch (cause) {
+                this.rejectResponse(parsed.data.id, cause instanceof Error ? cause.message : String(cause))
+            }
+
             return
         }
 

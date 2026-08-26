@@ -1,4 +1,7 @@
 import assert from "node:assert/strict"
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import type { PromptEvent, PromptRecord } from "../source/client/core/prompts/contract"
 import type ClientChannel from "../source/server/core/client-channel"
@@ -195,6 +198,107 @@ assert((await pausedTask.operations()).some(operation => (
 )))
 
 pausedDatabase.close()
+
+const approvalRoot = await mkdtemp(join(tmpdir(), "lemo-approval-"))
+const approvalTarget = join(approvalRoot, "delete-me.txt")
+
+await writeFile(approvalTarget, "temporary", "utf8")
+
+const approvalDatabase = new DatabaseSync(":memory:")
+const approvalClient = channel()
+const approvalLemo = await Lemo.wakeUp(approvalDatabase, approvalClient)
+let approvalCycle = 0
+let approvalModel!: LLMModel
+
+const approvalProvider: LLMProvider = {
+    identity: "approval-test",
+    name: "Approval Test",
+    active: true,
+    async models() { return [approvalModel] }
+}
+
+approvalModel = {
+    id: "approval-test",
+    provider: approvalProvider,
+    async *generate(request) {
+
+        approvalCycle++
+
+        if (approvalCycle === 1) {
+            yield {
+                type: "tool-call" as const,
+                call: { id: "load-approval-tools", name: "tools", input: { names: ["time", "files"] } }
+            }
+
+            return
+        }
+
+        if (approvalCycle === 2) {
+            const definition = request.tools.find(tool => tool.name === "time")
+
+            assert(definition)
+            assert.match(JSON.stringify(definition.parameters), /"approval"/)
+
+            yield {
+                type: "tool-call" as const,
+                call: {
+                    id: "approved-time",
+                    name: "time",
+                    input: { approval: "true" }
+                }
+            }
+
+            return
+        }
+
+        if (approvalCycle === 3) {
+            const result = request.messages.findLast(message => message.role === "tool" && message.name === "time")
+
+            assert(result)
+            assert.equal(JSON.parse(result.content).ok, false)
+
+            yield {
+                type: "tool-call" as const,
+                call: {
+                    id: "mandatory-delete",
+                    name: "files",
+                    input: { action: "delete", path: approvalTarget }
+                }
+            }
+
+            return
+        }
+
+        await assert.rejects(access(approvalTarget), /ENOENT/)
+        yield { type: "text" as const, content: "Approval flow complete." }
+    }
+}
+
+const approvalTask = await approvalLemo.task({ input: "Test approval", model: approvalModel })
+const optionalApproval = await approvalClient.waitFor("lemo.prompt.open") as PromptRecord
+
+assert.equal(optionalApproval.request.type, "approval")
+assert.equal(optionalApproval.call, "approved-time")
+
+approvalClient.receive("lemo.prompt.response", { id: optionalApproval.id, type: "rejected" })
+
+const mandatoryApproval = await approvalClient.waitFor("lemo.prompt.open", 1) as PromptRecord
+
+assert.equal(mandatoryApproval.request.type, "approval")
+assert.equal(mandatoryApproval.call, "mandatory-delete")
+assert.match(mandatoryApproval.request.content, /delete-me\.txt/)
+
+approvalClient.receive("lemo.prompt.response", { id: mandatoryApproval.id, type: "approved" })
+
+assert.equal(await approvalTask.result(), "Approval flow complete.")
+
+const approvalOperations = await approvalTask.operations()
+
+assert(approvalOperations.some(operation => operation.kind === "tool.time.approval.rejected"))
+assert(approvalOperations.some(operation => operation.kind === "tool.files.approval.approved"))
+
+approvalDatabase.close()
+await rm(approvalRoot, { recursive: true, force: true })
 
 function channel() {
 

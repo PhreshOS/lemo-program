@@ -5,7 +5,7 @@ export default function toolInput(value: unknown, schema: unknown): unknown {
 
     if (!definition) return value
 
-    const branch = selectBranch(value, definition.oneOf)
+    const branch = selectBranch(value, definition.oneOf ?? definition.anyOf)
 
     if (branch) return toolInput(value, branch)
 

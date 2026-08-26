@@ -33,6 +33,20 @@ export default class Prompt {
         this.respond({ id: this.id, type: "submitted", values })
     }
 
+    public approve() {
+
+        if (this.request.type !== "approval") throw new Error("This interaction is not an approval")
+
+        this.respond({ id: this.id, type: "approved" })
+    }
+
+    public deny() {
+
+        if (this.request.type !== "approval") throw new Error("This interaction is not an approval")
+
+        this.respond({ id: this.id, type: "rejected" })
+    }
+
     public cancel() {
 
         this.respond({ id: this.id, type: "cancelled" })

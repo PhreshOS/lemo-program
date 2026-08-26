@@ -4,6 +4,10 @@ Presents one temporary interaction inside the Task that called this tool and
 waits for the first Client result. Runtime owns correlation, capacity, timeout,
 restoration after Client reload, and release.
 
+This tool collects form or interactive HTML values. Approving another Tool is
+different: approval is a universal Runtime invocation mode and does not invoke
+`prompt` as a second Tool.
+
 ## Structured forms
 
 Use `type: "form"` for ordinary input. It is the preferred form when the

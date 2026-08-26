@@ -100,6 +100,11 @@ export const promptRequestSchema = z.discriminatedUnion("type", [
         type: z.literal("html"),
         title: z.string().trim().min(1).max(200).optional(),
         html: z.string().trim().min(1).max(100_000)
+    }),
+    z.strictObject({
+        type: z.literal("approval"),
+        title: z.string().trim().min(1).max(200),
+        content: z.string().trim().min(1).max(4_000)
     })
 ])
 
@@ -149,7 +154,9 @@ export const promptResponseSchema = z.discriminatedUnion("type", [
         id: z.string().trim().min(1),
         type: z.literal("failed"),
         error: z.string().trim().min(1).max(1_000)
-    })
+    }),
+    z.strictObject({ id: z.string().trim().min(1), type: z.literal("approved") }),
+    z.strictObject({ id: z.string().trim().min(1), type: z.literal("rejected") })
 ])
 
 export type PromptField = Readonly<z.infer<typeof promptFieldSchema>>
@@ -160,6 +167,8 @@ export type PromptInvalid = Readonly<z.infer<typeof promptInvalidSchema>>
 export type PromptResponse = Readonly<z.infer<typeof promptResponseSchema>>
 
 export function validatePromptValues(request: PromptRequest, values: Readonly<Record<string, PromptValue>>) {
+
+    if (request.type === "approval") throw new Error("An approval does not accept form values")
 
     const serialized = JSON.stringify(values)
 

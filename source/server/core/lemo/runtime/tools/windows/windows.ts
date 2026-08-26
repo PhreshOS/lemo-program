@@ -1,10 +1,11 @@
 import { host, type Process, type Window } from "@phreshos/server"
 import { z } from "zod"
-import type Tool from "../../tool"
+import defineTool from "../../define-tool"
 import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
 
 const value = z.union([z.number().finite(), z.string().trim().min(1)])
+    .describe("Numbers are absolute pixels: 0.5 means half a pixel. Use a string such as 50% or 1/2 for workspace-relative geometry.")
 
 const position = z.object({ x: value, y: value }).strict()
 
@@ -31,67 +32,14 @@ const input = z.discriminatedUnion("action", [
     }).strict()
 ])
 
-const coordinateParameters = Object.freeze({
-    process: Object.freeze({ type: "string" }),
-    program: Object.freeze({ type: "string" })
-})
-
-const valueParameters = Object.freeze({
-    oneOf: Object.freeze([
-        Object.freeze({
-            type: "number",
-            description: "An absolute pixel count. Decimals remain pixels: 0.5 means half a pixel, not half the workspace."
-        }),
-        Object.freeze({
-            type: "string",
-            description: "A linear expression. Use a percentage such as \"50%\" or fraction such as \"1/2\" for a workspace-relative value; a plain numeric string is still pixels."
-        })
-    ])
-})
-
-const positionParameters = Object.freeze({
-    type: "object",
-    required: Object.freeze(["x", "y"]),
-    properties: Object.freeze({ x: valueParameters, y: valueParameters }),
-    additionalProperties: false
-})
-
-const sizeParameters = Object.freeze({
-    type: "object",
-    required: Object.freeze(["width", "height"]),
-    properties: Object.freeze({ width: valueParameters, height: valueParameters }),
-    additionalProperties: false
-})
-
 /** Reads and controls the authoritative Window of one live Client Endpoint. */
-const windows: Tool = {
+const windows = defineTool({
     order: 9,
     docs,
-    definition: Object.freeze({
-        name: "windows",
-        description: "Inspect or change a live Client Window. Geometry numbers are pixels, never proportions; use strings such as \"50%\" or \"1/2\" for workspace-relative dimensions.",
-        parameters: Object.freeze({
-            oneOf: Object.freeze([
-                variant("inspect"),
-                variant("move", { position: positionParameters }),
-                variant("resize", { size: sizeParameters }),
-                variant("setGeometry", { position: positionParameters, size: sizeParameters }),
-                variant("minimize", { minimized: Object.freeze({ type: "boolean", default: true }) }),
-                variant("changeTitle", { title: Object.freeze({ type: "string" }) }),
-                variant("raise"),
-                variant("wait", {
-                    event: Object.freeze({
-                        type: "string",
-                        enum: Object.freeze(["move", "resize", "geometry", "minimize", "changeTitle", "front"])
-                    }),
-                    timeout: Object.freeze({ type: "integer", minimum: 1 })
-                })
-            ])
-        })
-    }),
-    async execute(value, context) {
-
-        const request = input.parse(value)
+    input,
+    name: "windows",
+    description: "Inspect or change a live Client Window. Geometry numbers are pixels, never proportions; use strings such as \"50%\" or \"1/2\" for workspace-relative dimensions.",
+    async execute(request, context) {
 
         const process = await requiredProcess(request.process, request.program)
 
@@ -119,7 +67,7 @@ const windows: Tool = {
 
         return snapshot(process, window)
     }
-}
+})
 
 export default windows
 
@@ -177,23 +125,5 @@ async function snapshot(process: Process, window: Window) {
         front,
         layer,
         location
-    })
-}
-
-function variant(action: string, extra: Readonly<Record<string, unknown>> = {}) {
-
-    return Object.freeze({
-        type: "object",
-        required: Object.freeze([
-            "action",
-            "process",
-            ...Object.keys(extra).filter(key => key !== "minimized" && key !== "timeout")
-        ]),
-        properties: Object.freeze({
-            action: Object.freeze({ const: action }),
-            ...coordinateParameters,
-            ...extra
-        }),
-        additionalProperties: false
     })
 }

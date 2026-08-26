@@ -1,6 +1,6 @@
 import { host, type Process } from "@phreshos/server"
 import { z } from "zod"
-import type Tool from "../../tool"
+import defineTool from "../../define-tool"
 import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
 
@@ -10,6 +10,19 @@ const coordinates = {
 }
 
 const endpoint = z.enum(["server", "client"])
+
+const jsonValue = z.json()
+const payload = z.custom<z.infer<typeof jsonValue>>(value => jsonValue.safeParse(value).success)
+    .meta({
+        oneOf: [
+            { type: "object" },
+            { type: "array", items: {} },
+            { type: "string" },
+            { type: "number" },
+            { type: "boolean" },
+            { type: "null" }
+        ]
+    })
 
 const input = z.discriminatedUnion("action", [
     z.object({
@@ -38,7 +51,7 @@ const input = z.discriminatedUnion("action", [
         ...coordinates,
         endpoint: z.literal("server"),
         event: z.string().trim().min(1),
-        payload: z.json().optional(),
+        payload: payload.optional(),
         timeout: z.number().int().positive().optional()
     }).strict(),
     z.object({
@@ -46,7 +59,7 @@ const input = z.discriminatedUnion("action", [
         ...coordinates,
         endpoint,
         event: z.string().trim().min(1),
-        payload: z.json().optional()
+        payload: payload.optional()
     }).strict(),
     z.object({
         action: z.literal("wait"),
@@ -57,73 +70,14 @@ const input = z.discriminatedUnion("action", [
     }).strict()
 ])
 
-const coordinateParameters = Object.freeze({
-    process: Object.freeze({ type: "string" }),
-    program: Object.freeze({ type: "string" })
-})
-
-const endpointParameters = Object.freeze({
-    type: "string",
-    enum: Object.freeze(["server", "client"])
-})
-
-const jsonParameters = Object.freeze({
-    oneOf: Object.freeze([
-        Object.freeze({ type: "object" }),
-        Object.freeze({ type: "array", items: Object.freeze({}) }),
-        Object.freeze({ type: "string" }),
-        Object.freeze({ type: "number" }),
-        Object.freeze({ type: "boolean" }),
-        Object.freeze({ type: "null" })
-    ])
-})
-
 /** Reads and controls individual Process Endpoints. */
-const endpoints: Tool = {
+const endpoints = defineTool({
     order: 8,
     docs,
-    definition: Object.freeze({
-        name: "endpoints",
-        description: "Inspect, control, and communicate directly with PhreshOS Process Endpoints.",
-        parameters: Object.freeze({
-            oneOf: Object.freeze([
-                endpointVariant("inspect"),
-                endpointVariant("start"),
-                endpointVariant("stop"),
-                variant(["action", "process", "endpoint"], {
-                    action: Object.freeze({ const: "waitReady" }),
-                    ...coordinateParameters,
-                    endpoint: Object.freeze({ const: "server" }),
-                    timeout: Object.freeze({ type: "integer", minimum: 1 })
-                }),
-                variant(["action", "process", "endpoint", "event"], {
-                    action: Object.freeze({ const: "ask" }),
-                    ...coordinateParameters,
-                    endpoint: Object.freeze({ const: "server" }),
-                    event: Object.freeze({ type: "string" }),
-                    payload: jsonParameters,
-                    timeout: Object.freeze({ type: "integer", minimum: 1 })
-                }),
-                variant(["action", "process", "endpoint", "event"], {
-                    action: Object.freeze({ const: "publish" }),
-                    ...coordinateParameters,
-                    endpoint: endpointParameters,
-                    event: Object.freeze({ type: "string" }),
-                    payload: jsonParameters
-                }),
-                variant(["action", "process", "endpoint", "event"], {
-                    action: Object.freeze({ const: "wait" }),
-                    ...coordinateParameters,
-                    endpoint: endpointParameters,
-                    event: Object.freeze({ type: "string" }),
-                    timeout: Object.freeze({ type: "integer", minimum: 1 })
-                })
-            ])
-        })
-    }),
-    async execute(value, context) {
-
-        const request = input.parse(value)
+    input,
+    name: "endpoints",
+    description: "Inspect, control, and communicate directly with PhreshOS Process Endpoints.",
+    async execute(request, context) {
 
         const process = await requiredProcess(request.process, request.program)
 
@@ -203,7 +157,7 @@ const endpoints: Tool = {
         return result
     },
     modelOutput: endpointModelOutput
-}
+})
 
 export default endpoints
 
@@ -279,15 +233,6 @@ function endpointName(value: Awaited<ReturnType<typeof snapshot>>) {
     return `The ${value.endpoint} Endpoint of Process "${value.process}" in Program "${value.program}"`
 }
 
-function endpointVariant(action: "inspect" | "start" | "stop") {
-
-    return variant(["action", "process", "endpoint"], {
-        action: Object.freeze({ const: action }),
-        ...coordinateParameters,
-        endpoint: endpointParameters
-    })
-}
-
 function compactValue(value: unknown, key = ""): unknown {
 
     if (typeof value === "string") {
@@ -332,14 +277,4 @@ function compactValue(value: unknown, key = ""): unknown {
 function binaryKey(key: string) {
 
     return /^(?:image|screenshot|frame|blob|base64|data)$/i.test(key)
-}
-
-function variant(required: readonly string[], properties: Readonly<Record<string, unknown>>) {
-
-    return Object.freeze({
-        type: "object",
-        required: Object.freeze(required),
-        properties: Object.freeze(properties),
-        additionalProperties: false
-    })
 }

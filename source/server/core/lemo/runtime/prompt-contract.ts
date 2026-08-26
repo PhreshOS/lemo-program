@@ -99,7 +99,14 @@ const html = z.strictObject({
     html: z.string().trim().min(1).max(100_000)
 })
 
-export const waitAnswerRequestSchema = z.discriminatedUnion("type", [form, html])
+const approval = z.strictObject({
+    type: z.literal("approval"),
+    title: z.string().trim().min(1).max(200),
+    content: z.string().trim().min(1).max(4_000)
+})
+
+export const interactivePromptRequestSchema = z.discriminatedUnion("type", [form, html])
+export const waitAnswerRequestSchema = z.discriminatedUnion("type", [form, html, approval])
 
 export type WaitAnswerRequest = Readonly<z.infer<typeof waitAnswerRequestSchema>>
 
@@ -121,9 +128,23 @@ export type PromptAnswer = Readonly<{
     values: Readonly<Record<string, PromptValue>>
 }> | Readonly<{
     type: "cancelled"
+}> | Readonly<{
+    type: "approved"
+}> | Readonly<{
+    type: "rejected"
 }>
 
 export function validatePromptAnswer(request: WaitAnswerRequest, answer: PromptAnswer): PromptAnswer {
+
+    if (request.type === "approval") {
+        if (answer.type === "approved" || answer.type === "rejected") return answer
+
+        throw new Error("An approval requires an approve or reject response")
+    }
+
+    if (answer.type === "approved" || answer.type === "rejected") {
+        throw new Error("An interactive prompt cannot receive an approval response")
+    }
 
     if (answer.type === "cancelled") return answer
 

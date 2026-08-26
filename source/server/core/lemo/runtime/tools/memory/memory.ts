@@ -4,39 +4,23 @@ import {
     maximumMemoryBudget,
     minimumMemoryBudget
 } from "../../../memory"
-import type Tool from "../../tool"
+import defineTool from "../../define-tool"
 import docs from "./docs.md?raw"
 
 const input = z.object({
-    query: z.string().trim().min(1),
+    query: z.string().trim().min(1).describe("Required semantic query describing the context to recall."),
     budget: z.number().int().min(minimumMemoryBudget).max(maximumMemoryBudget).optional()
 }).strict()
 
 /** Recalls Memory through the invocation's complete Lemo context. */
-const memory: Tool = {
+const memory = defineTool({
     builtin: true,
     order: 2,
     docs,
-    definition: Object.freeze({
-        name: "memory",
-        description: "Recall related durable context from Lemo's shared history.",
-        parameters: Object.freeze({
-            type: "object",
-            required: Object.freeze(["query"]),
-            properties: Object.freeze({
-                query: Object.freeze({ type: "string" }),
-                budget: Object.freeze({
-                    type: "integer",
-                    minimum: minimumMemoryBudget,
-                    maximum: maximumMemoryBudget
-                })
-            }),
-            additionalProperties: false
-        })
-    }),
-    async execute(value, context) {
-
-        const request = input.parse(value)
+    input,
+    name: "memory",
+    description: "Recall related durable context from Lemo's shared history. A query is always required.",
+    async execute(request, context) {
 
         const results = await context.memory.recall(request)
 
@@ -48,6 +32,6 @@ const memory: Tool = {
 
         return results
     }
-}
+})
 
 export default memory

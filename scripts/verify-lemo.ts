@@ -7,9 +7,14 @@ import Memory from "../source/server/core/lemo/memory"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
 import endpoints, { endpointModelOutput } from "../source/server/core/lemo/runtime/tools/endpoints/endpoints"
+import files from "../source/server/core/lemo/runtime/tools/files/files"
+import memoryTool from "../source/server/core/lemo/runtime/tools/memory/memory"
 import processes from "../source/server/core/lemo/runtime/tools/processes/processes"
 import programs from "../source/server/core/lemo/runtime/tools/programs/programs"
+import promptTool from "../source/server/core/lemo/runtime/tools/prompt/prompt"
 import tasks from "../source/server/core/lemo/runtime/tools/tasks/tasks"
+import timeTool from "../source/server/core/lemo/runtime/tools/time/time"
+import toolsTool from "../source/server/core/lemo/runtime/tools/tools/tools"
 import windows from "../source/server/core/lemo/runtime/tools/windows/windows"
 import toolInput from "../source/server/core/lemo/runtime/tool-input"
 import waitEvent from "../source/server/core/lemo/runtime/wait-event"
@@ -22,6 +27,56 @@ assert.match(JSON.stringify(processes.definition.parameters), /"const":"wait"/)
 assert.match(JSON.stringify(endpoints.definition.parameters), /"const":"wait"/)
 assert.match(JSON.stringify(windows.definition.parameters), /"const":"wait"/)
 assert.match(JSON.stringify(tasks.definition.parameters), /"const":"send"/)
+
+for (const tool of [
+    toolsTool,
+    memoryTool,
+    timeTool,
+    tasks,
+    programs,
+    processes,
+    promptTool,
+    endpoints,
+    windows,
+    files
+]) {
+    const branches = schemaBranches(tool.definition.parameters)
+
+    assert(branches.length > 0, `${tool.definition.name} must expose an object input schema`)
+    assert(branches.every(branch => schemaRecord(schemaRecord(branch.properties)?.approval)?.type === "boolean"),
+        `${tool.definition.name} must derive approval from the shared Tool template`)
+}
+
+assert.deepEqual(processes.parse({
+    action: "create",
+    program: "phresh",
+    launch: "{\"server\":true,\"client\":true}",
+    approval: "true"
+}), {
+    approval: true,
+    input: {
+        action: "create",
+        program: "phresh",
+        launch: { server: true, client: true }
+    }
+})
+
+assert.deepEqual(endpoints.parse({
+    action: "ask",
+    process: "browser-server",
+    endpoint: "server",
+    event: "workspace.create",
+    payload: "{\"client\":true}"
+}), {
+    approval: false,
+    input: {
+        action: "ask",
+        process: "browser-server",
+        endpoint: "server",
+        event: "workspace.create",
+        payload: { client: true }
+    }
+})
 
 const immediateEvents = {
     async *events() { yield Object.freeze({ value: "received" }) }
@@ -897,4 +952,24 @@ function deferred() {
     })
 
     return { promise, resolve }
+}
+
+function schemaBranches(schema: Readonly<Record<string, unknown>>) {
+
+    const branches = Array.isArray(schema.oneOf)
+        ? schema.oneOf
+        : Array.isArray(schema.anyOf)
+            ? schema.anyOf
+            : null
+
+    return branches
+        ? branches.map(schemaRecord).filter((branch): branch is Readonly<Record<string, unknown>> => branch !== null)
+        : [schema]
+}
+
+function schemaRecord(value: unknown) {
+
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? value as Readonly<Record<string, unknown>>
+        : null
 }

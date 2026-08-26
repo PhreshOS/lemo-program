@@ -1,9 +1,17 @@
 import type Prompt from "@client/core/prompts/prompt"
 import { useState } from "react"
+import ApprovalPrompt from "./approval"
 import FormPrompt from "./form"
 import HtmlPrompt from "./html"
 
 export default function PromptView({ prompt }: Readonly<{ prompt: Prompt }>) {
+
+    if (prompt.request.type === "approval") return <ApprovalPrompt prompt={prompt} />
+
+    return <InteractivePrompt prompt={prompt} />
+}
+
+function InteractivePrompt({ prompt }: Readonly<{ prompt: Prompt }>) {
 
     const [error, setError] = useState("")
 
@@ -35,7 +43,9 @@ export default function PromptView({ prompt }: Readonly<{ prompt: Prompt }>) {
 
         {prompt.request.type === "form"
             ? <FormPrompt prompt={prompt} request={prompt.request} report={setError} />
-            : <HtmlPrompt prompt={prompt} request={prompt.request} report={setError} />}
+            : prompt.request.type === "html"
+                ? <HtmlPrompt prompt={prompt} request={prompt.request} report={setError} />
+                : null}
 
         {(error || prompt.validationError) && <small role="alert">{error || prompt.validationError}</small>}
     </section>
