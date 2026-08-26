@@ -6,6 +6,7 @@ import type {
     LLMToolDefinition
 } from "../llm/model"
 import type LemoDatabase from "./database"
+import { maximumOperationPage } from "./database"
 import type Memory from "./memory"
 import type Operation from "./operation"
 import { assertRunning, waitForRun, type TaskRun } from "./executions"
@@ -172,19 +173,33 @@ async function cycleTranscript(database: LemoDatabase, task: string) {
 
 async function cycleHistory(database: LemoDatabase, task: string) {
 
-    const page = await database.operations(task, {
-        limit: taskCycleOperationLimit,
-        order: "newest"
-    })
+    let before: number | undefined
+    let operations: Operation[] = []
+
+    while (operations.length < taskCycleOperationLimit) {
+
+        const page = await database.operations(task, {
+            limit: Math.min(maximumOperationPage, taskCycleOperationLimit - operations.length),
+            before,
+            order: "newest"
+        })
+
+        operations = [...page.operations, ...operations]
+
+        if (page.next === null) break
+
+        before = page.next
+    }
+
     const input = await database.firstOperation(task, "task.input")
 
-    return input && !page.operations.some(operation => operation.id === input.id)
-        ? Object.freeze([input, ...page.operations])
-        : page.operations
+    return input && !operations.some(operation => operation.id === input.id)
+        ? Object.freeze([input, ...operations])
+        : Object.freeze(operations)
 }
 
 const maximumTranscriptOperations = 512
-const taskCycleOperationLimit = 256
+const taskCycleOperationLimit = 1_024
 
 function modelToolResult(payload: Record<string, unknown>) {
 

@@ -11,13 +11,16 @@ import { taskStatus, type TaskStatus } from "./task"
 export const defaultMemoryBudget = 32_000
 export const minimumMemoryBudget = 1_000
 export const maximumMemoryBudget = 32_000
-const maximumAwarenessBudget = 8_000
+const defaultContextBudget = 64_000
+const maximumAwarenessBudget = 16_000
 const maximumAwarenessObjective = 400
-const maximumAwarenessContent = 800
-const maximumContinuityBudget = 8_000
-const maximumContinuityTasks = 3
-const maximumContinuityOperations = 6
-const maximumContinuityContent = 1_200
+const maximumAwarenessContent = 1_200
+const maximumAwarenessOperations = 6
+const maximumContinuityBudget = 16_000
+const maximumContinuityTasks = 6
+const maximumContinuityOperations = 12
+const maximumContinuityContent = 1_600
+const maximumWorkingSignals = 12
 const maximumReinforcedCandidates = 128
 const maximumReinforcedBudget = 8_000
 const reinforcedBudgetShare = 0.25
@@ -106,7 +109,7 @@ export default class Context {
         )
         const budget = Math.max(
             minimumMemoryBudget,
-            defaultMemoryBudget - continuitySize - awarenessSize
+            defaultContextBudget - continuitySize - awarenessSize
         )
         const continuityTasks = new Set(continuity.map(value => value.state.task))
         const others = history.filter(operation => (
@@ -117,7 +120,8 @@ export default class Context {
             others,
             { query: self.objective, focus, budget },
             false,
-            activations
+            activations,
+            defaultContextBudget
         )
 
         const recorded = await this.record(results, {
@@ -254,7 +258,8 @@ function retrieve(
     operations: readonly Operation[],
     request: MemoryRecallRequest,
     preserveRecent: boolean,
-    memory: ReadonlyMap<string, MemoryActivation>
+    memory: ReadonlyMap<string, MemoryActivation>,
+    maximumBudget = maximumMemoryBudget
 ): readonly MemoryResult[] {
 
     const query = request.query.trim()
@@ -263,10 +268,10 @@ function retrieve(
 
     const budget = request.budget ?? defaultMemoryBudget
 
-    if (!Number.isInteger(budget) || budget < minimumMemoryBudget || budget > maximumMemoryBudget) {
+    if (!Number.isInteger(budget) || budget < minimumMemoryBudget || budget > maximumBudget) {
 
         throw new Error(
-            `Memory recall budget must be between ${minimumMemoryBudget} and ${maximumMemoryBudget} characters`
+            `Memory recall budget must be between ${minimumMemoryBudget} and ${maximumBudget} characters`
         )
     }
 
@@ -569,7 +574,7 @@ function immediateContinuity(
 
     const preceding = [...states.values()]
         .filter(state => state.task !== self.task && state.sequence < self.sequence)
-        .sort((left, right) => right.sequence - left.sequence)
+        .sort((left, right) => right.updatedAt - left.updatedAt || right.sequence - left.sequence)
     const available = preceding
         .map((state, index) => ({
             state,
@@ -613,7 +618,9 @@ function activeAwareness(states: ReadonlyMap<string, TaskState>, self: string): 
         .filter(state => state.task !== self && state.status === "running")
         .map(state => Object.freeze({
             state,
-            latest: state.candidates.findLast(value => value.method !== "task-input") ?? null,
+            operations: Object.freeze(state.candidates
+                .filter(value => value.method !== "task-input")
+                .slice(-maximumAwarenessOperations)),
             sequence: state.operations.at(-1)?.sequence ?? 0
         }))
         .sort((left, right) => right.sequence - left.sequence)
@@ -639,7 +646,10 @@ function activeAwareness(states: ReadonlyMap<string, TaskState>, self: string): 
 function awarenessContextSize(value: TaskAwareness) {
 
     return Math.min(value.state.objective.length, maximumAwarenessObjective)
-        + Math.min(value.latest?.content.length ?? 0, maximumAwarenessContent)
+        + value.operations.reduce(
+            (size, operation) => size + Math.min(operation.content.length, maximumAwarenessContent) + 220,
+            0
+        )
         + 320
 }
 
@@ -648,7 +658,7 @@ function workingFocus(operations: readonly Operation[]): readonly WorkingSignal[
 
     const focus: WorkingSignal[] = []
 
-    for (let index = operations.length - 1; index >= 0 && focus.length < 6; index--) {
+    for (let index = operations.length - 1; index >= 0 && focus.length < maximumWorkingSignals; index--) {
 
         const operation = operations[index]
         const payload = record(operation.payload)
@@ -893,14 +903,15 @@ function episodeStart(
 
 function awarenessTask(value: TaskAwareness) {
 
-    const latest = value.latest
-
     return [
         `  <task ${taskAttributes(value.state, "concurrent")} reason="currently-running">`,
         `    <objective source="${xml(objectiveSource(value.state))}" method="task-input" createdAt="${timestamp(value.state.createdAt)}">${xml(shorten(value.state.objective, maximumAwarenessObjective))}</objective>`,
-        latest
-            ? candidateOperation(latest, "    ", "concurrent-attention", maximumAwarenessContent)
-            : "    <operation />",
+        ...value.operations.map(operation => candidateOperation(
+            operation,
+            "    ",
+            "concurrent-attention",
+            maximumAwarenessContent
+        )),
         "  </task>"
     ]
 }
@@ -1468,7 +1479,7 @@ type TaskExecution = Readonly<{
 
 type TaskAwareness = Readonly<{
     state: TaskState
-    latest: Candidate | null
+    operations: readonly Candidate[]
     sequence: number
 }>
 

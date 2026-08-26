@@ -889,6 +889,9 @@ await mindDatabase.appendToTask("running-related", "task.run.started", { run: "r
 await mindDatabase.appendToTask("running-related", "model.message", {
     content: "Waiting for the browser workspace event"
 })
+await mindDatabase.appendToTask("running-related", "model.message", {
+    content: "The browser workspace event has now arrived"
+})
 await mindDatabase.createTask("running-unrelated", { input: "Compose a short song" })
 await mindDatabase.appendToTask("running-unrelated", "task.run.started", { run: "unrelated-run" })
 await mindDatabase.appendToTask("running-unrelated", "model.message", {
@@ -913,6 +916,8 @@ assert(mindSnapshot.includes('<execution run="self-run" reason="created"'))
 assert(mindSnapshot.includes('<llm_model role="active" provider="test" id="test-model" />'))
 assert(mindSnapshot.includes('<task task="running-related" perspective="other" relation="concurrent" status="running"'))
 assert(mindSnapshot.includes('<task task="running-unrelated" perspective="other" relation="concurrent" status="running"'))
+assert(mindSnapshot.includes("Waiting for the browser workspace event"))
+assert(mindSnapshot.includes("The browser workspace event has now arrived"))
 assert(mindSnapshot.includes('<episode task="completed-related" perspective="other" relation="associative" status="completed"'))
 assert(mindSnapshot.includes('source="lemo" method="model-message"'))
 assert.match(mindSnapshot, /generatedAt="\d{4}-\d{2}-\d{2}T/)
@@ -1009,6 +1014,9 @@ for (const [task, input, output] of [
     ["older-association", "Try again to open YouTube", "youtube opened"],
     ["recent-background-a", "Inspect the current wallpaper", "wallpaper inspected"],
     ["recent-background-b", "Check the current clock", "clock checked"],
+    ["recent-background-c", "Read the current battery level", "battery inspected"],
+    ["recent-background-d", "Check the current network", "network inspected"],
+    ["recent-background-e", "Inspect the taskbar", "taskbar inspected"],
     ["immediate", "Wait for the Lemo window to minimize", "window wait completed"]
 ] as const) {
 
@@ -1028,6 +1036,9 @@ assert(continuitySnapshot.includes(
     '<task task="immediate" perspective="other" relation="immediately-before" status="completed"'
 ))
 assert(continuitySnapshot.includes('reason="temporal-continuity"'))
+assert(continuitySnapshot.includes(
+    '<task task="recent-background-a" perspective="other" relation="recent-predecessor" status="completed"'
+))
 assert(continuitySnapshot.includes(
     '<episode task="older-association" perspective="other" relation="associative" status="completed"'
 ))
