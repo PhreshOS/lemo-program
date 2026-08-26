@@ -1,6 +1,10 @@
 import type LemoDatabase from "./database"
 import { maximumContextOperations, maximumTaskContextBatch } from "./database"
-import type { TaskMessage } from "./database"
+import type {
+    MemoryActivation,
+    MemoryRetrievalInput,
+    TaskMessage
+} from "./database"
 import type Operation from "./operation"
 import { taskStatus, type TaskStatus } from "./task"
 
@@ -14,6 +18,11 @@ const maximumContinuityBudget = 8_000
 const maximumContinuityTasks = 3
 const maximumContinuityOperations = 6
 const maximumContinuityContent = 1_200
+const maximumReinforcedCandidates = 128
+const maximumReinforcedBudget = 8_000
+const reinforcedBudgetShare = 0.25
+const reinforcedMemoryThreshold = 0.6
+const episodeReinforcementShare = 0.25
 
 export type MemoryRecallRequest = Readonly<{
     query: string
@@ -31,6 +40,13 @@ export type MemoryRecallOptions = Readonly<{
     excludeTask?: string
 }>
 
+export type MemoryRetrievalOrigin = Readonly<{
+    task: string | null
+    operation: string | null
+    call: string | null
+    source: "context" | "tool" | "memory"
+}>
+
 export type MemoryResult = Readonly<{
     sequence: number
     operation: string
@@ -42,9 +58,13 @@ export type MemoryResult = Readonly<{
     method: string
     tool: string | null
     call: string | null
-    selection: "recent" | "relevant" | "context"
-    reason: "semantic-association" | "explicit-recent" | "episode-context"
+    selection: "recent" | "relevant" | "reinforced" | "context"
+    reason: "semantic-association" | "explicit-recent" | "reinforced-memory" | "episode-context"
+    score: number
     association: number | null
+    reinforcement: number
+    retrievalCount: number
+    lastRetrievedAt: number | null
     matches: readonly string[]
     anchor: string | null
     createdAt: number
@@ -59,6 +79,7 @@ export default class Context {
     public async build(operations: readonly Operation[]): Promise<string> {
 
         const task = operations.find(operation => operation.task)?.task
+        const now = Date.now()
 
         if (!task) throw new Error("A context requires a Task identity")
 
@@ -91,15 +112,38 @@ export default class Context {
         const others = history.filter(operation => (
             operation.task !== task && !continuityTasks.has(operation.task ?? "")
         ))
-        const results = retrieve(others, { query: self.objective, focus, budget }, false)
+        const activations = await this.activations(others, now)
+        const results = retrieve(
+            others,
+            { query: self.objective, focus, budget },
+            false,
+            activations
+        )
 
-        return contextSnapshot(self, messages, focus, continuity, awareness, results, states)
+        const recorded = await this.record(results, {
+            task,
+            operation: operations.findLast(operation => operation.kind === "cycle.started")?.id
+                ?? operations.at(-1)?.id
+                ?? null,
+            call: null,
+            source: "context"
+        }, now)
+
+        return contextSnapshot(self, messages, focus, continuity, awareness, recorded, states)
     }
 
     public async recall(
         request: MemoryRecallRequest,
-        options: MemoryRecallOptions = {}
+        options: MemoryRecallOptions = {},
+        origin: MemoryRetrievalOrigin = {
+            task: null,
+            operation: null,
+            call: null,
+            source: "memory"
+        }
     ): Promise<readonly MemoryResult[]> {
+
+        const now = Date.now()
 
         const operations = await this.history(
             request.query,
@@ -108,7 +152,14 @@ export default class Context {
             request.focus ?? []
         )
 
-        return retrieve(operations, request, true)
+        const results = retrieve(
+            operations,
+            request,
+            true,
+            await this.activations(operations, now)
+        )
+
+        return this.record(results, origin, now)
     }
 
     private async history(
@@ -120,13 +171,14 @@ export default class Context {
 
         const terms = [...tokens([query, ...focus.map(value => value.content)].join(" "))]
             .filter(term => term.length > 1)
-        const [recent, relevant] = await Promise.all([
+        const [recent, relevant, reinforced] = await Promise.all([
             this.database.recentContextOperations(maximumContextOperations, excludeTask),
-            this.database.searchContextOperations(terms, maximumContextOperations, excludeTask)
+            this.database.searchContextOperations(terms, maximumContextOperations, excludeTask),
+            this.database.reinforcedContextOperations(maximumReinforcedCandidates, excludeTask)
         ])
         const selected = new Map<string, Operation>()
 
-        for (const operation of [...recent, ...relevant, ...retained]) {
+        for (const operation of [...reinforced, ...recent, ...relevant, ...retained]) {
 
             selected.set(operation.id, operation)
         }
@@ -148,13 +200,61 @@ export default class Context {
             .filter(operation => operation.task !== excludeTask)
             .sort((left, right) => left.sequence - right.sequence))
     }
+
+    private activations(operations: readonly Operation[], at: number) {
+
+        return this.database.memoryActivations(
+            [...new Set(operations.flatMap(operation => candidate(operation).map(value => value.operation.id)))],
+            at
+        )
+    }
+
+    private async record(
+        results: readonly MemoryResult[],
+        origin: MemoryRetrievalOrigin,
+        retrievedAt: number
+    ) {
+
+        const values: MemoryRetrievalInput[] = results.map(result => ({
+            operation: result.operation,
+            requesterTask: origin.task,
+            requesterOperation: origin.operation,
+            requesterCall: origin.call,
+            source: origin.source,
+            selection: result.selection,
+            score: result.score,
+            retrievedAt
+        }))
+
+        await this.database.recordMemoryRetrievals(values)
+
+        const activations = await this.database.memoryActivations(
+            results.map(result => result.operation),
+            retrievedAt
+        )
+
+        return Object.freeze(results.map(result => {
+
+            const activation = activations.get(result.operation)
+
+            return activation
+                ? Object.freeze({
+                    ...result,
+                    reinforcement: rounded(activation.strength),
+                    retrievalCount: activation.retrievalCount,
+                    lastRetrievedAt: activation.lastRetrievedAt
+                })
+                : result
+        }))
+    }
 }
 
 /** Selects candidates without knowing how the resulting context is presented. */
 function retrieve(
     operations: readonly Operation[],
     request: MemoryRecallRequest,
-    preserveRecent: boolean
+    preserveRecent: boolean,
+    memory: ReadonlyMap<string, MemoryActivation>
 ): readonly MemoryResult[] {
 
     const query = request.query.trim()
@@ -190,10 +290,12 @@ function retrieve(
     ) => {
 
         const existing = selected.get(value.operation.id)
+        const candidateActivation = activations.get(value.operation.id)
         const perception = selectionPerception(
             selection,
-            activations.get(value.operation.id),
-            anchor
+            candidateActivation,
+            anchor,
+            anchor ? selected.get(anchor)?.score : undefined
         )
 
         if (existing) {
@@ -218,7 +320,7 @@ function retrieve(
 
     const collect = (
         anchors: readonly Candidate[],
-        selection: "recent" | "relevant",
+        selection: "recent" | "relevant" | "reinforced",
         target: number,
         contextFor: (anchor: Candidate, index: ContextIndex) => readonly Candidate[]
     ) => {
@@ -238,7 +340,7 @@ function retrieve(
     }
 
     const latest = candidates.at(-1)!.operation.sequence
-    const activated = candidates
+    const scored = candidates
         .map(value => ({
             value,
             ...activation(
@@ -247,18 +349,29 @@ function retrieve(
                 queryTokens,
                 frequencies,
                 candidates.length,
-                latest - value.operation.sequence
+                latest - value.operation.sequence,
+                memory.get(value.operation.id)
             )
         }))
+
+    for (const value of scored) activations.set(value.value.operation.id, value)
+
+    const activated = scored
         .filter(value => value.association > 0)
         .sort((left, right) => (
             right.score - left.score
             || right.value.operation.sequence - left.value.operation.sequence
         ))
 
-    for (const value of activated) activations.set(value.value.operation.id, value)
-
     const relevant = activated.map(value => value.value)
+    const reinforced = scored
+        .filter(value => value.reinforcement >= reinforcedMemoryThreshold)
+        .sort((left, right) => (
+            right.reinforcement - left.reinforcement
+            || right.score - left.score
+            || right.value.operation.sequence - left.value.operation.sequence
+        ))
+        .map(value => value.value)
 
     if (preserveRecent) {
 
@@ -267,6 +380,12 @@ function retrieve(
         collect(relevant, "relevant", budget, episodeContext)
     } else {
 
+        collect(
+            reinforced,
+            "reinforced",
+            Math.min(maximumReinforcedBudget, Math.floor(budget * reinforcedBudgetShare)),
+            episodeContext
+        )
         collect(relevant, "relevant", budget, episodeContext)
     }
 
@@ -278,14 +397,37 @@ function retrieve(
 function selectionPerception(
     selection: MemoryResult["selection"],
     activation: Activation | undefined,
-    anchor: string | null
+    anchor: string | null,
+    anchorScore?: number
 ): SelectionPerception {
+
+    const reinforcement = rounded(activation?.reinforcement ?? 0)
+    const retrievalCount = activation?.retrievalCount ?? 0
+    const lastRetrievedAt = activation?.lastRetrievedAt ?? null
 
     if (selection === "relevant") {
 
         return Object.freeze({
             reason: "semantic-association" as const,
+            score: rounded(activation?.score ?? 0),
             association: activation ? rounded(activation.association) : null,
+            reinforcement,
+            retrievalCount,
+            lastRetrievedAt,
+            matches: Object.freeze(activation?.matches ?? []),
+            anchor: null
+        })
+    }
+
+    if (selection === "reinforced") {
+
+        return Object.freeze({
+            reason: "reinforced-memory" as const,
+            score: rounded(Math.max(activation?.score ?? 0, activation?.reinforcement ?? 0)),
+            association: activation ? rounded(activation.association) : null,
+            reinforcement,
+            retrievalCount,
+            lastRetrievedAt,
             matches: Object.freeze(activation?.matches ?? []),
             anchor: null
         })
@@ -295,7 +437,11 @@ function selectionPerception(
 
         return Object.freeze({
             reason: "explicit-recent" as const,
+            score: rounded(activation?.score ?? 0),
             association: null,
+            reinforcement,
+            retrievalCount,
+            lastRetrievedAt,
             matches: Object.freeze([]),
             anchor: null
         })
@@ -303,7 +449,11 @@ function selectionPerception(
 
     return Object.freeze({
         reason: "episode-context" as const,
+        score: rounded((anchorScore ?? activation?.score ?? 0) * episodeReinforcementShare),
         association: null,
+        reinforcement,
+        retrievalCount,
+        lastRetrievedAt,
         matches: Object.freeze([]),
         anchor
     })
@@ -625,6 +775,7 @@ function contextSnapshot(
         "The current Task is self. Its exact causal transcript is provided separately as Model messages.",
         "Self is authoritative for this Task's identity, origin, execution, and active LLM Model.",
         "Resolve ambiguous references through Immediate Continuity before considering older associative memory.",
+        "Reinforced memories remain visible because repeated retrieval consolidated them; treat them as learned background while retaining their provenance.",
         "Associative memories are possible connections only; evaluate their stated association before using them.",
         "",
         "## Self",
@@ -661,9 +812,9 @@ function contextSnapshot(
         "",
         "## Shared Memory",
         "",
-        '<shared_memory role="possible-associations" precedence="background">',
+        '<shared_memory role="reinforced-and-associative-memory" precedence="background">',
         ...[...tasks].flatMap(([task, operations]) => [
-            ...episodeStart(task, states),
+            ...episodeStart(task, states, operations),
             ...operations.map(result => memoryOperation(result)),
             "  </episode>"
         ]),
@@ -721,14 +872,21 @@ function continuityTask(value: TaskContinuity) {
     ]
 }
 
-function episodeStart(task: string, states: ReadonlyMap<string, TaskState>) {
+function episodeStart(
+    task: string,
+    states: ReadonlyMap<string, TaskState>,
+    operations: readonly MemoryResult[]
+) {
 
     const state = states.get(task)
+    const reason = operations.some(operation => operation.reason === "reinforced-memory")
+        ? "reinforced-memory"
+        : "possible-semantic-association"
 
     if (!state) throw new Error(`Context selected unknown Task "${task}"`)
 
     return [
-        `  <episode ${taskAttributes(state, "associative")} reason="possible-semantic-association">`,
+        `  <episode ${taskAttributes(state, "associative")} reason="${reason}">`,
         `    <objective source="${xml(objectiveSource(state))}" method="task-input" createdAt="${timestamp(state.createdAt)}">${xml(shorten(state.objective, maximumAwarenessObjective))}</objective>`
     ]
 }
@@ -761,7 +919,11 @@ function memoryOperation(result: MemoryResult, indentation = "    ", maximum?: n
         ["call", result.call ?? ""],
         ["selection", result.selection],
         ["reason", result.reason],
+        ["score", String(result.score)],
         ["association", result.association === null ? "" : String(result.association)],
+        ["reinforcement", String(result.reinforcement)],
+        ["retrievalCount", String(result.retrievalCount)],
+        ["lastRetrievedAt", result.lastRetrievedAt === null ? "" : timestamp(result.lastRetrievedAt)],
         ["matches", result.matches.join(",")],
         ["anchor", result.anchor ?? ""]
     ].map(([name, value]) => `${name}="${xml(value)}"`).join(" ")
@@ -1098,7 +1260,8 @@ function activation(
     query: ReadonlyMap<string, number>,
     frequencies: ReadonlyMap<string, number>,
     documents: number,
-    distance: number
+    distance: number,
+    memory?: MemoryActivation
 ) {
 
     const found = tokens(content)
@@ -1134,11 +1297,15 @@ function activation(
     }, 0)
     const association = lexical + phrase * 0.25
     const temporal = 1 / (1 + Math.log2(1 + distance))
+    const reinforcement = memory?.strength ?? 0
 
     return {
         association,
         temporal,
-        score: association + temporal * 0.15,
+        reinforcement,
+        retrievalCount: memory?.retrievalCount ?? 0,
+        lastRetrievedAt: memory?.lastRetrievedAt ?? null,
+        score: association + temporal * 0.15 + reinforcement * 0.25,
         matches: Object.freeze(matches)
     }
 }
@@ -1171,7 +1338,11 @@ function result(
         call: candidate.call,
         selection,
         reason: perception.reason,
+        score: perception.score,
         association: perception.association,
+        reinforcement: perception.reinforcement,
+        retrievalCount: perception.retrievalCount,
+        lastRetrievedAt: perception.lastRetrievedAt,
         matches: perception.matches,
         anchor: perception.anchor,
         createdAt: operation.createdAt
@@ -1236,7 +1407,11 @@ type Selected = Readonly<{
 
 type SelectionPerception = Readonly<{
     reason: MemoryResult["reason"]
+    score: number
     association: number | null
+    reinforcement: number
+    retrievalCount: number
+    lastRetrievedAt: number | null
     matches: readonly string[]
     anchor: string | null
 }>
@@ -1244,6 +1419,9 @@ type SelectionPerception = Readonly<{
 type Activation = Readonly<{
     association: number
     temporal: number
+    reinforcement: number
+    retrievalCount: number
+    lastRetrievedAt: number | null
     score: number
     matches: readonly string[]
 }>

@@ -3,6 +3,7 @@ import type { OllamaCloudConfiguration } from "../source/server/core/llm/provide
 import LLMProviders from "../source/client/core/llm/providers"
 import OllamaCloudProvider from "../source/client/core/llm/providers/ollama-cloud/provider"
 import OpenCodeProvider from "../source/client/core/llm/providers/opencode/provider"
+import OpenRouterProvider from "../source/client/core/llm/providers/openrouter/provider"
 
 let configured = false
 
@@ -72,7 +73,7 @@ const providers = new LLMProviders({
     }
 })
 
-assert.equal(providers.all().length, 2)
+assert.equal(providers.all().length, 3)
 
 let revisions = 0
 
@@ -80,13 +81,19 @@ providers.subscribe(() => revisions++)
 
 const ollamaCloud = providers.get("ollama-cloud")
 const openCode = providers.get("opencode")
+const openRouter = providers.get("openrouter")
 
 assert.ok(ollamaCloud instanceof OllamaCloudProvider)
 assert.ok(openCode instanceof OpenCodeProvider)
+assert.ok(openRouter instanceof OpenRouterProvider)
 
 assert.equal(await ollamaCloud.configured(), false)
 
 assert.equal(await ollamaCloud.active(), false)
+
+assert.equal(await openRouter.configured(), false)
+
+assert.equal(await openRouter.active(), false)
 
 await ollamaCloud.configure({ apiKey: "secret" })
 

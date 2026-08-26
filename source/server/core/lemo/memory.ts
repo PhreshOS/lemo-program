@@ -2,6 +2,7 @@ import Context from "./context"
 import type {
     MemoryRecallOptions,
     MemoryRecallRequest,
+    MemoryRetrievalOrigin,
     MemoryResult
 } from "./context"
 import type LemoDatabase from "./database"
@@ -59,10 +60,11 @@ export default class Memory {
 
     public recall(
         request: MemoryRecallRequest,
-        options: MemoryRecallOptions = {}
+        options: MemoryRecallOptions = {},
+        origin?: MemoryRetrievalOrigin
     ): Promise<readonly MemoryResult[]> {
 
-        return this.builder.recall(request, options)
+        return this.builder.recall(request, options, origin)
     }
 
     /** Rebuilds one Task's disposable model context entirely from durable operations. */

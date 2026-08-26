@@ -9,6 +9,7 @@ export default class LemoDatabase {
 
     private readonly subscribers = new Map<string, Set<OperationSubscriber>>()
     private readonly operationSubscribers = new Set<OperationSubscriber>()
+    private retrievalWrites: Promise<void> = Promise.resolve()
 
     private constructor(private readonly source: LemoDatabaseSource) {}
 
@@ -306,6 +307,106 @@ export default class LemoDatabase {
         return this.contextOperations(terms, limit, excludeTask)
     }
 
+    /** Returns only a bounded candidate window from the durable activation projection. */
+    public async reinforcedContextOperations(
+        limit: number,
+        excludeTask?: string
+    ): Promise<readonly Operation[]> {
+
+        const bounded = contextLimit(limit)
+        const conditions = [`operations.kind IN (${contextKinds.map(kind => `'${kind}'`).join(", ")})`]
+        const values: SQLInputValue[] = []
+
+        if (excludeTask) {
+
+            conditions.push("operations.task_id <> ?")
+            values.push(excludeTask)
+        }
+
+        values.push(Date.now(), memoryReinforcementHalfLife, bounded)
+
+        const rows = await this.query<OperationRow>(`
+            SELECT
+                operations.sequence,
+                operations.id,
+                operations.task_id,
+                operations.parent_id,
+                operations.kind,
+                ${contextPayloadExpression("operations.")} AS payload,
+                operations.created_at
+            FROM memory_activations
+            INNER JOIN operations ON operations.id = memory_activations.operation_id
+            WHERE ${conditions.join(" AND ")}
+            ORDER BY (
+                memory_activations.strength
+                / (1.0 + MAX(0, (? - memory_activations.strength_at) * 1.0 / ?))
+            ) DESC,
+            memory_activations.last_retrieved_at DESC
+            LIMIT ?
+        `, values)
+
+        return Object.freeze(rows.map(operation).reverse())
+    }
+
+    /** Reconstructs decayed activation for a bounded set of operation identities. */
+    public async memoryActivations(
+        operations: readonly string[],
+        at = Date.now()
+    ): Promise<ReadonlyMap<string, MemoryActivation>> {
+
+        const identities = [...new Set(operations)]
+
+        if (identities.length > maximumMemoryActivationBatch) {
+
+            throw new Error(`A Memory activation batch cannot exceed ${maximumMemoryActivationBatch} operations`)
+        }
+
+        const activations = new Map<string, MemoryActivation>()
+
+        for (let index = 0; index < identities.length; index += maximumSqlList) {
+
+            const batch = identities.slice(index, index + maximumSqlList)
+
+            if (!batch.length) continue
+
+            const rows = await this.query<MemoryActivationRow>(`
+                SELECT operation_id, strength, retrieval_count, last_retrieved_at, strength_at
+                FROM memory_activations
+                WHERE operation_id IN (${batch.map(() => "?").join(", ")})
+            `, batch)
+
+            for (const row of rows) {
+
+                activations.set(row.operation_id, Object.freeze({
+                    strength: decayedStrength(row.strength, row.strength_at, at),
+                    retrievalCount: row.retrieval_count,
+                    lastRetrievedAt: row.last_retrieved_at
+                }))
+            }
+        }
+
+        return activations
+    }
+
+    /** Persists raw retrieval observations and advances their bounded activation projection. */
+    public recordMemoryRetrievals(values: readonly MemoryRetrievalInput[]): Promise<void> {
+
+        if (!values.length) return Promise.resolve()
+
+        if (values.length > maximumMemoryRetrievalBatch) {
+
+            throw new Error(`A Memory retrieval batch cannot exceed ${maximumMemoryRetrievalBatch} operations`)
+        }
+
+        for (const value of values) validateMemoryRetrieval(value)
+
+        const write = this.retrievalWrites.then(() => this.persistMemoryRetrievals(values))
+
+        this.retrievalWrites = write.catch(() => undefined)
+
+        return write
+    }
+
     /** Reconstructs a bounded Model transcript without raw streaming events. */
     public async transcriptOperations(task: string, limit: number): Promise<readonly Operation[]> {
 
@@ -471,6 +572,86 @@ export default class LemoDatabase {
         return rows[0] ? operation(rows[0]) : null
     }
 
+    private async persistMemoryRetrievals(values: readonly MemoryRetrievalInput[]) {
+
+        const at = Math.max(...values.map(value => value.retrievedAt))
+        const current = await this.memoryActivations(values.map(value => value.operation), at)
+
+        for (let index = 0; index < values.length; index += maximumRetrievalInsertBatch) {
+
+            const batch = values.slice(index, index + maximumRetrievalInsertBatch)
+            const placeholders = batch.map(() => "(?, ?, ?, ?, ?, ?, ?, ?, ?)").join(", ")
+            const parameters = batch.flatMap(value => [
+                crypto.randomUUID(),
+                value.operation,
+                value.requesterTask,
+                value.requesterOperation,
+                value.requesterCall,
+                value.source,
+                value.selection,
+                value.score,
+                value.retrievedAt
+            ] satisfies SQLInputValue[])
+
+            await this.run(`
+                INSERT INTO memory_retrievals (
+                    id,
+                    operation_id,
+                    requester_task_id,
+                    requester_operation_id,
+                    requester_call,
+                    source,
+                    selection,
+                    score,
+                    retrieved_at
+                ) VALUES ${placeholders}
+            `, parameters)
+        }
+
+        const projections = values.map(value => {
+
+            const activation = current.get(value.operation)
+            const strength = activation?.strength ?? 0
+            const normalized = Math.min(1, value.score / maximumMemoryRetrievalScore)
+
+            return {
+                operation: value.operation,
+                strength: Math.min(1, strength + (1 - strength) * normalized * memoryLearningRate),
+                retrievalCount: (activation?.retrievalCount ?? 0) + 1,
+                lastRetrievedAt: value.retrievedAt,
+                strengthAt: at
+            }
+        })
+
+        for (let index = 0; index < projections.length; index += maximumRetrievalInsertBatch) {
+
+            const batch = projections.slice(index, index + maximumRetrievalInsertBatch)
+            const placeholders = batch.map(() => "(?, ?, ?, ?, ?)").join(", ")
+            const parameters = batch.flatMap(value => [
+                value.operation,
+                value.strength,
+                value.retrievalCount,
+                value.lastRetrievedAt,
+                value.strengthAt
+            ] satisfies SQLInputValue[])
+
+            await this.run(`
+                INSERT INTO memory_activations (
+                    operation_id,
+                    strength,
+                    retrieval_count,
+                    last_retrieved_at,
+                    strength_at
+                ) VALUES ${placeholders}
+                ON CONFLICT(operation_id) DO UPDATE SET
+                    strength = excluded.strength,
+                    retrieval_count = excluded.retrieval_count,
+                    last_retrieved_at = excluded.last_retrieved_at,
+                    strength_at = excluded.strength_at
+            `, parameters)
+        }
+    }
+
     private async contextOperations(terms: readonly string[], limit: number, excludeTask?: string) {
 
         const bounded = contextLimit(limit)
@@ -599,6 +780,23 @@ export type OperationPageRequest = Readonly<{
 export type OperationPage = Readonly<{
     operations: readonly Operation[]
     next: number | null
+}>
+
+export type MemoryActivation = Readonly<{
+    strength: number
+    retrievalCount: number
+    lastRetrievedAt: number
+}>
+
+export type MemoryRetrievalInput = Readonly<{
+    operation: string
+    requesterTask: string | null
+    requesterOperation: string | null
+    requesterCall: string | null
+    source: "context" | "tool" | "memory"
+    selection: "recent" | "relevant" | "reinforced" | "context"
+    score: number
+    retrievedAt: number
 }>
 
 function statements(value: string) {
@@ -744,6 +942,14 @@ type TaskMessageRow = Readonly<{
     delivered_at: number | null
 }>
 
+type MemoryActivationRow = Readonly<{
+    operation_id: string
+    strength: number
+    retrieval_count: number
+    last_retrieved_at: number
+    strength_at: number
+}>
+
 export type OperationSubscriber = (operation: Operation) => void
 
 export const maximumTaskPage = 100
@@ -752,7 +958,15 @@ export const maximumContextOperations = 2_048
 export const maximumTaskContextBatch = 100
 export const maximumContextMessages = 10
 
+export const memoryReinforcementHalfLife = 30 * 24 * 60 * 60 * 1_000
+export const maximumMemoryRetrievalScore = 1.65
+
 const maximumSearchTerms = 12
+const maximumSqlList = 400
+const maximumMemoryActivationBatch = maximumContextOperations * 4
+const maximumMemoryRetrievalBatch = 256
+const maximumRetrievalInsertBatch = 100
+const memoryLearningRate = 0.25
 
 const lifecycleKinds = [
     "task.input",
@@ -842,17 +1056,47 @@ const taskStates = `
     )
 `
 
-const contextPayload = `
+const contextPayload = contextPayloadExpression()
+
+function contextPayloadExpression(prefix = "") {
+
+    const kind = `${prefix}kind`
+    const payload = `${prefix}payload`
+
+    return `
     CASE
-        WHEN kind = 'tool.result'
-          AND json_extract(payload, '$.ok') = 1
-          AND json_type(payload, '$.modelOutput') IS NOT NULL
+        WHEN ${kind} = 'tool.result'
+          AND json_extract(${payload}, '$.ok') = 1
+          AND json_type(${payload}, '$.modelOutput') IS NOT NULL
         THEN json_object(
-            'call', json_extract(payload, '$.call'),
-            'name', json_extract(payload, '$.name'),
+            'call', json_extract(${payload}, '$.call'),
+            'name', json_extract(${payload}, '$.name'),
             'ok', json('true'),
-            'modelOutput', json_extract(payload, '$.modelOutput')
+            'modelOutput', json_extract(${payload}, '$.modelOutput')
         )
-        ELSE payload
+        ELSE ${payload}
     END
 `
+}
+
+function decayedStrength(strength: number, strengthAt: number, at: number) {
+
+    const age = Math.max(0, at - strengthAt)
+
+    return Math.max(0, Math.min(1, strength * (0.5 ** (age / memoryReinforcementHalfLife))))
+}
+
+function validateMemoryRetrieval(value: MemoryRetrievalInput) {
+
+    if (!value.operation.trim()) throw new Error("A Memory retrieval requires an operation")
+
+    if (!Number.isFinite(value.score) || value.score < 0 || value.score > maximumMemoryRetrievalScore) {
+
+        throw new Error(`A Memory retrieval score must be between 0 and ${maximumMemoryRetrievalScore}`)
+    }
+
+    if (!Number.isInteger(value.retrievedAt) || value.retrievedAt < 0) {
+
+        throw new Error("A Memory retrieval requires a valid timestamp")
+    }
+}

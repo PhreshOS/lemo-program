@@ -63,3 +63,43 @@ CREATE TABLE IF NOT EXISTS operation_relationships (
 
 CREATE INDEX IF NOT EXISTS operation_relationships_related
 ON operation_relationships (related_operation_id, relationship)
+
+-- statement
+
+CREATE TABLE IF NOT EXISTS memory_retrievals (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    operation_id TEXT NOT NULL REFERENCES operations(id),
+    requester_task_id TEXT REFERENCES tasks(id),
+    requester_operation_id TEXT REFERENCES operations(id),
+    requester_call TEXT,
+    source TEXT NOT NULL,
+    selection TEXT NOT NULL,
+    score REAL NOT NULL,
+    retrieved_at INTEGER NOT NULL
+) STRICT
+
+-- statement
+
+CREATE INDEX IF NOT EXISTS memory_retrievals_operation
+ON memory_retrievals (operation_id, retrieved_at DESC)
+
+-- statement
+
+CREATE INDEX IF NOT EXISTS memory_retrievals_requester
+ON memory_retrievals (requester_task_id, sequence)
+
+-- statement
+
+CREATE TABLE IF NOT EXISTS memory_activations (
+    operation_id TEXT PRIMARY KEY REFERENCES operations(id),
+    strength REAL NOT NULL,
+    retrieval_count INTEGER NOT NULL,
+    last_retrieved_at INTEGER NOT NULL,
+    strength_at INTEGER NOT NULL
+) STRICT
+
+-- statement
+
+CREATE INDEX IF NOT EXISTS memory_activations_strength
+ON memory_activations (strength DESC, last_retrieved_at DESC)

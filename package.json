@@ -29,6 +29,7 @@
         "agent"
     ],
     "dependencies": {
+        "@openrouter/sdk": "^1.2.70",
         "@phreshos/client": "^0.1.18",
         "@phreshos/core": "^0.1.14",
         "@phreshos/react": "^0.1.7",

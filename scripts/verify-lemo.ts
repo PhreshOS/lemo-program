@@ -1,7 +1,10 @@
 import assert from "node:assert/strict"
 import { DatabaseSync } from "node:sqlite"
 import type { Subscribable } from "@phreshos/core"
-import LemoDatabase, { maximumContextMessages } from "../source/server/core/lemo/database"
+import LemoDatabase, {
+    maximumContextMessages,
+    memoryReinforcementHalfLife
+} from "../source/server/core/lemo/database"
 import Lemo from "../source/server/core/lemo/lemo"
 import Memory from "../source/server/core/lemo/memory"
 import type LLMModel from "../source/server/core/llm/model"
@@ -256,6 +259,8 @@ const tables = database.prepare(`
 `).all().map(row => row.name)
 
 assert.deepEqual(tables, [
+    "memory_activations",
+    "memory_retrievals",
     "messages",
     "operation_relationships",
     "operations",
@@ -303,7 +308,7 @@ model = {
         assert(snapshot.content.includes('<llm_model role="initial" provider="test" id="test-model" />'))
         assert(snapshot.content.includes('<immediate_continuity precedence="before-associative-memory">'))
         assert(snapshot.content.includes('<active_tasks omitted='))
-        assert(snapshot.content.includes('<shared_memory role="possible-associations"'))
+        assert(snapshot.content.includes('<shared_memory role="reinforced-and-associative-memory"'))
         assert(snapshot.content.includes("</shared_memory>"))
 
         snapshots.set(input, [...snapshots.get(input) ?? [], snapshot.content])
@@ -617,7 +622,7 @@ assert(memoryPayload.output.every(item => (
     && item !== null
     && "kind" in item
     && "selection" in item
-    && ["recent", "relevant", "context"].includes(String(item.selection))
+    && ["recent", "relevant", "reinforced", "context"].includes(String(item.selection))
 )))
 
 assert(memoryPayload.output.reduce((size, item) => (
@@ -746,6 +751,87 @@ const activated = await new Memory(activationDatabase).recall({
 })
 
 assert(activated.some(result => result.task === "recovery" && result.selection === "relevant"))
+
+const reinforcementSource = new DatabaseSync(":memory:")
+const reinforcementDatabase = await LemoDatabase.open(reinforcementSource)
+const learnedRule = await reinforcementDatabase.createTask("learned-rule", {
+    input: "Always ask for approval before deleting a user file"
+})
+const reinforcementMemory = new Memory(reinforcementDatabase)
+const reinforcementScores: number[] = []
+
+for (let index = 0; index < 6; index++) {
+
+    const result = await reinforcementMemory.recall({
+        query: "approval before deleting a user file",
+        budget: 1_000
+    })
+
+    const selected = result.find(value => value.operation === learnedRule.id)
+
+    assert(selected)
+    assert(selected.score > 0)
+    reinforcementScores.push(selected.score)
+}
+
+assert(reinforcementScores.at(-1)! > reinforcementScores[0]!)
+
+const learnedActivation = (await reinforcementDatabase.memoryActivations([learnedRule.id]))
+    .get(learnedRule.id)
+
+assert(learnedActivation)
+assert(learnedActivation.strength >= 0.6)
+assert.equal(learnedActivation.retrievalCount, 6)
+
+for (let index = 0; index < 4; index++) {
+
+    const task = `reinforcement-distance-${index}`
+
+    await reinforcementDatabase.createTask(task, { input: `Unrelated arithmetic ${index}` })
+    await reinforcementDatabase.appendToTask(task, "task.completed", { output: String(index) })
+}
+
+await reinforcementDatabase.createTask("reinforcement-self", {
+    input: "Calculate an unrelated arithmetic result"
+})
+
+const reinforcedSnapshot = await reinforcementMemory.context(
+    (await reinforcementDatabase.operations("reinforcement-self", {
+        limit: 10,
+        order: "oldest"
+    })).operations
+)
+
+assert(reinforcedSnapshot.includes('reason="reinforced-memory"'))
+assert(reinforcedSnapshot.includes('selection="reinforced"'))
+assert(reinforcedSnapshot.includes("Always ask for approval before deleting a user file"))
+assert.match(reinforcedSnapshot, /retrievalCount="7"/)
+assert.match(reinforcedSnapshot, /lastRetrievedAt="\d{4}-\d{2}-\d{2}T/)
+
+const refreshedActivation = (await reinforcementDatabase.memoryActivations([learnedRule.id]))
+    .get(learnedRule.id)
+
+assert(refreshedActivation)
+
+const fadedActivation = (await reinforcementDatabase.memoryActivations(
+    [learnedRule.id],
+    refreshedActivation.lastRetrievedAt + memoryReinforcementHalfLife
+)).get(learnedRule.id)
+
+assert(fadedActivation)
+assert(Math.abs(fadedActivation.strength - refreshedActivation.strength / 2) < 0.000_001)
+
+const retrievalObservations = reinforcementSource.prepare(`
+    SELECT source, score, retrieved_at
+    FROM memory_retrievals
+    WHERE operation_id = ?
+    ORDER BY sequence
+`).all(learnedRule.id)
+
+assert.equal(retrievalObservations.length, 7)
+assert(retrievalObservations.every(value => Number(value.score) > 0))
+assert(retrievalObservations.every(value => Number.isInteger(value.retrieved_at)))
+assert.equal(retrievalObservations.at(-1)?.source, "context")
 
 const toolResultSource = new DatabaseSync(":memory:")
 const toolResultDatabase = await LemoDatabase.open(toolResultSource)
@@ -979,6 +1065,7 @@ largeSource.close()
 perceptualSource.close()
 fittingSource.close()
 activationSource.close()
+reinforcementSource.close()
 toolResultSource.close()
 mindSource.close()
 messageSource.close()

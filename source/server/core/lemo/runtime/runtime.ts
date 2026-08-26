@@ -136,7 +136,12 @@ export default class Runtime {
             invocation,
             memory: Object.freeze({
                 recall: (request: MemoryRecallRequest, options?: MemoryRecallOptions) => (
-                    this.memory.recall(request, options)
+                    this.memory.recall(request, options, {
+                        task: run.task,
+                        operation: null,
+                        call: call.id,
+                        source: "tool"
+                    })
                 ),
                 record: (value: MemoryRecord) => {
 

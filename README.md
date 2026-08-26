@@ -60,6 +60,12 @@ reads its raw value from `ollama-cloud:config` in the Program store and
 constructs the Provider only when that key exists. No environment variable
 configures an LLM Provider.
 
+OpenRouter owns its `{ apiKey }` configuration and uses the official
+`@openrouter/sdk`. Its bounded live catalog contains only text-output Models
+that support Tool calls and is retained for five minutes. Generations use
+streaming Chat Completions, require routed endpoints to support every supplied
+parameter, and reconstruct parallel Tool calls before yielding them to Lemo.
+
 Every LLM Provider also retains an independent `active` property at
 `<provider-identity>:active`. Inactive and unconfigured Providers are excluded
 from Model loading. Loading all Models is one strict operation: if any active,
@@ -106,8 +112,12 @@ const lemo = await Lemo.wakeUp(database, clientChannel)
 Lemo accepts the PhreshOS Program database or a normal Node.js `DatabaseSync`
 instance. Its schema retains Tasks, globally ordered raw operations, directed
 Task messages, their original Task and parent relationships, and arbitrary
-relationships between operations. Raw payloads remain JSON without summaries,
-embeddings, retrieval scores, decay values, or inferred semantic structure.
+relationships between operations. Raw payloads remain JSON and no generated
+context snapshot is stored. Retrievals are preserved separately as raw
+observations containing their selected operation, requester, score, reason, and
+timestamp. A replaceable activation projection keeps only the current
+retrieval count, strength, and most recent retrieval time so ranking never has
+to scan an indefinitely growing retrieval log.
 
 ## Tasks
 
@@ -228,9 +238,9 @@ names, and orders them through each Tool's optional `order`. Adding a Tool does
 not require editing Runtime's catalog. A Tool marks itself `builtin` only when
 its definition must be present in every Model cycle.
 
-Memory is an internal mathematical view over the existing raw operation log;
-it does not copy history into a second memory table or alter the schema. Its
-stable contract delegates retrieval, active-focus derivation, episode
+Memory is an internal mathematical view over the raw operation and retrieval
+logs. It never copies operations into a second content store. Its stable
+contract delegates retrieval, reinforcement, active-focus derivation, episode
 expansion, budgeting, and snapshot formatting to one private Context component.
 Cycle and the rest of the application therefore remain unchanged while that
 frequently tested algorithm evolves.
@@ -238,13 +248,27 @@ frequently tested algorithm evolves.
 Recall uses a content-size budget rather than a Block-count radius. It favors
 distinctive matches from the Task objective and latest durable working focus,
 with temporal proximity added as a supporting signal. Related anchors are
-expanded into local Task episodes. Automatic associative memory does not add
-unrelated completed work merely because it is recent. Immediate continuity is a
-separate bounded layer containing up to the three nearest preceding Tasks, so short
-references such as "again" and "continue" retain their chronological subject
-without pretending that all recent history is semantically relevant. Explicit
-Memory Tool recall retains a broader recent-Task fallback because it is a
-deliberate request to inspect Memory.
+expanded into local Task episodes. Every selected operation records its score
+and retrieval time. Repeated retrieval increases a saturating activation value;
+that value has a 30-day half-life while unused and becomes a factor in later
+ranking. Ranking adds `association + temporal × 0.15 + reinforcement × 0.25`;
+each retrieval advances strength toward `1` in proportion to that score rather
+than adding an unbounded counter. Operations whose activation crosses the
+consolidation threshold may occupy a bounded quarter of automatic shared Memory
+solely because of their
+reinforcement. Appearing there counts as another retrieval, allowing repeatedly
+useful knowledge to remain present like a learned rule. Its provenance,
+strength, retrieval count, latest retrieval time, and selection reason remain
+visible to the Model.
+
+Automatic associative memory does not add unrelated completed work merely
+because it is recent. Immediate continuity is a separate bounded layer
+containing up to the three nearest preceding Tasks, so short references such as
+"again" and "continue" retain their chronological subject without pretending
+that all recent history is semantically relevant. Explicit Memory Tool recall
+retains a broader recent-Task fallback because it is a deliberate request to
+inspect Memory; consolidated background is already present in the automatic
+context and does not displace the Tool's explicit query.
 The default budget is 32,000 characters and explicit Memory calls may request
 between 1,000 and 32,000. Candidates that do not fit are skipped instead of
 blocking smaller useful facts.

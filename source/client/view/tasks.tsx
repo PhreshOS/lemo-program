@@ -45,9 +45,12 @@ const suggestionPrompts = [
     }
 ] as const
 
+const maximumVisibleModels = 100
+
 export default function Tasks({ application, models: modelResource }: Properties) {
 
     const [input, setInput] = useState("")
+    const [modelSearch, setModelSearch] = useState("")
     const [selectedModel, setSelectedModel] = useState("")
     const [selectedTask, setSelectedTask] = useState("")
     const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -77,6 +80,30 @@ export default function Tasks({ application, models: modelResource }: Properties
     const available = useMemo(() => new Map(models.map(model => [modelKey(model), model])), [models])
 
     const model = available.get(selectedModel) ?? models[0] ?? null
+
+    const matchingModels = useMemo(function () {
+
+        const query = modelSearch.trim().toLocaleLowerCase()
+
+        if (!query) return models
+
+        return models.filter(candidate => (
+            candidate.id.toLocaleLowerCase().includes(query)
+            || candidate.provider.name.toLocaleLowerCase().includes(query)
+            || candidate.provider.identity.toLocaleLowerCase().includes(query)
+        ))
+
+    }, [modelSearch, models])
+
+    const visibleModels = useMemo(function () {
+
+        const visible = matchingModels.slice(0, maximumVisibleModels)
+
+        if (!model || visible.includes(model)) return visible
+
+        return [model, ...visible.slice(0, maximumVisibleModels - 1)]
+
+    }, [matchingModels, model])
 
     const currentTask = tasks.find(task => task.id === selectedTask) ?? null
 
@@ -272,17 +299,33 @@ export default function Tasks({ application, models: modelResource }: Properties
 
                 <div className="composer-bar">
                     <div className="model-selector-wrapper">
+                        <input
+                            aria-label="Search LLM Models"
+                            className="model-search"
+                            type="search"
+                            placeholder={models.length ? `Search ${models.length} Models` : "Search Models"}
+                            value={modelSearch}
+                            disabled={modelResource.isPending || !models.length}
+                            onChange={event => setModelSearch(event.target.value)}
+                        />
+
                         <select
                             aria-label="LLM Model"
                             className="model-select"
                             value={model ? modelKey(model) : ""}
                             disabled={modelResource.isPending || !models.length}
-                            onChange={event => setSelectedModel(event.target.value)}
+                            title={modelSearch.trim()
+                                ? `${matchingModels.length} matching LLM Models`
+                                : `${models.length} available LLM Models`}
+                            onChange={event => {
+                                setSelectedModel(event.target.value)
+                                setModelSearch("")
+                            }}
                         >
                             {modelResource.isPending && <option value="">Loading LLM Models…</option>}
                             {modelResource.exception && <option value="">LLM Models unavailable</option>}
                             {modelResource.solve && !models.length && <option value="">No LLM Models</option>}
-                            {models.map(candidate => <option key={modelKey(candidate)} value={modelKey(candidate)}>
+                            {visibleModels.map(candidate => <option key={modelKey(candidate)} value={modelKey(candidate)}>
                                 {candidate.provider.name} · {candidate.id}
                             </option>)}
                         </select>

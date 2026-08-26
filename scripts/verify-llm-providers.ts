@@ -74,7 +74,11 @@ assert.deepEqual(unconfigured.llmProviderState("ollama-cloud"), { configured: fa
 
 assert.deepEqual(unconfigured.llmProviderState("opencode"), { configured: true, active: true })
 
+assert.deepEqual(unconfigured.llmProviderState("openrouter"), { configured: false, active: true })
+
 assert.equal(await store.get("opencode:active"), true)
+
+assert.equal(await store.get("openrouter:active"), true)
 
 await store.set("ollama-cloud:config", { apiKey: "secret" })
 

@@ -5,6 +5,7 @@
     "": {
       "name": "lemo-program",
       "dependencies": {
+        "@openrouter/sdk": "^1.2.70",
         "@phreshos/client": "^0.1.18",
         "@phreshos/core": "^0.1.14",
         "@phreshos/react": "^0.1.7",
@@ -79,6 +80,8 @@
     "@jridgewell/trace-mapping": ["@jridgewell/trace-mapping@0.3.31", "", { "dependencies": { "@jridgewell/resolve-uri": "^3.1.0", "@jridgewell/sourcemap-codec": "^1.4.14" } }, "sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw=="],
 
     "@msgpack/msgpack": ["@msgpack/msgpack@3.1.3", "", {}, "sha512-47XIizs9XZXvuJgoaJUIE2lFoID8ugvc0jzSHP+Ptfk8nTbnR8g788wv48N03Kx0UkAv559HWRQ3yzOgzlRNUA=="],
+
+    "@openrouter/sdk": ["@openrouter/sdk@1.2.70", "", { "dependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-zZ0YR0M2NFDhjsAqYHpD97RjF3xPM/YigujIgr8ad/cJj1Yc6JgXfp6RsLqFa1y+u9yCAH7CCOJo5c1TtyoeJg=="],
 
     "@oxc-project/types": ["@oxc-project/types@0.146.0", "", {}, "sha512-XC0QsnnhVe7sLIWmYmdPw7x5P0h4W8vUU3Nv1ySgWXtvCz8NizoAEpGXA0sOYoJQV2Rl13LgURAHQ5cI5ILCSA=="],
 
