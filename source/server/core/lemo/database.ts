@@ -9,6 +9,7 @@ export default class LemoDatabase {
 
     private readonly subscribers = new Map<string, Set<OperationSubscriber>>()
     private readonly operationSubscribers = new Set<OperationSubscriber>()
+    private readonly messageSubscribers = new Set<TaskMessageSubscriber>()
     private retrievalWrites: Promise<void> = Promise.resolve()
 
     private constructor(private readonly source: LemoDatabaseSource) {}
@@ -141,7 +142,8 @@ export default class LemoDatabase {
     /** Persists one directed message only while its receiving Task is running. */
     public async sendMessage(input: TaskMessageInput): Promise<TaskMessage> {
 
-        if (!input.content.trim()) throw new Error("A Task message requires content")
+        if (!input.event.trim()) throw new Error("A Task message requires an event")
+        if (!input.message.trim()) throw new Error("A Task message requires content")
         if (!input.sourceCall.trim()) throw new Error("A Task message requires its source call")
         if (input.sourceTask === input.targetTask) throw new Error("A Task cannot send a message to itself")
 
@@ -154,30 +156,38 @@ export default class LemoDatabase {
                 source_task_id,
                 source_call,
                 target_task_id,
-                content,
+                event,
+                message,
                 created_at,
                 delivered_at
             )
-            SELECT ?, ?, ?, ?, ?, ?, NULL
+            SELECT ?, ?, ?, ?, ?, ?, ?, NULL
             WHERE EXISTS (
                 SELECT 1
                 FROM task_states
                 WHERE id = ? AND status = 'running'
             )
-            RETURNING sequence, id, source_task_id, source_call, target_task_id, content, created_at, delivered_at
+            RETURNING sequence, id, source_task_id, source_call, target_task_id, event, message, created_at, delivered_at
         `, [
             id,
             input.sourceTask,
             input.sourceCall,
             input.targetTask,
-            input.content,
+            input.event,
+            input.message,
             createdAt,
             input.targetTask
         ])
 
         const stored = rows[0]
 
-        if (stored) return taskMessage(stored)
+        if (stored) {
+            const message = taskMessage(stored)
+
+            this.publishMessage(message)
+
+            return message
+        }
 
         const target = await this.task(input.targetTask)
 
@@ -190,7 +200,7 @@ export default class LemoDatabase {
     public async contextMessages(task: string): Promise<readonly TaskMessage[]> {
 
         const rows = await this.query<TaskMessageRow>(`
-            SELECT sequence, id, source_task_id, source_call, target_task_id, content, created_at, delivered_at
+            SELECT sequence, id, source_task_id, source_call, target_task_id, event, message, created_at, delivered_at
             FROM messages
             WHERE target_task_id = ?
             ORDER BY sequence DESC
@@ -243,6 +253,29 @@ export default class LemoDatabase {
         return () => { this.operationSubscribers.delete(subscriber) }
     }
 
+    /** Observes future directed Task messages without retaining another queue. */
+    public subscribeMessages(subscriber: TaskMessageSubscriber) {
+
+        this.messageSubscribers.add(subscriber)
+
+        return () => { this.messageSubscribers.delete(subscriber) }
+    }
+
+    /** Marks a message received through an explicit wait before its next context rebuild. */
+    public async deliverMessage(identity: string): Promise<TaskMessage> {
+
+        const rows = await this.query<TaskMessageRow>(`
+            UPDATE messages
+            SET delivered_at = COALESCE(delivered_at, ?)
+            WHERE id = ?
+            RETURNING sequence, id, source_task_id, source_call, target_task_id, event, message, created_at, delivered_at
+        `, [Date.now(), identity])
+
+        if (!rows[0]) throw new Error(`Unknown Lemo Task message "${identity}"`)
+
+        return taskMessage(rows[0])
+    }
+
     /** Returns a bounded operation page in authoritative order. */
     public async operations(task: string, request: OperationPageRequest): Promise<OperationPage> {
 
@@ -260,6 +293,12 @@ export default class LemoDatabase {
 
             conditions.push("sequence > ?")
             values.push(request.after)
+        }
+
+        if (request.excludeKinds?.length) {
+
+            conditions.push(`kind NOT IN (${request.excludeKinds.map(() => "?").join(", ")})`)
+            values.push(...request.excludeKinds)
         }
 
         values.push(limit + 1)
@@ -293,6 +332,19 @@ export default class LemoDatabase {
     public async latestOperation(task: string, kind: string): Promise<Operation | null> {
 
         return this.oneOperation(task, kind, "DESC")
+    }
+
+    /** Resolves one raw operation only when it belongs to the requested Task. */
+    public async operation(task: string, identity: string): Promise<Operation | null> {
+
+        const rows = await this.query<OperationRow>(`
+            SELECT sequence, id, task_id, parent_id, kind, payload, created_at
+            FROM operations
+            WHERE task_id = ? AND id = ?
+            LIMIT 1
+        `, [task, identity])
+
+        return rows[0] ? operation(rows[0]) : null
     }
 
     /** Returns a bounded recent window of context-bearing operations. */
@@ -714,6 +766,17 @@ export default class LemoDatabase {
 
         if (!subscribers.size) this.subscribers.delete(operation.task)
     }
+
+    private publishMessage(message: TaskMessage) {
+
+        for (const subscriber of this.messageSubscribers) {
+            try {
+                subscriber(message)
+            } catch {
+                this.messageSubscribers.delete(subscriber)
+            }
+        }
+    }
 }
 
 export type LemoDatabaseSource = ProgramSql | DatabaseSync
@@ -756,7 +819,8 @@ export type TaskMessageInput = Readonly<{
     sourceTask: string
     sourceCall: string
     targetTask: string
-    content: string
+    event: string
+    message: string
 }>
 
 export type TaskMessage = Readonly<{
@@ -765,7 +829,8 @@ export type TaskMessage = Readonly<{
     sourceTask: string
     sourceCall: string
     targetTask: string
-    content: string
+    event: string
+    message: string
     createdAt: number
     deliveredAt: number | null
 }>
@@ -775,6 +840,7 @@ export type OperationPageRequest = Readonly<{
     before?: number
     after?: number
     order?: "newest" | "oldest"
+    excludeKinds?: readonly string[]
 }>
 
 export type OperationPage = Readonly<{
@@ -886,7 +952,8 @@ function taskMessage(row: TaskMessageRow): TaskMessage {
         sourceTask: row.source_task_id,
         sourceCall: row.source_call,
         targetTask: row.target_task_id,
-        content: row.content,
+        event: row.event,
+        message: row.message,
         createdAt: row.created_at,
         deliveredAt: row.delivered_at
     })
@@ -937,7 +1004,8 @@ type TaskMessageRow = Readonly<{
     source_task_id: string
     source_call: string
     target_task_id: string
-    content: string
+    event: string
+    message: string
     created_at: number
     delivered_at: number | null
 }>
@@ -951,6 +1019,7 @@ type MemoryActivationRow = Readonly<{
 }>
 
 export type OperationSubscriber = (operation: Operation) => void
+export type TaskMessageSubscriber = (message: TaskMessage) => void
 
 export const maximumTaskPage = 100
 export const maximumOperationPage = 256

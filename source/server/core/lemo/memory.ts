@@ -3,7 +3,9 @@ import type {
     MemoryRecallOptions,
     MemoryRecallRequest,
     MemoryRetrievalOrigin,
-    MemoryResult
+    MemoryResult,
+    OperationBlockPage,
+    TaskContextPage
 } from "./context"
 import type LemoDatabase from "./database"
 import type Operation from "./operation"
@@ -18,7 +20,9 @@ export type {
     MemoryFocus,
     MemoryRecallOptions,
     MemoryRecallRequest,
-    MemoryResult
+    MemoryResult,
+    OperationBlockPage,
+    TaskContextPage
 } from "./context"
 
 export type MemoryRecord = Readonly<{
@@ -71,5 +75,17 @@ export default class Memory {
     public context(operations: readonly Operation[]): Promise<string> {
 
         return this.builder.build(operations)
+    }
+
+    /** Lazily reconstructs one Task through the Perceptual Field's Task shape. */
+    public task(task: string, tokens?: number, before?: number): Promise<TaskContextPage> {
+
+        return this.builder.task(task, tokens, before)
+    }
+
+    /** Lazily reads one raw durable operation without loading its whole Task. */
+    public block(task: string, operation: string, offset?: number, tokens?: number): Promise<OperationBlockPage> {
+
+        return this.builder.block(task, operation, offset, tokens)
     }
 }

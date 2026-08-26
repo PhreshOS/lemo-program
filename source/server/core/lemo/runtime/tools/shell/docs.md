@@ -25,22 +25,20 @@ default shell is used:
 ```
 
 Standard output and standard error are combined in their observed order. Up to
-16 KiB is returned inline. Larger output is retained in a Tool-owned temporary
-file and represented by an opaque `output.id`, its byte size, and a short
-preview. The file's contents are not written into Lemo's database.
-
-Read retained output in bounded byte ranges:
+16 KiB is returned inline. Larger output is persisted in full as part of the
+raw Tool-result operation in Lemo's database. The immediate Model context sees
+only a bounded preview and a durable operation identity. Read the complete
+result lazily with the `tasks` tool:
 
 ```json
 {
-  "action": "read",
-  "output": "00000000-0000-0000-0000-000000000000",
+  "action": "read_block",
+  "task": "task-id",
+  "operation": "operation-id",
   "offset": 0,
-  "limit": 16384
+  "tokens": 2048
 }
 ```
 
-Continue from `next` until it is `null`. One read is limited to 64 KiB.
-Temporary outputs belong to the current Lemo Server and disappear when it
-exits. Pausing or cancelling the Task terminates its command and child process
-group.
+Continue from `next` until it is `null`. No temporary output file is created.
+Pausing or cancelling the Task terminates its command and child process group.

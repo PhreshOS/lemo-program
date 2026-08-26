@@ -10,6 +10,7 @@ import { maximumOperationPage } from "./database"
 import type Memory from "./memory"
 import type Operation from "./operation"
 import { assertRunning, waitForRun, type TaskRun } from "./executions"
+import { estimatedTokens, tokenSlice } from "./token-budget"
 import system from "./system.md?raw"
 
 /** One disposable Model cycle reconstructed entirely from durable operations. */
@@ -127,7 +128,7 @@ function modelRequest(
 
             messages.push({
                 role: "assistant",
-                content: payload.content,
+                content: modelMessageContent(payload.content, operation),
                 toolCalls: requested
             })
         }
@@ -145,7 +146,7 @@ function modelRequest(
                 role: "tool",
                 call: payload.call,
                 name: payload.name,
-                content: JSON.stringify(modelToolResult(payload))
+                content: JSON.stringify(modelToolResult(payload, operation))
             })
         }
     }
@@ -163,7 +164,23 @@ function modelRequest(
 
 async function cycleTranscript(database: LemoDatabase, task: string) {
 
-    const transcript = await database.transcriptOperations(task, maximumTranscriptOperations)
+    const available = await database.transcriptOperations(task, maximumTranscriptOperations)
+    const transcript: Operation[] = []
+    let tokens = 0
+
+    for (let index = available.length - 1; index >= 0; index--) {
+        const operation = available[index]!
+        const addition = Math.min(
+            estimatedTokens(JSON.stringify(operation.payload)),
+            maximumTranscriptBlockTokens
+        ) + transcriptOperationOverhead
+
+        if (tokens + addition > maximumTranscriptTokens && transcript.length) break
+
+        transcript.unshift(operation)
+        tokens += addition
+    }
+
     const input = await database.firstOperation(task, "task.input")
 
     if (!input) throw new Error("A Task has no input operation")
@@ -181,7 +198,8 @@ async function cycleHistory(database: LemoDatabase, task: string) {
         const page = await database.operations(task, {
             limit: Math.min(maximumOperationPage, taskCycleOperationLimit - operations.length),
             before,
-            order: "newest"
+            order: "newest",
+            excludeKinds: ["model.event"]
         })
 
         operations = [...page.operations, ...operations]
@@ -199,17 +217,51 @@ async function cycleHistory(database: LemoDatabase, task: string) {
 }
 
 const maximumTranscriptOperations = 512
+const maximumTranscriptTokens = 12_000
+const transcriptOperationOverhead = 48
+const maximumTranscriptBlockTokens = 2_048
 const taskCycleOperationLimit = 1_024
 
-function modelToolResult(payload: Record<string, unknown>) {
+function modelToolResult(payload: Record<string, unknown>, operation: Operation) {
 
-    if (payload.ok !== true || !("modelOutput" in payload)) return payload
+    const value = payload.ok === true && "modelOutput" in payload
+        ? Object.freeze({
+            call: payload.call,
+            name: payload.name,
+            ok: true,
+            output: payload.modelOutput
+        })
+        : payload
+    const serialized = JSON.stringify(value)
+    const slice = tokenSlice(serialized, maximumTranscriptBlockTokens)
+
+    if (slice.next === null) return value
 
     return Object.freeze({
-        call: payload.call,
-        name: payload.name,
-        ok: true,
-        output: payload.modelOutput
+        truncated: true,
+        preview: slice.content,
+        tokens: slice.total,
+        block: blockReference(operation)
+    })
+}
+
+function modelMessageContent(content: string, operation: Operation) {
+
+    const slice = tokenSlice(content, maximumTranscriptBlockTokens)
+
+    return slice.next === null
+        ? content
+        : `${slice.content}\n\n[truncated; ${slice.total} estimated tokens; retrieve ${JSON.stringify(blockReference(operation))}]`
+}
+
+function blockReference(operation: Operation) {
+
+    return Object.freeze({
+        tool: "tasks",
+        action: "read_block",
+        task: operation.task,
+        operation: operation.id,
+        offset: 0
     })
 }
 

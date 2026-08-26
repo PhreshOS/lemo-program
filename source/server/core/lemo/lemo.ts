@@ -1,5 +1,5 @@
 import LemoDatabase, { type LemoDatabaseSource } from "./database"
-import type { TaskListRequest, TaskPage } from "./database"
+import type { TaskListRequest, TaskMessage, TaskPage } from "./database"
 import type ClientChannel from "../client-channel"
 import Memory from "./memory"
 import Task, { type TaskRequest, type TaskSource } from "./task"
@@ -19,23 +19,24 @@ import type Operation from "./operation"
 export default class Lemo {
 
     private readonly executions: Executions
+    private readonly memory: Memory
     private readonly runtime: Runtime
     private creation = Promise.resolve()
 
     private constructor(private readonly database: LemoDatabase, client: ClientChannel) {
 
-        const memory = new Memory(database)
+        this.memory = new Memory(database)
 
         this.runtime = new Runtime(
             database,
-            memory,
+            this.memory,
             client,
             (invocation, model) => this.toolTasks(invocation, model)
         )
 
         this.executions = new Executions(
             database,
-            memory,
+            this.memory,
             this.runtime,
             maximumExecutingTasks
         )
@@ -112,26 +113,22 @@ export default class Lemo {
 
         return Object.freeze({
             list: request => this.tasks(request),
-            read: async (identity, limit, before) => {
-
-                const task = await this.requireTask(identity)
-
-                return Object.freeze({
-                    task: await task.summary(),
-                    operations: await task.operationsPage(limit, before)
-                })
-            },
+            read: (identity, tokens, before) => this.memory.task(identity, tokens, before),
+            readBlock: (identity, operation, offset, tokens) => (
+                this.memory.block(identity, operation, offset, tokens)
+            ),
             create: async input => (
                 await this.createTask(
                     { input, model },
                     { type: "task", task: invocation.task, call: invocation.call }
                 )
             ).summary(),
-            send: (identity, message) => this.database.sendMessage({
+            send: (identity, event, message) => this.database.sendMessage({
                 sourceTask: invocation.task,
                 sourceCall: invocation.call,
                 targetTask: identity,
-                content: message
+                event,
+                message
             }),
             pause: async identity => {
 
@@ -161,7 +158,63 @@ export default class Lemo {
 
                 return task.summary()
             },
-            wait: request => this.waitTask(request, invocation.signal)
+            wait: request => this.waitTask(request, invocation.signal),
+            waitMessage: (event, timeout) => this.waitMessage(
+                invocation.task,
+                event,
+                timeout,
+                invocation.signal
+            )
+        })
+    }
+
+    private waitMessage(
+        task: string,
+        event: string,
+        timeout = defaultTaskWaitTimeout,
+        signal: AbortSignal
+    ): Promise<TaskMessage> {
+
+        return new Promise((resolve, reject) => {
+
+            let settled = false
+            let receiving = false
+
+            const finish = (result: TaskMessage | Error) => {
+
+                if (settled) return
+
+                settled = true
+                clearTimeout(timer)
+                signal.removeEventListener("abort", abort)
+                unsubscribe()
+
+                if (result instanceof Error) reject(result)
+                else resolve(result)
+            }
+            const receive = (message: TaskMessage) => {
+
+                if (receiving || message.targetTask !== task || message.event !== event) return
+
+                receiving = true
+
+                void this.database.deliverMessage(message.id).then(
+                    delivered => finish(delivered),
+                    cause => finish(cause instanceof Error ? cause : new Error(String(cause)))
+                )
+            }
+            const abort = () => finish(signal.reason instanceof Error
+                ? signal.reason
+                : new Error("Task message waiting was cancelled"))
+            const unsubscribe = this.database.subscribeMessages(receive)
+            const timer = setTimeout(
+                () => finish(new Error(`Task message promise timeout ${timeout}ms`)),
+                timeout
+            )
+
+            signal.addEventListener("abort", abort, { once: true })
+
+            if (signal.aborted) abort()
         })
     }
 

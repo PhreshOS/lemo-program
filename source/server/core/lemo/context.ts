@@ -1,31 +1,39 @@
 import type LemoDatabase from "./database"
-import { maximumContextOperations, maximumTaskContextBatch } from "./database"
+import {
+    maximumContextOperations,
+    maximumOperationPage,
+    maximumTaskContextBatch
+} from "./database"
 import type {
     MemoryActivation,
     MemoryRetrievalInput,
-    TaskMessage
+    TaskMessage,
+    TaskSummary
 } from "./database"
 import type Operation from "./operation"
 import { taskStatus, type TaskStatus } from "./task"
+import { estimatedTokens, tokenSlice } from "./token-budget"
 
-export const defaultMemoryBudget = 32_000
-export const minimumMemoryBudget = 1_000
-export const maximumMemoryBudget = 32_000
-const defaultContextBudget = 64_000
-const maximumAwarenessBudget = 16_000
-const maximumAwarenessObjective = 400
-const maximumAwarenessContent = 1_200
-const maximumAwarenessOperations = 6
-const maximumContinuityBudget = 16_000
-const maximumContinuityTasks = 6
-const maximumContinuityOperations = 12
-const maximumContinuityContent = 1_600
-const maximumWorkingSignals = 12
+export const defaultMemoryBudget = 8_000
+export const minimumMemoryBudget = 256
+export const maximumMemoryBudget = 16_000
+
+const perceptualFieldTokens = 32_000
+const currentTaskTokens = 10_000
+const nearbyTasksTokens = 8_000
+const semanticInformationTokens = 6_000
+const rulesTokens = 4_000
+const inboxTokens = 2_000
+const maximumBlockTokens = 1_024
+const maximumNearbyTasks = 8
+const maximumNearbyOperations = maximumOperationPage
 const maximumReinforcedCandidates = 128
-const maximumReinforcedBudget = 8_000
-const reinforcedBudgetShare = 0.25
+const maximumWorkingSignals = 12
 const reinforcedMemoryThreshold = 0.6
 const episodeReinforcementShare = 0.25
+const taskReadDefaultTokens = 8_000
+const taskReadMaximumTokens = 16_000
+const taskMarkupOverhead = 96
 
 export type MemoryRecallRequest = Readonly<{
     query: string
@@ -57,6 +65,8 @@ export type MemoryResult = Readonly<{
     parent: string | null
     kind: string
     content: string
+    truncated: boolean
+    tokens: number
     source: string
     method: string
     tool: string | null
@@ -73,58 +83,57 @@ export type MemoryResult = Readonly<{
     createdAt: number
 }>
 
-/** Owns the disposable context-building algorithm over Lemo's raw operation history. */
+export type TaskContextPage = Readonly<{
+    task: TaskSummary
+    content: string
+    before: number | null
+    tokens: number
+}>
+
+export type OperationBlockPage = Readonly<{
+    task: string
+    operation: string
+    kind: string
+    offset: number
+    content: string
+    next: number | null
+    tokens: number
+    totalTokens: number
+}>
+
+/** Owns every disposable projection from Lemo's raw operation history. */
 export default class Context {
 
     public constructor(private readonly database: LemoDatabase) {}
 
-    /** Rebuilds the complete disposable context snapshot for one Model cycle. */
+    /** Rebuilds the six-section Perceptual Field for one Model cycle. */
     public async build(operations: readonly Operation[]): Promise<string> {
 
         const task = operations.find(operation => operation.task)?.task
         const now = Date.now()
 
-        if (!task) throw new Error("A context requires a Task identity")
+        if (!task) throw new Error("A Perceptual Field requires a Task identity")
 
-        const objective = taskInput(operations)
-        const [history, messages] = await Promise.all([
-            this.history(objective, operations),
-            this.database.contextMessages(task)
-        ])
-        const states = taskStates(history)
-        const self = states.get(task)
-
-        if (!self) throw new Error("A context requires a durable Task")
-
+        const self = taskState(operations)
         const focus = workingFocus(self.operations)
-        const continuity = immediateContinuity(states, self)
-        const awareness = activeAwareness(states, task)
-        const continuitySize = continuity.reduce(
-            (size, value) => size + continuityContextSize(value),
-            0
-        )
-        const awarenessSize = awareness.tasks.reduce(
-            (size, value) => size + awarenessContextSize(value),
-            0
-        )
-        const budget = Math.max(
-            minimumMemoryBudget,
-            defaultContextBudget - continuitySize - awarenessSize
-        )
-        const continuityTasks = new Set(continuity.map(value => value.state.task))
-        const others = history.filter(operation => (
-            operation.task !== task && !continuityTasks.has(operation.task ?? "")
-        ))
-        const activations = await this.activations(others, now)
-        const results = retrieve(
-            others,
-            { query: self.objective, focus, budget },
-            false,
-            activations,
-            defaultContextBudget
-        )
-
-        const recorded = await this.record(results, {
+        const [nearby, messages, history] = await Promise.all([
+            this.nearbyTasks(task),
+            this.database.contextMessages(task),
+            this.history(self.objective, [], task, focus)
+        ])
+        const activations = await this.activations(history, now)
+        const semantic = retrieve(history, {
+            query: self.objective,
+            focus,
+            budget: semanticInformationTokens
+        }, "semantic", activations)
+        const semanticOperations = new Set(semantic.map(result => result.operation))
+        const rules = retrieve(history, {
+            query: self.objective,
+            focus,
+            budget: rulesTokens
+        }, "rules", activations).filter(result => !semanticOperations.has(result.operation))
+        const recorded = await this.record([...semantic, ...rules], {
             task,
             operation: operations.findLast(operation => operation.kind === "cycle.started")?.id
                 ?? operations.at(-1)?.id
@@ -132,8 +141,15 @@ export default class Context {
             call: null,
             source: "context"
         }, now)
+        const semanticIds = new Set(semantic.map(result => result.operation))
 
-        return contextSnapshot(self, messages, focus, continuity, awareness, recorded, states)
+        return perceptualField(
+            self,
+            nearby,
+            recorded.filter(result => semanticIds.has(result.operation)),
+            recorded.filter(result => !semanticIds.has(result.operation)),
+            messages
+        )
     }
 
     public async recall(
@@ -148,22 +164,112 @@ export default class Context {
     ): Promise<readonly MemoryResult[]> {
 
         const now = Date.now()
-
         const operations = await this.history(
             request.query,
             [],
             options.excludeTask,
             request.focus ?? []
         )
-
         const results = retrieve(
             operations,
             request,
-            true,
+            "recall",
             await this.activations(operations, now)
         )
 
         return this.record(results, origin, now)
+    }
+
+    /** Lazily reconstructs one Task using the same XML shape as nearby Tasks. */
+    public async task(task: string, tokens = taskReadDefaultTokens, before?: number): Promise<TaskContextPage> {
+
+        const budget = tokenBudget(tokens, minimumMemoryBudget, taskReadMaximumTokens, "Task read")
+        const summary = await this.database.task(task)
+
+        if (!summary) throw new Error(`Unknown Lemo Task "${task}"`)
+
+        const page = await this.database.operations(task, {
+            limit: maximumOperationPage,
+            before,
+            order: "newest",
+            excludeKinds: ["model.event"]
+        })
+        const input = await this.database.firstOperation(task, "task.input")
+        const operations = input && !page.operations.some(operation => operation.id === input.id)
+            ? Object.freeze([input, ...page.operations])
+            : page.operations
+        const content = taskXml(taskState(operations, summary), "lazy", budget)
+
+        return Object.freeze({
+            task: summary,
+            content,
+            before: page.next,
+            tokens: estimatedTokens(content)
+        })
+    }
+
+    /** Reads one complete raw operation through a bounded token page. */
+    public async block(
+        task: string,
+        identity: string,
+        offset = 0,
+        tokens = maximumBlockTokens
+    ): Promise<OperationBlockPage> {
+
+        const budget = tokenBudget(tokens, minimumMemoryBudget, maximumMemoryBudget, "Block read")
+        const operation = await this.database.operation(task, identity)
+
+        if (!operation) throw new Error(`Unknown operation "${identity}" in Lemo Task "${task}"`)
+
+        const page = tokenSlice(operationContent(operation), budget, offset)
+
+        return Object.freeze({
+            task,
+            operation: identity,
+            kind: operation.kind,
+            offset,
+            content: page.content,
+            next: page.next,
+            tokens: page.tokens,
+            totalTokens: page.total
+        })
+    }
+
+    private async nearbyTasks(self: string): Promise<readonly TaskState[]> {
+
+        const [active, recent] = await Promise.all([
+            this.database.tasks({
+                limit: maximumNearbyTasks + 1,
+                statuses: ["running", "paused"],
+                order: "newest"
+            }),
+            this.database.tasks({ limit: maximumNearbyTasks + 1, order: "newest" })
+        ])
+        const summaries = new Map<string, TaskSummary>()
+
+        for (const summary of [...active.tasks, ...recent.tasks]) {
+            if (summary.id !== self && summaries.size < maximumNearbyTasks) summaries.set(summary.id, summary)
+        }
+
+        const states = await Promise.all([...summaries.values()].map(async summary => {
+            const page = await this.database.operations(summary.id, {
+                limit: maximumNearbyOperations,
+                order: "newest",
+                excludeKinds: ["model.event"]
+            })
+            const input = await this.database.firstOperation(summary.id, "task.input")
+            const operations = input && !page.operations.some(operation => operation.id === input.id)
+                ? Object.freeze([input, ...page.operations])
+                : page.operations
+
+            return taskState(operations, summary)
+        }))
+
+        return Object.freeze(states.sort((left, right) => (
+            executionPriority(left.status) - executionPriority(right.status)
+            || right.updatedAt - left.updatedAt
+            || right.sequence - left.sequence
+        )))
     }
 
     private async history(
@@ -183,21 +289,15 @@ export default class Context {
         const selected = new Map<string, Operation>()
 
         for (const operation of [...reinforced, ...recent, ...relevant, ...retained]) {
-
             selected.set(operation.id, operation)
         }
 
         const tasks = [...new Set([...selected.values()].flatMap(operation => (
             operation.task ? [operation.task] : []
-        )))]
+        )))].slice(0, maximumTaskContextBatch)
 
-        for (let index = 0; index < tasks.length; index += maximumTaskContextBatch) {
-
-            const context = await this.database.taskContextOperations(
-                tasks.slice(index, index + maximumTaskContextBatch)
-            )
-
-            for (const operation of context) selected.set(operation.id, operation)
+        for (const operation of await this.database.taskContextOperations(tasks)) {
+            selected.set(operation.id, operation)
         }
 
         return Object.freeze([...selected.values()]
@@ -219,7 +319,8 @@ export default class Context {
         retrievedAt: number
     ) {
 
-        const values: MemoryRetrievalInput[] = results.map(result => ({
+        const unique = [...new Map(results.map(result => [result.operation, result])).values()]
+        const values: MemoryRetrievalInput[] = unique.map(result => ({
             operation: result.operation,
             requesterTask: origin.task,
             requesterOperation: origin.operation,
@@ -233,48 +334,40 @@ export default class Context {
         await this.database.recordMemoryRetrievals(values)
 
         const activations = await this.database.memoryActivations(
-            results.map(result => result.operation),
+            unique.map(result => result.operation),
             retrievedAt
         )
 
-        return Object.freeze(results.map(result => {
-
+        return Object.freeze(unique.map(result => {
             const activation = activations.get(result.operation)
 
-            return activation
-                ? Object.freeze({
-                    ...result,
-                    reinforcement: rounded(activation.strength),
-                    retrievalCount: activation.retrievalCount,
-                    lastRetrievedAt: activation.lastRetrievedAt
-                })
-                : result
+            return activation ? Object.freeze({
+                ...result,
+                reinforcement: rounded(activation.strength),
+                retrievalCount: activation.retrievalCount,
+                lastRetrievedAt: activation.lastRetrievedAt
+            }) : result
         }))
     }
 }
 
-/** Selects candidates without knowing how the resulting context is presented. */
 function retrieve(
     operations: readonly Operation[],
     request: MemoryRecallRequest,
-    preserveRecent: boolean,
-    memory: ReadonlyMap<string, MemoryActivation>,
-    maximumBudget = maximumMemoryBudget
+    mode: "semantic" | "rules" | "recall",
+    memory: ReadonlyMap<string, MemoryActivation>
 ): readonly MemoryResult[] {
 
     const query = request.query.trim()
 
     if (!query) throw new Error("Memory recall requires a query")
 
-    const budget = request.budget ?? defaultMemoryBudget
-
-    if (!Number.isInteger(budget) || budget < minimumMemoryBudget || budget > maximumBudget) {
-
-        throw new Error(
-            `Memory recall budget must be between ${minimumMemoryBudget} and ${maximumBudget} characters`
-        )
-    }
-
+    const budget = tokenBudget(
+        request.budget ?? defaultMemoryBudget,
+        minimumMemoryBudget,
+        maximumMemoryBudget,
+        "Memory recall"
+    )
     const candidates = operations.flatMap(candidate)
 
     if (!candidates.length) return Object.freeze([])
@@ -283,644 +376,459 @@ function retrieve(
     const focus = recallFocus(query, request.focus ?? [])
     const queryTokens = weightedTokens(focus)
     const frequencies = documentFrequencies(candidates)
+    const latest = candidates.at(-1)!.operation.sequence
+    const scored = candidates.map(value => ({
+        value,
+        ...activation(
+            value.content,
+            focus,
+            queryTokens,
+            frequencies,
+            candidates.length,
+            latest - value.operation.sequence,
+            memory.get(value.operation.id)
+        )
+    }))
+    const perceptions = new Map(scored.map(value => [value.value.operation.id, value]))
+    const semantic = scored
+        .filter(value => value.association > 0)
+        .sort((left, right) => (
+            right.semanticScore - left.semanticScore
+            || right.association - left.association
+            || right.value.operation.sequence - left.value.operation.sequence
+        ))
+    const rules = scored
+        .filter(value => value.reinforcement >= reinforcedMemoryThreshold)
+        .sort((left, right) => (
+            right.ruleScore - left.ruleScore
+            || right.reinforcement - left.reinforcement
+            || right.value.operation.sequence - left.value.operation.sequence
+        ))
     const selected = new Map<string, Selected>()
-    const activations = new Map<string, Activation>()
-    let size = 0
+    let used = 0
 
     const include = (
         value: Candidate,
         selection: MemoryResult["selection"],
-        limit: number,
         anchor: string | null = null
     ) => {
-
         const existing = selected.get(value.operation.id)
-        const candidateActivation = activations.get(value.operation.id)
-        const perception = selectionPerception(
-            selection,
-            candidateActivation,
-            anchor,
-            anchor ? selected.get(anchor)?.score : undefined
-        )
 
         if (existing) {
-
             if (existing.selection === "context" && selection !== "context") {
-
-                selected.set(value.operation.id, { value, selection, ...perception })
+                selected.set(value.operation.id, selectionPerception(
+                    value,
+                    selection,
+                    perceptions.get(value.operation.id),
+                    anchor,
+                    anchor ? selected.get(anchor)?.score : undefined
+                ))
             }
 
             return true
         }
 
-        const addition = contextSize(value)
+        const addition = candidateTokens(value)
 
-        if (size + addition > limit) return false
+        if (used + addition > budget) return false
 
-        selected.set(value.operation.id, { value, selection, ...perception })
-        size += addition
+        selected.set(value.operation.id, selectionPerception(
+            value,
+            selection,
+            perceptions.get(value.operation.id),
+            anchor,
+            anchor ? selected.get(anchor)?.score : undefined
+        ))
+        used += addition
 
         return true
     }
-
     const collect = (
-        anchors: readonly Candidate[],
-        selection: "recent" | "relevant" | "reinforced",
-        target: number,
-        contextFor: (anchor: Candidate, index: ContextIndex) => readonly Candidate[]
+        values: readonly (typeof scored)[number][],
+        selection: "relevant" | "reinforced"
     ) => {
+        for (const value of values) {
+            if (!include(value.value, selection)) continue
 
-        for (const anchor of anchors) {
-
-            if (size >= target) break
-            if (!include(anchor, selection, target)) continue
-
-            for (const context of contextFor(anchor, index)) {
-
-                if (size >= target) break
-
-                include(context, "context", target, anchor.operation.id)
+            for (const supporting of episodeContext(value.value, index)) {
+                include(supporting, "context", value.value.operation.id)
             }
         }
     }
 
-    const latest = candidates.at(-1)!.operation.sequence
-    const scored = candidates
-        .map(value => ({
-            value,
-            ...activation(
-                value.content,
-                focus,
-                queryTokens,
-                frequencies,
-                candidates.length,
-                latest - value.operation.sequence,
-                memory.get(value.operation.id)
-            )
-        }))
+    if (mode === "semantic") collect(semantic, "relevant")
+    else if (mode === "rules") collect(rules, "reinforced")
+    else {
+        collect(semantic, "relevant")
 
-    for (const value of scored) activations.set(value.value.operation.id, value)
+        for (const recent of recentAnchors(index)) include(recent, "recent")
 
-    const activated = scored
-        .filter(value => value.association > 0)
-        .sort((left, right) => (
-            right.score - left.score
-            || right.value.operation.sequence - left.value.operation.sequence
-        ))
-
-    const relevant = activated.map(value => value.value)
-    const reinforced = scored
-        .filter(value => value.reinforcement >= reinforcedMemoryThreshold)
-        .sort((left, right) => (
-            right.reinforcement - left.reinforcement
-            || right.score - left.score
-            || right.value.operation.sequence - left.value.operation.sequence
-        ))
-        .map(value => value.value)
-
-    if (preserveRecent) {
-
-        collect(relevant, "relevant", Math.ceil(budget * 0.75), episodeContext)
-        collect(recentAnchors(index), "recent", budget, recentContext)
-        collect(relevant, "relevant", budget, episodeContext)
-    } else {
-
-        collect(
-            reinforced,
-            "reinforced",
-            Math.min(maximumReinforcedBudget, Math.floor(budget * reinforcedBudgetShare)),
-            episodeContext
-        )
-        collect(relevant, "relevant", budget, episodeContext)
+        collect(rules, "reinforced")
     }
 
     return Object.freeze([...selected.values()]
         .sort((left, right) => left.value.operation.sequence - right.value.operation.sequence)
-        .map(value => result(value.value, value.selection, value)))
+        .map(value => memoryResult(value)))
 }
 
 function selectionPerception(
+    value: Candidate,
     selection: MemoryResult["selection"],
-    activation: Activation | undefined,
+    perception: Activation | undefined,
     anchor: string | null,
     anchorScore?: number
-): SelectionPerception {
+): Selected {
 
-    const reinforcement = rounded(activation?.reinforcement ?? 0)
-    const retrievalCount = activation?.retrievalCount ?? 0
-    const lastRetrievedAt = activation?.lastRetrievedAt ?? null
-
-    if (selection === "relevant") {
-
-        return Object.freeze({
-            reason: "semantic-association" as const,
-            score: rounded(activation?.score ?? 0),
-            association: activation ? rounded(activation.association) : null,
-            reinforcement,
-            retrievalCount,
-            lastRetrievedAt,
-            matches: Object.freeze(activation?.matches ?? []),
-            anchor: null
-        })
+    const reinforcement = rounded(perception?.reinforcement ?? 0)
+    const common = {
+        value,
+        selection,
+        reinforcement,
+        retrievalCount: perception?.retrievalCount ?? 0,
+        lastRetrievedAt: perception?.lastRetrievedAt ?? null
     }
 
-    if (selection === "reinforced") {
+    if (selection === "relevant") return Object.freeze({
+        ...common,
+        reason: "semantic-association",
+        score: rounded(perception?.semanticScore ?? 0),
+        association: perception ? rounded(perception.association) : null,
+        matches: Object.freeze(perception?.matches ?? []),
+        anchor: null
+    })
 
-        return Object.freeze({
-            reason: "reinforced-memory" as const,
-            score: rounded(Math.max(activation?.score ?? 0, activation?.reinforcement ?? 0)),
-            association: activation ? rounded(activation.association) : null,
-            reinforcement,
-            retrievalCount,
-            lastRetrievedAt,
-            matches: Object.freeze(activation?.matches ?? []),
-            anchor: null
-        })
-    }
+    if (selection === "reinforced") return Object.freeze({
+        ...common,
+        reason: "reinforced-memory",
+        score: rounded(perception?.ruleScore ?? 0),
+        association: perception ? rounded(perception.association) : null,
+        matches: Object.freeze(perception?.matches ?? []),
+        anchor: null
+    })
 
-    if (selection === "recent") {
-
-        return Object.freeze({
-            reason: "explicit-recent" as const,
-            score: rounded(activation?.score ?? 0),
-            association: null,
-            reinforcement,
-            retrievalCount,
-            lastRetrievedAt,
-            matches: Object.freeze([]),
-            anchor: null
-        })
-    }
+    if (selection === "recent") return Object.freeze({
+        ...common,
+        reason: "explicit-recent",
+        score: rounded(perception?.semanticScore ?? 0),
+        association: null,
+        matches: Object.freeze([]),
+        anchor: null
+    })
 
     return Object.freeze({
-        reason: "episode-context" as const,
-        score: rounded((anchorScore ?? activation?.score ?? 0) * episodeReinforcementShare),
+        ...common,
+        reason: "episode-context",
+        score: rounded((anchorScore ?? perception?.semanticScore ?? 0) * episodeReinforcementShare),
         association: null,
-        reinforcement,
-        retrievalCount,
-        lastRetrievedAt,
         matches: Object.freeze([]),
         anchor
     })
 }
 
-function taskInput(operations: readonly Operation[]) {
-
-    const operation = operations.find(candidate => candidate.kind === "task.input")
-    const payload = record(operation?.payload)
-
-    if (typeof payload?.input !== "string" || !payload.input.trim()) {
-
-        throw new Error("A Task has no valid input operation")
-    }
-
-    return payload.input
-}
-
-/** Reconstructs the Task's own durable identity without persisting a derived snapshot. */
-function taskIdentity(operations: readonly Operation[]) {
-
-    const input = operations.find(operation => operation.kind === "task.input")
-    const inputPayload = record(input?.payload)
-    const source = record(inputPayload?.source)
-    const initialModel = modelIdentity(inputPayload?.model)
-    const run = operations.findLast(operation => operation.kind === "task.run.started")
-    const runPayload = record(run?.payload)
-    const cycle = operations.findLast(operation => operation.kind === "cycle.started")
-    const cyclePayload = record(cycle?.payload)
-    const activeModel = modelIdentity(cyclePayload?.model)
-        ?? modelIdentity(runPayload?.model)
-        ?? initialModel
-    const sourceTask = typeof source?.task === "string" ? source.task : null
-    const sourceCall = typeof source?.call === "string" ? source.call : null
-    const origin: TaskOrigin = source?.type === "task" && sourceTask && sourceCall
-        ? Object.freeze({ type: "task", task: sourceTask, call: sourceCall })
-        : Object.freeze({ type: "user", task: null, call: null })
-    const reason = runPayload?.reason === "created" || runPayload?.reason === "continued"
-        ? runPayload.reason
-        : null
-
-    return Object.freeze({
-        origin,
-        initialModel,
-        activeModel,
-        execution: Object.freeze({
-            run: typeof runPayload?.run === "string" ? runPayload.run : null,
-            reason,
-            startedAt: run?.createdAt ?? null,
-            cycle: cycle?.id ?? null,
-            cycleStartedAt: cycle?.createdAt ?? null
-        }) satisfies TaskExecution
-    })
-}
-
-function modelIdentity(value: unknown): ModelIdentity | null {
-
-    const model = record(value)
-
-    return typeof model?.provider === "string" && typeof model.id === "string"
-        ? Object.freeze({ provider: model.provider, id: model.id })
-        : null
-}
-
-function taskStates(operations: readonly Operation[]) {
-
-    const grouped = new Map<string, Operation[]>()
-
-    for (const operation of operations) {
-
-        if (!operation.task) continue
-
-        const values = grouped.get(operation.task) ?? []
-
-        values.push(operation)
-        grouped.set(operation.task, values)
-    }
-
-    return new Map([...grouped].map(([task, values]) => {
-
-        const candidates = values.flatMap(operation => {
-
-            const call = toolCall(operation)
-
-            return call ? [...candidate(operation), call] : candidate(operation)
-        })
-
-        const status = taskStatus(values)
-        const createdAt = values[0]!.createdAt
-        const updatedAt = values.at(-1)!.createdAt
-        const identity = taskIdentity(values)
-
-        return [task, Object.freeze({
-            task,
-            status,
-            objective: taskInput(values),
-            ...identity,
-            createdAt,
-            updatedAt,
-            endedAt: terminalTaskStatuses.has(status) ? updatedAt : null,
-            sequence: values[0]!.sequence,
-            operations: Object.freeze(values),
-            candidates: Object.freeze(candidates)
-        }) satisfies TaskState]
-    }))
-}
-
-/** Preserves causal continuity for short references such as "again" or "continue". */
-function immediateContinuity(
-    states: ReadonlyMap<string, TaskState>,
-    self: TaskState
-): readonly TaskContinuity[] {
-
-    const preceding = [...states.values()]
-        .filter(state => state.task !== self.task && state.sequence < self.sequence)
-        .sort((left, right) => right.updatedAt - left.updatedAt || right.sequence - left.sequence)
-    const available = preceding
-        .map((state, index) => ({
-            state,
-            distance: index + 1,
-            operations: Object.freeze(state.candidates
-                .filter(value => value.method !== "task-input")
-                .slice(-maximumContinuityOperations))
-        }))
-        .filter(value => value.state.status !== "running")
-    const selected: TaskContinuity[] = []
-    let size = 0
-
-    for (const value of available) {
-
-        if (selected.length >= maximumContinuityTasks) break
-
-        const addition = continuityContextSize(value)
-
-        if (size + addition > maximumContinuityBudget) continue
-
-        selected.push(Object.freeze(value))
-        size += addition
-    }
-
-    return Object.freeze(selected)
-}
-
-function continuityContextSize(value: TaskContinuity) {
-
-    return Math.min(value.state.objective.length, maximumAwarenessObjective)
-        + value.operations.reduce(
-            (size, operation) => size + Math.min(operation.content.length, maximumContinuityContent) + 220,
-            0
-        )
-        + 480
-}
-
-function activeAwareness(states: ReadonlyMap<string, TaskState>, self: string): Awareness {
-
-    const available = [...states.values()]
-        .filter(state => state.task !== self && state.status === "running")
-        .map(state => Object.freeze({
-            state,
-            operations: Object.freeze(state.candidates
-                .filter(value => value.method !== "task-input")
-                .slice(-maximumAwarenessOperations)),
-            sequence: state.operations.at(-1)?.sequence ?? 0
-        }))
-        .sort((left, right) => right.sequence - left.sequence)
-    const selected: TaskAwareness[] = []
-    let size = 0
-
-    for (const value of available) {
-
-        const addition = awarenessContextSize(value)
-
-        if (size + addition > maximumAwarenessBudget) continue
-
-        selected.push(value)
-        size += addition
-    }
-
-    return Object.freeze({
-        tasks: Object.freeze(selected),
-        omitted: available.length - selected.length
-    })
-}
-
-function awarenessContextSize(value: TaskAwareness) {
-
-    return Math.min(value.state.objective.length, maximumAwarenessObjective)
-        + value.operations.reduce(
-            (size, operation) => size + Math.min(operation.content.length, maximumAwarenessContent) + 220,
-            0
-        )
-        + 320
-}
-
-/** Derives the active subject from the latest durable state of this Task. */
-function workingFocus(operations: readonly Operation[]): readonly WorkingSignal[] {
-
-    const focus: WorkingSignal[] = []
-
-    for (let index = operations.length - 1; index >= 0 && focus.length < maximumWorkingSignals; index--) {
-
-        const operation = operations[index]
-        const payload = record(operation.payload)
-
-        if (operation.kind === "tool.result") {
-
-            const name = typeof payload?.name === "string" ? payload.name : "unknown"
-            const output = payload?.ok === true
-                ? "modelOutput" in (payload ?? {}) ? payload?.modelOutput : { ok: true }
-                : { ok: false, error: payload?.error }
-
-            addFocus(
-                focus,
-                operation,
-                `tool:${name}`,
-                "tool-result",
-                `Tool ${name} returned ${json(output)}`,
-                2.4,
-                name,
-                text(payload?.call) || null
-            )
-
-            continue
-        }
-
-        if (operation.kind === "model.message") {
-
-            const content = typeof payload?.content === "string" ? payload.content.trim() : ""
-            const calls = Array.isArray(payload?.toolCalls) && payload.toolCalls.length
-                ? `Tool requests: ${json(payload.toolCalls)}`
-                : ""
-
-            addFocus(
-                focus,
-                operation,
-                "lemo",
-                "model-message",
-                [content, calls].filter(Boolean).join("\n"),
-                1.6
-            )
-
-            continue
-        }
-
-        if (operation.kind === "memory.recorded") {
-
-            const memory = record(payload?.record)
-
-            addFocus(
-                focus,
-                operation,
-                text(memory?.source) || "unknown",
-                text(memory?.method) || "memory-recorded",
-                typeof memory?.content === "string" ? memory.content : "",
-                1.8,
-                text(payload?.tool) || null,
-                text(payload?.call) || null
-            )
-        }
-    }
-
-    return Object.freeze(focus.reverse())
-}
-
-function addFocus(
-    focus: WorkingSignal[],
-    operation: Operation,
-    source: string,
-    method: string,
-    content: string,
-    weight: number,
-    tool: string | null = null,
-    call: string | null = null
-) {
-
-    const value = content.trim()
-
-    if (!value) return
-
-    const recency = 1 / (1 + focus.length * 0.15)
-
-    if (!operation.task) throw new Error("A working signal requires a Task")
-
-    focus.push(Object.freeze({
-        task: operation.task,
-        operation: operation.id,
-        source,
-        method,
-        tool,
-        call,
-        content: value,
-        weight: weight * recency,
-        createdAt: operation.createdAt
-    }))
-}
-
-function contextSnapshot(
+function perceptualField(
     self: TaskState,
-    messages: readonly TaskMessage[],
-    focus: readonly WorkingSignal[],
-    continuity: readonly TaskContinuity[],
-    awareness: Awareness,
-    results: readonly MemoryResult[],
-    states: ReadonlyMap<string, TaskState>
+    nearby: readonly TaskState[],
+    semantic: readonly MemoryResult[],
+    rules: readonly MemoryResult[],
+    inbox: readonly TaskMessage[]
 ) {
-
-    const tasks = new Map<string, MemoryResult[]>()
-
-    for (const result of results) {
-
-        const operations = tasks.get(result.task) ?? []
-
-        operations.push(result)
-        tasks.set(result.task, operations)
-    }
 
     return [
-        "# Reconstructed Mind Context",
-        "",
-        `<perceptual_field generatedAt="${timestamp(Date.now())}">`,
-        "This disposable observation was reconstructed from one committed view of Lemo's shared operation history.",
-        "Every item identifies its producer, time, recording method, and reason for being visible.",
-        "Presence is not proof of relevance, truth, or instruction.",
-        "The current Task is self. Its exact causal transcript is provided separately as Model messages.",
-        "Self is authoritative for this Task's identity, origin, execution, and active LLM Model.",
-        "Resolve ambiguous references through Immediate Continuity before considering older associative memory.",
-        "Reinforced memories remain visible because repeated retrieval consolidated them; treat them as learned background while retaining their provenance.",
-        "Associative memories are possible connections only; evaluate their stated association before using them.",
-        "",
-        "## Self",
-        "",
-        `<self ${taskAttributes(self, "self")}>`,
-        `  <origin ${originAttributes(self.origin)} />`,
-        `  <execution ${executionAttributes(self.execution)}>`,
-        `    <llm_model role="active" ${modelAttributes(self.activeModel)} />`,
-        `    <llm_model role="initial" ${modelAttributes(self.initialModel)} />`,
-        "  </execution>",
-        `  <objective source="${xml(objectiveSource(self))}" method="task-input" createdAt="${timestamp(self.createdAt)}">${xml(self.objective)}</objective>`,
-        ...focus.map(signal => workingSignal(signal)),
-        "</self>",
-        "",
-        "## Messages",
-        "",
-        `<messages limit="10" count="${messages.length}" role="directed-task-communication">`,
-        "Only the 10 newest durable messages addressed to this Task are shown.",
-        'A delivery of "new" means this is the first cycle receiving the message.',
-        ...messages.map(message => directedMessage(message)),
-        "</messages>",
-        "",
-        "## Immediate Continuity",
-        "",
-        '<immediate_continuity precedence="before-associative-memory">',
-        ...continuity.flatMap(value => continuityTask(value)),
-        "</immediate_continuity>",
-        "",
-        "## Concurrent Attention",
-        "",
-        `<active_tasks omitted="${awareness.omitted}">`,
-        ...awareness.tasks.flatMap(value => awarenessTask(value)),
-        "</active_tasks>",
-        "",
-        "## Shared Memory",
-        "",
-        '<shared_memory role="reinforced-and-associative-memory" precedence="background">',
-        ...[...tasks].flatMap(([task, operations]) => [
-            ...episodeStart(task, states, operations),
-            ...operations.map(result => memoryOperation(result)),
-            "  </episode>"
-        ]),
-        "</shared_memory>",
+        `<perceptual_field generatedAt="${timestamp(Date.now())}" budget="${perceptualFieldTokens}" unit="estimated-tokens">`,
+        systemXml(),
+        taskXml(self, "self", currentTaskTokens),
+        boundedTasks(nearby, nearbyTasksTokens),
+        memoryXml("semantic_information", semantic, semanticInformationTokens),
+        memoryXml("rules", rules, rulesTokens),
+        inboxSection(inbox, inboxTokens),
         "</perceptual_field>"
     ].join("\n")
 }
 
-function directedMessage(message: TaskMessage) {
-
-    const attributes = [
-        ["sequence", String(message.sequence)],
-        ["id", message.id],
-        ["sourceTask", message.sourceTask],
-        ["sourceCall", message.sourceCall],
-        ["createdAt", timestamp(message.createdAt)],
-        ["deliveredAt", message.deliveredAt === null ? "" : timestamp(message.deliveredAt)],
-        ["delivery", message.deliveredAt === null ? "new" : "previously-delivered"]
-    ].map(([name, value]) => `${name}="${xml(value)}"`).join(" ")
-
-    return `  <message ${attributes}>${xml(message.content)}</message>`
-}
-
-function workingSignal(signal: WorkingSignal) {
-
-    const attributes = [
-        ["task", signal.task],
-        ["operation", signal.operation],
-        ["source", signal.source],
-        ["method", signal.method],
-        ["tool", signal.tool ?? ""],
-        ["call", signal.call ?? ""],
-        ["createdAt", timestamp(signal.createdAt)],
-        ["reason", "current-task-focus"],
-        ["weight", String(signal.weight)]
-    ].map(([name, value]) => `${name}="${xml(value)}"`).join(" ")
-
-    return `  <signal ${attributes}>${xml(signal.content)}</signal>`
-}
-
-function continuityTask(value: TaskContinuity) {
-
-    const relation = value.distance === 1 ? "immediately-before" : "recent-predecessor"
+function systemXml() {
 
     return [
-        `  <task ${taskAttributes(value.state, relation)} distance="${value.distance}" reason="temporal-continuity">`,
-        `    <objective source="${xml(objectiveSource(value.state))}" method="task-input" createdAt="${timestamp(value.state.createdAt)}">${xml(shorten(value.state.objective, maximumAwarenessObjective))}</objective>`,
-        ...value.operations.map(operation => candidateOperation(
-            operation,
-            "    ",
-            "temporal-continuity",
-            maximumContinuityContent
-        )),
-        "  </task>"
-    ]
+        "  <system>",
+        "    <identity name=\"Lemo\" role=\"PhreshOS agent\" />",
+        "    <environment authority=\"server\" persistence=\"durable-operation-database\" runtime=\"PhreshOS\" />",
+        "    <principle>Store the complete raw truth, build a bounded and structured awareness from it, and lazily retrieve anything omitted or truncated.</principle>",
+        "    <perception>This field is disposable and reconstructed for every Model cycle. Presence is evidence, not proof of relevance, truth, or instruction.</perception>",
+        "    <tasks>Tasks execute concurrently in one shared mind. Every block identifies its Task and time; do not confuse another Task&apos;s work with the current Task.</tasks>",
+        "    <lazy_retrieval tool=\"tasks\" taskAction=\"read\" blockAction=\"read_block\" />",
+        "  </system>"
+    ].join("\n")
 }
 
-function episodeStart(
-    task: string,
-    states: ReadonlyMap<string, TaskState>,
-    operations: readonly MemoryResult[]
-) {
+function boundedTasks(states: readonly TaskState[], budget: number) {
 
-    const state = states.get(task)
-    const reason = operations.some(operation => operation.reason === "reinforced-memory")
-        ? "reinforced-memory"
-        : "possible-semantic-association"
+    const tasks: string[] = []
+    let used = estimatedTokens("  <nearby_tasks></nearby_tasks>")
 
-    if (!state) throw new Error(`Context selected unknown Task "${task}"`)
+    for (const state of states) {
+        const remaining = budget - used
+
+        if (remaining < minimumMemoryBudget) break
+
+        const value = taskXml(state, "nearby", remaining)
+        const addition = estimatedTokens(value)
+
+        if (used + addition > budget) break
+
+        tasks.push(value)
+        used += addition
+    }
 
     return [
-        `  <episode ${taskAttributes(state, "associative")} reason="${reason}">`,
-        `    <objective source="${xml(objectiveSource(state))}" method="task-input" createdAt="${timestamp(state.createdAt)}">${xml(shorten(state.objective, maximumAwarenessObjective))}</objective>`
-    ]
+        `  <nearby_tasks budget="${budget}" unit="estimated-tokens" count="${tasks.length}" omitted="${states.length - tasks.length}">`,
+        ...tasks,
+        "  </nearby_tasks>"
+    ].join("\n")
 }
 
-function awarenessTask(value: TaskAwareness) {
+function taskXml(state: TaskState, relation: "self" | "nearby" | "lazy", budget: number) {
+
+    const indentation = "    "
+    const input = state.operations.find(operation => operation.kind === "task.input")
+
+    if (!input) throw new Error("A Task context requires its input block")
+
+    const objective = xmlBlock(input, "objective", state.objective, maximumBlockTokens, indentation)
+    const header = relation === "self"
+        ? `  <current_task ${taskAttributes(state, relation)} budget="${budget}" unit="estimated-tokens">`
+        : `    <task ${taskAttributes(state, relation)} budget="${budget}" unit="estimated-tokens">`
+    const footer = relation === "self" ? "  </current_task>" : "    </task>"
+    const fixed = [
+        header,
+        `${indentation}<origin ${originAttributes(state.origin)} />`,
+        `${indentation}<execution ${executionAttributes(state.execution)}>`,
+        `${indentation}  <llm_model role="active" ${modelAttributes(state.activeModel)} />`,
+        `${indentation}  <llm_model role="initial" ${modelAttributes(state.initialModel)} />`,
+        `${indentation}</execution>`,
+        objective
+    ]
+    const cycles = taskCycles(state.operations)
+    const selected: string[] = []
+    let used = estimatedTokens([...fixed, footer].join("\n"))
+
+    for (let index = cycles.length - 1; index >= 0; index--) {
+        const remaining = budget - used
+
+        if (remaining < minimumMemoryBudget) break
+
+        const cycle = cycleXml(cycles[index]!, index === 0 ? state.objective : null, remaining, indentation)
+        const addition = estimatedTokens(cycle)
+
+        if (used + addition > budget) break
+
+        selected.unshift(cycle)
+        used += addition
+    }
 
     return [
-        `  <task ${taskAttributes(value.state, "concurrent")} reason="currently-running">`,
-        `    <objective source="${xml(objectiveSource(value.state))}" method="task-input" createdAt="${timestamp(value.state.createdAt)}">${xml(shorten(value.state.objective, maximumAwarenessObjective))}</objective>`,
-        ...value.operations.map(operation => candidateOperation(
-            operation,
-            "    ",
-            "concurrent-attention",
-            maximumAwarenessContent
-        )),
-        "  </task>"
-    ]
+        ...fixed,
+        `${indentation}<cycles count="${selected.length}" omitted="${cycles.length - selected.length}">`,
+        ...selected,
+        `${indentation}</cycles>`,
+        footer
+    ].join("\n")
 }
 
-function memoryOperation(result: MemoryResult, indentation = "    ", maximum?: number) {
+function cycleXml(cycle: CycleState, firstInput: string | null, budget: number, indentation: string) {
+
+    const lines = [
+        `${indentation}  <cycle id="${xml(cycle.id)}" run="${xml(cycle.run)}" status="${cycle.status}" startedAt="${timestamp(cycle.startedAt)}" endedAt="${cycle.endedAt === null ? "" : timestamp(cycle.endedAt)}">`
+    ]
+    const bodyIndentation = `${indentation}    `
+
+    if (firstInput !== null) {
+        lines.push(xmlBlock(cycle.started, "input", firstInput, maximumBlockTokens, bodyIndentation, {
+            source: "task-objective"
+        }))
+    } else {
+        lines.push(`${bodyIndentation}<input source="reconstructed-durable-history">The input is the Task transcript and Perceptual Field reconstructed immediately before this cycle.</input>`)
+    }
+
+    const visible = cycle.operations.filter(operation => operation.kind !== "model.event")
+    let used = estimatedTokens([...lines, `${indentation}  </cycle>`].join("\n"))
+    let included = 0
+
+    for (const operation of visible) {
+        const remaining = budget - used
+
+        if (remaining < 32) break
+
+        const value = cycleOperation(operation, Math.min(maximumBlockTokens, remaining), bodyIndentation)
+
+        if (!value) continue
+
+        const addition = estimatedTokens(value)
+
+        if (used + addition > budget) break
+
+        lines.push(value)
+        used += addition
+        included++
+    }
+
+    if (included < visible.length) {
+        lines.push(`${bodyIndentation}<omitted operations="${visible.length - included}" reason="cycle-token-limit" />`)
+    }
+
+    lines.push(`${indentation}  </cycle>`)
+
+    return lines.join("\n")
+}
+
+function cycleOperation(operation: Operation, budget: number, indentation: string) {
+
+    const payload = record(operation.payload)
+
+    if (operation.kind === "model.message") {
+        const content = typeof payload?.content === "string" ? payload.content : ""
+        const calls = Array.isArray(payload?.toolCalls) ? payload.toolCalls : []
+
+        return [
+            xmlBlock(operation, "output", content, budget, indentation, { source: "lemo" }),
+            ...calls.map(value => {
+                const call = record(value)
+
+                return xmlBlock(operation, "tool_call", contextualText(call?.input), budget, indentation, {
+                    call: text(call?.id),
+                    tool: text(call?.name)
+                })
+            })
+        ].join("\n")
+    }
+
+    if (operation.kind === "tool.result") {
+        const contextual = payload?.ok === true && "modelOutput" in payload
+            ? {
+                call: payload.call,
+                name: payload.name,
+                ok: true,
+                output: payload.modelOutput
+            }
+            : operation.payload
+
+        return xmlBlock(operation, "tool_result", contextualText(contextual), budget, indentation, {
+            call: text(payload?.call),
+            tool: text(payload?.name),
+            ok: String(payload?.ok === true)
+        })
+    }
+
+    return xmlBlock(operation, "metadata", contextualText(operation.payload), budget, indentation)
+}
+
+function taskCycles(operations: readonly Operation[]): readonly CycleState[] {
+
+    const cycles: MutableCycle[] = []
+    let current: MutableCycle | null = null
+
+    for (const operation of operations) {
+        if (operation.kind === "cycle.started") {
+            const payload = record(operation.payload)
+
+            current = {
+                id: operation.id,
+                run: text(payload?.run),
+                started: operation,
+                startedAt: operation.createdAt,
+                endedAt: null,
+                status: "running",
+                operations: []
+            }
+            cycles.push(current)
+            continue
+        }
+
+        if (!current) continue
+
+        current.operations.push(operation)
+
+        if (operation.kind === "cycle.completed") {
+            current.status = "completed"
+            current.endedAt = operation.createdAt
+        } else if (operation.kind === "cycle.failed") {
+            current.status = "failed"
+            current.endedAt = operation.createdAt
+        }
+    }
+
+    return Object.freeze(cycles.map(cycle => Object.freeze({
+        ...cycle,
+        operations: Object.freeze(cycle.operations)
+    })))
+}
+
+function memoryXml(name: "semantic_information" | "rules", results: readonly MemoryResult[], budget: number) {
+
+    const values: string[] = []
+    let used = estimatedTokens(`  <${name}></${name}>`)
+
+    for (const result of results) {
+        const value = memoryOperation(result)
+        const addition = estimatedTokens(value)
+
+        if (used + addition > budget) break
+
+        values.push(value)
+        used += addition
+    }
+
+    const explanation = name === "semantic_information"
+        ? "Semantic relevance selects candidates; semantic relevance, learned score, and recency rank them."
+        : "Learned score selects candidates; learned score, semantic relevance, and recency rank them."
+
+    return [
+        `  <${name} budget="${budget}" unit="estimated-tokens" count="${values.length}" omitted="${results.length - values.length}">`,
+        `    <ranking>${xml(explanation)}</ranking>`,
+        ...values,
+        `  </${name}>`
+    ].join("\n")
+}
+
+function inboxSection(messages: readonly TaskMessage[], budget: number) {
+
+    const values: string[] = []
+    let used = estimatedTokens("  <inbox></inbox>")
+
+    for (let index = messages.length - 1; index >= 0; index--) {
+        const message = messages[index]!
+        const slice = tokenSlice(message.message, Math.min(maximumBlockTokens, Math.max(1, budget - used)))
+        const attributes = [
+            ["id", message.id],
+            ["event", message.event],
+            ["sourceTask", message.sourceTask],
+            ["sourceCall", message.sourceCall],
+            ["createdAt", timestamp(message.createdAt)],
+            ["deliveredAt", message.deliveredAt === null ? "" : timestamp(message.deliveredAt)],
+            ["delivery", message.deliveredAt === null ? "new" : "previously-delivered"],
+            ["tokens", String(slice.total)],
+            ["truncated", String(slice.next !== null)]
+        ].map(([name, value]) => `${name}="${xml(value)}"`).join(" ")
+        const value = `    <message ${attributes}>${xml(slice.content)}</message>`
+        const addition = estimatedTokens(value)
+
+        if (used + addition > budget) break
+
+        values.unshift(value)
+        used += addition
+    }
+
+    return [
+        `  <inbox budget="${budget}" unit="estimated-tokens" count="${values.length}" omitted="${messages.length - values.length}">`,
+        ...values,
+        "  </inbox>"
+    ].join("\n")
+}
+
+function memoryOperation(result: MemoryResult) {
 
     const attributes = [
+        ["task", result.task],
+        ["operation", result.operation],
         ["sequence", String(result.sequence)],
-        ["id", result.operation],
         ["parent", result.parent ?? ""],
         ["kind", result.kind],
         ["createdAt", timestamp(result.createdAt)],
@@ -931,41 +839,94 @@ function memoryOperation(result: MemoryResult, indentation = "    ", maximum?: n
         ["selection", result.selection],
         ["reason", result.reason],
         ["score", String(result.score)],
-        ["association", result.association === null ? "" : String(result.association)],
+        ["semanticRelevance", result.association === null ? "" : String(result.association)],
         ["reinforcement", String(result.reinforcement)],
         ["retrievalCount", String(result.retrievalCount)],
         ["lastRetrievedAt", result.lastRetrievedAt === null ? "" : timestamp(result.lastRetrievedAt)],
         ["matches", result.matches.join(",")],
-        ["anchor", result.anchor ?? ""]
+        ["anchor", result.anchor ?? ""],
+        ["tokens", String(result.tokens)],
+        ["truncated", String(result.truncated)]
     ].map(([name, value]) => `${name}="${xml(value)}"`).join(" ")
 
-    const content = maximum === undefined ? result.content : shorten(result.content, maximum)
-
-    return `${indentation}<operation ${attributes}>${xml(content)}</operation>`
+    return `    <information ${attributes}>${xml(result.content)}</information>`
 }
 
-function candidateOperation(
-    value: Candidate,
+function xmlBlock(
+    operation: Operation,
+    element: string,
+    content: string,
+    budget: number,
     indentation: string,
-    reason: "temporal-continuity" | "concurrent-attention",
-    maximum: number
+    extra: Readonly<Record<string, string>> = {}
 ) {
 
-    const operation = value.operation
+    const slice = tokenSlice(content, Math.max(1, Math.min(maximumBlockTokens, budget)))
     const attributes = [
+        ["operation", operation.id],
         ["sequence", String(operation.sequence)],
-        ["id", operation.id],
-        ["parent", operation.parent ?? ""],
         ["kind", operation.kind],
         ["createdAt", timestamp(operation.createdAt)],
-        ["source", value.source],
-        ["method", value.method],
-        ["tool", value.tool ?? ""],
-        ["call", value.call ?? ""],
-        ["reason", reason]
-    ].map(([name, content]) => `${name}="${xml(content)}"`).join(" ")
+        ["tokens", String(slice.total)],
+        ["truncated", String(slice.next !== null)],
+        ...Object.entries(extra)
+    ].map(([name, value]) => `${name}="${xml(value)}"`).join(" ")
+    const retrieval = slice.next === null
+        ? ""
+        : ` retrieve="tasks.read_block" next="${slice.next}"`
 
-    return `${indentation}<operation ${attributes}>${xml(shorten(value.content, maximum))}</operation>`
+    return `${indentation}<${element} ${attributes}${retrieval}>${xml(slice.content)}</${element}>`
+}
+
+function taskState(operations: readonly Operation[], summary?: TaskSummary): TaskState {
+
+    const ordered = [...operations].sort((left, right) => left.sequence - right.sequence)
+    const input = ordered.find(operation => operation.kind === "task.input")
+    const inputPayload = record(input?.payload)
+
+    if (!input?.task || typeof inputPayload?.input !== "string" || !inputPayload.input.trim()) {
+        throw new Error("A Task context requires its durable input")
+    }
+
+    const source = record(inputPayload.source)
+    const sourceTask = text(source?.task) || null
+    const sourceCall = text(source?.call) || null
+    const origin: TaskOrigin = source?.type === "task" && sourceTask && sourceCall
+        ? Object.freeze({ type: "task", task: sourceTask, call: sourceCall })
+        : Object.freeze({ type: "user", task: null, call: null })
+    const initialModel = modelIdentity(inputPayload.model)
+    const run = ordered.findLast(operation => operation.kind === "task.run.started")
+    const runPayload = record(run?.payload)
+    const cycle = ordered.findLast(operation => operation.kind === "cycle.started")
+    const cyclePayload = record(cycle?.payload)
+    const activeModel = modelIdentity(cyclePayload?.model)
+        ?? modelIdentity(runPayload?.model)
+        ?? initialModel
+    const status = summary?.status ?? taskStatus(ordered)
+    const updatedAt = summary?.updatedAt ?? ordered.at(-1)?.createdAt ?? input.createdAt
+
+    return Object.freeze({
+        task: input.task,
+        status,
+        objective: inputPayload.input,
+        origin,
+        initialModel,
+        activeModel,
+        execution: Object.freeze({
+            run: text(runPayload?.run) || null,
+            reason: runPayload?.reason === "created" || runPayload?.reason === "continued"
+                ? runPayload.reason
+                : null,
+            startedAt: run?.createdAt ?? null,
+            cycle: cycle?.id ?? null,
+            cycleStartedAt: cycle?.createdAt ?? null
+        }),
+        createdAt: summary?.createdAt ?? input.createdAt,
+        updatedAt,
+        endedAt: terminalTaskStatuses.has(status) ? updatedAt : null,
+        sequence: input.sequence,
+        operations: Object.freeze(ordered)
+    })
 }
 
 function taskAttributes(state: TaskState, relation: string) {
@@ -997,9 +958,7 @@ function executionAttributes(execution: TaskExecution) {
         ["reason", execution.reason ?? ""],
         ["startedAt", execution.startedAt === null ? "" : timestamp(execution.startedAt)],
         ["cycle", execution.cycle ?? ""],
-        ["cycleStartedAt", execution.cycleStartedAt === null
-            ? ""
-            : timestamp(execution.cycleStartedAt)]
+        ["cycleStartedAt", execution.cycleStartedAt === null ? "" : timestamp(execution.cycleStartedAt)]
     ].map(([name, value]) => `${name}="${xml(value)}"`).join(" ")
 }
 
@@ -1011,42 +970,32 @@ function modelAttributes(model: ModelIdentity | null) {
     ].map(([name, value]) => `${name}="${xml(value)}"`).join(" ")
 }
 
-function objectiveSource(state: TaskState) {
+function modelIdentity(value: unknown): ModelIdentity | null {
 
-    return state.origin.type === "task" ? `task:${state.origin.task}` : "user"
+    const model = record(value)
+
+    return typeof model?.provider === "string" && typeof model.id === "string"
+        ? Object.freeze({ provider: model.provider, id: model.id })
+        : null
 }
 
-function timestamp(value: number) {
+function workingFocus(operations: readonly Operation[]): readonly MemoryFocus[] {
 
-    return new Date(value).toISOString()
-}
+    const focus: MemoryFocus[] = []
 
-function xml(value: string) {
+    for (let index = operations.length - 1; index >= 0 && focus.length < maximumWorkingSignals; index--) {
+        const operation = operations[index]!
 
-    return value
-        .replaceAll("&", "&amp;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&apos;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-}
+        for (const value of candidate(operation)) {
+            focus.push(Object.freeze({
+                source: `${value.source}:${value.method}`,
+                content: value.content,
+                weight: 2 / (1 + focus.length * 0.15)
+            }))
+        }
+    }
 
-/** Preserves the latest durable statement from each Task before adding depth. */
-function recentAnchors(index: ContextIndex) {
-
-    return [...index.tasks.values()]
-        .map(task => task.at(-1))
-        .filter((value): value is Candidate => value !== undefined)
-        .sort((left, right) => right.operation.sequence - left.operation.sequence)
-}
-
-/** A recent Task needs its question, not every intermediate Model cycle. */
-function recentContext(anchor: Candidate, index: ContextIndex) {
-
-    const task = anchor.operation.task ? index.tasks.get(anchor.operation.task) ?? [] : []
-    const input = task.find(value => value.method === "task-input")
-
-    return input && input.operation.id !== anchor.operation.id ? [input] : []
+    return Object.freeze(focus.reverse())
 }
 
 function candidate(operation: Operation): readonly Candidate[] {
@@ -1054,44 +1003,32 @@ function candidate(operation: Operation): readonly Candidate[] {
     const payload = record(operation.payload)
     const memory = record(payload?.record)
 
-    if (operation.kind === "task.input") {
+    if (operation.kind === "task.input") return createCandidate(operation, payload?.input, "user", "task-input")
+    if (operation.kind === "model.message") return createCandidate(operation, payload?.content, "lemo", "model-message")
 
-        return createCandidate(operation, payload?.input, "user", "task-input")
-    }
+    if (operation.kind === "memory.recorded") return createCandidate(
+        operation,
+        memory?.content,
+        text(memory?.source) || "unknown",
+        text(memory?.method) || "memory-recorded",
+        text(payload?.tool) || null,
+        text(payload?.call) || null
+    )
 
-    if (operation.kind === "model.message") {
-
-        return createCandidate(operation, payload?.content, "lemo", "model-message")
-    }
-
-    if (operation.kind === "memory.recorded") {
-
-        return createCandidate(
-            operation,
-            memory?.content,
-            text(memory?.source) || "unknown",
-            text(memory?.method) || "memory-recorded",
-            text(payload?.tool) || null,
-            text(payload?.call) || null
-        )
-    }
-
-    if (operation.kind === "tool.result" && payload?.ok === true && "modelOutput" in (payload ?? {})) {
-
-        const tool = text(payload?.name) || "unknown"
+    if (operation.kind === "tool.result" && payload?.ok === true && "modelOutput" in payload) {
+        const tool = text(payload.name) || "unknown"
 
         return createCandidate(
             operation,
-            payload?.modelOutput,
+            payload.modelOutput,
             `tool:${tool}`,
             "tool-result",
             tool,
-            text(payload?.call) || null
+            text(payload.call) || null
         )
     }
 
     if (operation.kind === "tool.result" && payload?.ok === false) {
-
         const tool = text(payload.name) || "unknown"
         const error = text(payload.error)
 
@@ -1106,18 +1043,12 @@ function candidate(operation: Operation): readonly Candidate[] {
     }
 
     if (operation.kind === "task.failed") {
-
         const error = text(payload?.message)
 
-        return createCandidate(
-            operation,
-            error ? `Task failed: ${error}` : "Task failed",
-            "lemo",
-            "task-failure"
-        )
+        return createCandidate(operation, error ? `Task failed: ${error}` : "Task failed", "lemo", "task-failure")
     }
 
-    return []
+    return Object.freeze([])
 }
 
 function createCandidate(
@@ -1131,7 +1062,7 @@ function createCandidate(
 
     const content = contextualText(value)
 
-    return content.trim() ? [{ operation, content, source, method, tool, call }] : []
+    return content.trim() ? [Object.freeze({ operation, content, source, method, tool, call })] : Object.freeze([])
 }
 
 function contextIndex(operations: readonly Operation[], candidates: readonly Candidate[]): ContextIndex {
@@ -1139,7 +1070,6 @@ function contextIndex(operations: readonly Operation[], candidates: readonly Can
     const tasks = new Map<string, Candidate[]>()
 
     for (const value of candidates) {
-
         if (!value.operation.task) continue
 
         const task = tasks.get(value.operation.task) ?? []
@@ -1151,30 +1081,23 @@ function contextIndex(operations: readonly Operation[], candidates: readonly Can
     const toolCalls = new Map<string, Candidate>()
 
     for (const operation of operations) {
-
         const value = toolCall(operation)
 
         if (value?.call) toolCalls.set(value.call, value)
     }
 
-    return {
-        tasks,
-        toolCalls
-    }
+    return { tasks, toolCalls }
 }
 
-/** Expands one activated fact into a coherent local Task episode. */
 function episodeContext(anchor: Candidate, index: ContextIndex) {
 
     const values: Candidate[] = []
     const task = anchor.operation.task ? index.tasks.get(anchor.operation.task) ?? [] : []
-    const taskPosition = task.findIndex(value => value.operation.id === anchor.operation.id)
+    const position = task.findIndex(value => value.operation.id === anchor.operation.id)
 
     add(values, task.find(value => value.method === "task-input"))
-    add(values, task[taskPosition - 2])
-    add(values, task[taskPosition - 1])
-    add(values, task[taskPosition + 1])
-    add(values, task[taskPosition + 2])
+    add(values, task[position - 1])
+    add(values, task[position + 1])
 
     if (anchor.call) add(values, index.toolCalls.get(anchor.call))
 
@@ -1193,26 +1116,109 @@ function toolCall(operation: Operation): Candidate | null {
     const id = text(call?.id)
     const tool = text(call?.name)
 
-    if (!id || !tool) return null
-
-    return {
+    return id && tool ? Object.freeze({
         operation,
-        content: `Tool ${tool} requested with input: ${json(call?.input)}`,
+        content: `Tool ${tool} requested with input: ${contextualText(call?.input)}`,
         source: "lemo",
         method: "tool-call",
         tool,
         call: id
+    }) : null
+}
+
+function recentAnchors(index: ContextIndex) {
+
+    return [...index.tasks.values()]
+        .map(task => task.at(-1))
+        .filter((value): value is Candidate => value !== undefined)
+        .sort((left, right) => right.operation.sequence - left.operation.sequence)
+}
+
+function activation(
+    content: string,
+    focus: readonly MemoryFocus[],
+    query: ReadonlyMap<string, number>,
+    frequencies: ReadonlyMap<string, number>,
+    documents: number,
+    distance: number,
+    memory?: MemoryActivation
+): Activation {
+
+    const found = tokens(content)
+    const matches: string[] = []
+    let available = 0
+    let matched = 0
+
+    for (const [token, weight] of query) {
+        const frequency = frequencies.get(token) ?? 0
+        const specificity = Math.log(1 + (documents - frequency + 0.5) / (frequency + 0.5))
+        const value = weight * specificity
+
+        available += value
+
+        if (found.has(token)) {
+            matched += value
+            matches.push(token)
+        }
     }
+
+    const lexical = available > 0 ? matched / available : 0
+    const normalized = content.toLocaleLowerCase()
+    const phrase = focus.reduce((strongest, signal) => {
+        const value = signal.content.trim().toLocaleLowerCase()
+
+        return value.length >= 4 && normalized.includes(value)
+            ? Math.max(strongest, Math.min(1, signal.weight / 2))
+            : strongest
+    }, 0)
+    const association = lexical + phrase * 0.25
+    const temporal = 1 / (1 + Math.log2(1 + distance))
+    const reinforcement = memory?.strength ?? 0
+
+    return Object.freeze({
+        association,
+        temporal,
+        reinforcement,
+        retrievalCount: memory?.retrievalCount ?? 0,
+        lastRetrievedAt: memory?.lastRetrievedAt ?? null,
+        semanticScore: association + reinforcement * 0.25 + temporal * 0.15,
+        ruleScore: reinforcement + association * 0.25 + temporal * 0.15,
+        matches: Object.freeze(matches)
+    })
 }
 
-function add(values: Candidate[], value: Candidate | undefined) {
+function memoryResult(selected: Selected): MemoryResult {
 
-    if (value && !values.some(candidate => candidate.operation.id === value.operation.id)) values.push(value)
-}
+    const operation = selected.value.operation
 
-function contextSize(candidate: Candidate) {
+    if (!operation.task) throw new Error("Memory selected an operation without a Task")
 
-    return candidate.content.length + 180
+    const slice = tokenSlice(selected.value.content, maximumBlockTokens)
+
+    return Object.freeze({
+        sequence: operation.sequence,
+        operation: operation.id,
+        task: operation.task,
+        parent: operation.parent,
+        kind: operation.kind,
+        content: slice.content,
+        truncated: slice.next !== null,
+        tokens: slice.total,
+        source: selected.value.source,
+        method: selected.value.method,
+        tool: selected.value.tool,
+        call: selected.value.call,
+        selection: selected.selection,
+        reason: selected.reason,
+        score: selected.score,
+        association: selected.association,
+        reinforcement: selected.reinforcement,
+        retrievalCount: selected.retrievalCount,
+        lastRetrievedAt: selected.lastRetrievedAt,
+        matches: selected.matches,
+        anchor: selected.anchor,
+        createdAt: operation.createdAt
+    })
 }
 
 function recallFocus(query: string, values: readonly MemoryFocus[]) {
@@ -1220,16 +1226,11 @@ function recallFocus(query: string, values: readonly MemoryFocus[]) {
     const focus: MemoryFocus[] = [{ source: "task-objective", content: query, weight: 1 }]
 
     for (const value of values) {
-
-        const content = value.content.trim()
-        const source = value.source.trim()
-
-        if (!content || !source || !Number.isFinite(value.weight) || value.weight <= 0) {
-
+        if (!value.content.trim() || !value.source.trim() || !Number.isFinite(value.weight) || value.weight <= 0) {
             throw new Error("Memory focus signals require a source, content and positive finite weight")
         }
 
-        focus.push(Object.freeze({ source, content, weight: value.weight }))
+        focus.push(Object.freeze({ source: value.source.trim(), content: value.content.trim(), weight: value.weight }))
     }
 
     return Object.freeze(focus)
@@ -1240,9 +1241,7 @@ function weightedTokens(focus: readonly MemoryFocus[]) {
     const weighted = new Map<string, number>()
 
     for (const signal of focus) {
-
         for (const token of tokens(signal.content)) {
-
             weighted.set(token, Math.min(4, (weighted.get(token) ?? 0) + signal.weight))
         }
     }
@@ -1255,109 +1254,64 @@ function documentFrequencies(candidates: readonly Candidate[]) {
     const frequencies = new Map<string, number>()
 
     for (const value of candidates) {
-
-        for (const token of tokens(value.content)) {
-
-            frequencies.set(token, (frequencies.get(token) ?? 0) + 1)
-        }
+        for (const token of tokens(value.content)) frequencies.set(token, (frequencies.get(token) ?? 0) + 1)
     }
 
     return frequencies
 }
 
-function activation(
-    content: string,
-    focus: readonly MemoryFocus[],
-    query: ReadonlyMap<string, number>,
-    frequencies: ReadonlyMap<string, number>,
-    documents: number,
-    distance: number,
-    memory?: MemoryActivation
-) {
+function candidateTokens(candidate: Candidate) {
 
-    const found = tokens(content)
-    const matches: string[] = []
-    let available = 0
-    let matched = 0
+    return Math.min(maximumBlockTokens, estimatedTokens(candidate.content)) + taskMarkupOverhead
+}
 
-    for (const [token, weight] of query) {
+function operationContent(operation: Operation) {
 
-        const frequency = frequencies.get(token) ?? 0
-        const specificity = Math.log(1 + (documents - frequency + 0.5) / (frequency + 0.5))
-        const value = weight * specificity
+    return JSON.stringify({
+        task: operation.task,
+        operation: operation.id,
+        sequence: operation.sequence,
+        parent: operation.parent,
+        kind: operation.kind,
+        createdAt: timestamp(operation.createdAt),
+        payload: operation.payload
+    }, null, 2)
+}
 
-        available += value
+function contextualText(value: unknown) {
 
-        if (found.has(token)) {
+    if (typeof value === "string") return value
+    if (value === undefined || value === null) return ""
 
-            matched += value
-            matches.push(token)
-        }
+    try {
+        return JSON.stringify(value) ?? "undefined"
+    } catch {
+        return "[unserializable input]"
+    }
+}
+
+function tokenBudget(value: number, minimum: number, maximum: number, name: string) {
+
+    if (!Number.isInteger(value) || value < minimum || value > maximum) {
+        throw new Error(`${name} budget must be between ${minimum} and ${maximum} estimated tokens`)
     }
 
-    const lexical = available > 0 ? matched / available : 0
-    const normalized = content.toLocaleLowerCase()
-    const phrase = focus.reduce((strongest, signal) => {
+    return value
+}
 
-        const value = signal.content.trim().toLocaleLowerCase()
+function executionPriority(status: TaskStatus) {
 
-        return value.length >= 4 && normalized.includes(value)
-            ? Math.max(strongest, Math.min(1, signal.weight / 2))
-            : strongest
+    return status === "running" ? 0 : status === "paused" ? 1 : 2
+}
 
-    }, 0)
-    const association = lexical + phrase * 0.25
-    const temporal = 1 / (1 + Math.log2(1 + distance))
-    const reinforcement = memory?.strength ?? 0
+function add(values: Candidate[], value: Candidate | undefined) {
 
-    return {
-        association,
-        temporal,
-        reinforcement,
-        retrievalCount: memory?.retrievalCount ?? 0,
-        lastRetrievedAt: memory?.lastRetrievedAt ?? null,
-        score: association + temporal * 0.15 + reinforcement * 0.25,
-        matches: Object.freeze(matches)
-    }
+    if (value && !values.some(candidate => candidate.operation.id === value.operation.id)) values.push(value)
 }
 
 function tokens(value: string) {
 
     return new Set(value.toLocaleLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [])
-}
-
-function result(
-    candidate: Candidate,
-    selection: MemoryResult["selection"],
-    perception: SelectionPerception
-): MemoryResult {
-
-    const operation = candidate.operation
-
-    if (!operation.task) throw new Error("Memory selected an operation without a Task")
-
-    return Object.freeze({
-        sequence: operation.sequence,
-        operation: operation.id,
-        task: operation.task,
-        parent: operation.parent,
-        kind: operation.kind,
-        content: candidate.content,
-        source: candidate.source,
-        method: candidate.method,
-        tool: candidate.tool,
-        call: candidate.call,
-        selection,
-        reason: perception.reason,
-        score: perception.score,
-        association: perception.association,
-        reinforcement: perception.reinforcement,
-        retrievalCount: perception.retrievalCount,
-        lastRetrievedAt: perception.lastRetrievedAt,
-        matches: perception.matches,
-        anchor: perception.anchor,
-        createdAt: operation.createdAt
-    })
 }
 
 function record(value: unknown) {
@@ -1372,34 +1326,24 @@ function text(value: unknown) {
     return typeof value === "string" ? value : ""
 }
 
-function contextualText(value: unknown) {
-
-    if (typeof value === "string") return value
-
-    if (value === undefined || value === null) return ""
-
-    return json(value)
-}
-
-function json(value: unknown): string {
-
-    try {
-        return JSON.stringify(value) ?? "undefined"
-    } catch {
-        return "[unserializable input]"
-    }
-}
-
-function shorten(value: string, maximum: number) {
-
-    return value.length <= maximum
-        ? value
-        : `${value.slice(0, Math.max(0, maximum - 1))}…`
-}
-
 function rounded(value: number) {
 
     return Math.round(value * 1_000) / 1_000
+}
+
+function timestamp(value: number) {
+
+    return new Date(value).toISOString()
+}
+
+function xml(value: string) {
+
+    return value
+        .replaceAll("&", "&amp;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&apos;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
 }
 
 type Candidate = Readonly<{
@@ -1411,12 +1355,20 @@ type Candidate = Readonly<{
     call: string | null
 }>
 
+type Activation = Readonly<{
+    association: number
+    temporal: number
+    reinforcement: number
+    retrievalCount: number
+    lastRetrievedAt: number | null
+    semanticScore: number
+    ruleScore: number
+    matches: readonly string[]
+}>
+
 type Selected = Readonly<{
     value: Candidate
     selection: MemoryResult["selection"]
-}> & SelectionPerception
-
-type SelectionPerception = Readonly<{
     reason: MemoryResult["reason"]
     score: number
     association: number | null
@@ -1425,16 +1377,6 @@ type SelectionPerception = Readonly<{
     lastRetrievedAt: number | null
     matches: readonly string[]
     anchor: string | null
-}>
-
-type Activation = Readonly<{
-    association: number
-    temporal: number
-    reinforcement: number
-    retrievalCount: number
-    lastRetrievedAt: number | null
-    score: number
-    matches: readonly string[]
 }>
 
 type ContextIndex = Readonly<{
@@ -1455,7 +1397,6 @@ type TaskState = Readonly<{
     endedAt: number | null
     sequence: number
     operations: readonly Operation[]
-    candidates: readonly Candidate[]
 }>
 
 type TaskOrigin = Readonly<{
@@ -1477,30 +1418,24 @@ type TaskExecution = Readonly<{
     cycleStartedAt: number | null
 }>
 
-type TaskAwareness = Readonly<{
-    state: TaskState
-    operations: readonly Candidate[]
-    sequence: number
+type CycleState = Readonly<{
+    id: string
+    run: string
+    started: Operation
+    startedAt: number
+    endedAt: number | null
+    status: "running" | "completed" | "failed"
+    operations: readonly Operation[]
 }>
 
-type TaskContinuity = Readonly<{
-    state: TaskState
-    distance: number
-    operations: readonly Candidate[]
-}>
-
-type WorkingSignal = MemoryFocus & Readonly<{
-    task: string
-    operation: string
-    method: string
-    tool: string | null
-    call: string | null
-    createdAt: number
-}>
-
-type Awareness = Readonly<{
-    tasks: readonly TaskAwareness[]
-    omitted: number
-}>
+type MutableCycle = {
+    id: string
+    run: string
+    started: Operation
+    startedAt: number
+    endedAt: number | null
+    status: "running" | "completed" | "failed"
+    operations: Operation[]
+}
 
 const terminalTaskStatuses = new Set<TaskStatus>(["cancelled", "completed", "failed"])

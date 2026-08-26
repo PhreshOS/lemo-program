@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS messages (
     source_task_id TEXT NOT NULL REFERENCES tasks(id),
     source_call TEXT NOT NULL,
     target_task_id TEXT NOT NULL REFERENCES tasks(id),
-    content TEXT NOT NULL,
+    event TEXT NOT NULL,
+    message TEXT NOT NULL,
     created_at INTEGER NOT NULL,
     delivered_at INTEGER
 ) STRICT

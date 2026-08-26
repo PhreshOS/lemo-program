@@ -7,6 +7,7 @@ import LemoDatabase, {
 } from "../source/server/core/lemo/database"
 import Lemo from "../source/server/core/lemo/lemo"
 import Memory from "../source/server/core/lemo/memory"
+import { estimatedTokens } from "../source/server/core/lemo/token-budget"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
 import type { ToolContext } from "../source/server/core/lemo/runtime/tool"
@@ -32,6 +33,8 @@ assert.match(JSON.stringify(processes.definition.parameters), /"const":"wait"/)
 assert.match(JSON.stringify(endpoints.definition.parameters), /"const":"wait"/)
 assert.match(JSON.stringify(windows.definition.parameters), /"const":"wait"/)
 assert.match(JSON.stringify(tasks.definition.parameters), /"const":"send"/)
+assert.match(JSON.stringify(tasks.definition.parameters), /"const":"read_block"/)
+assert.match(JSON.stringify(tasks.definition.parameters), /"const":"wait_message"/)
 
 for (const tool of [
     toolsTool,
@@ -109,20 +112,15 @@ assert.deepEqual(inlineShellResult.output, {
 const largeShellResult = await shellTool.execute(
     shellTool.parse({ action: "run", command: "printf '%020000d' 0" }).input,
     shellContext
-) as Readonly<{ output: Readonly<{ type: string, id: string, bytes: number }> }>
+) as Readonly<{ output: Readonly<{ type: string, bytes: number, content: string }> }>
 
-assert.equal(largeShellResult.output.type, "temporary")
+assert.equal(largeShellResult.output.type, "stored")
 assert.equal(largeShellResult.output.bytes, 20_000)
-
-const retainedShellOutput = await shellTool.execute(shellTool.parse({
-    action: "read",
-    output: largeShellResult.output.id,
-    offset: 19_990,
-    limit: 10
-}).input, shellContext) as Readonly<{ content: string, next: number | null }>
-
-assert.equal(retainedShellOutput.content, "0000000000")
-assert.equal(retainedShellOutput.next, null)
+assert.equal(largeShellResult.output.content.length, 20_000)
+assert.equal(
+    (shellTool.modelOutput?.(largeShellResult) as { output: { content?: string } }).output.content,
+    undefined
+)
 
 const immediateEvents = {
     async *events() { yield Object.freeze({ value: "received" }) }
@@ -298,18 +296,19 @@ model = {
         assert(input)
 
         const snapshot = request.messages.find(message => (
-            message.role === "system" && message.content.startsWith("# Reconstructed Mind Context")
+            message.role === "system" && message.content.startsWith("<perceptual_field")
         ))
 
         assert(snapshot)
-        assert(snapshot.content.includes('<self task='))
+        assert(estimatedTokens(snapshot.content) <= 32_000)
+        assert(snapshot.content.includes('<current_task task='))
         assert.match(snapshot.content, /<execution run="[^"]+" reason="(?:created|continued)" startedAt="[^"]+" cycle="[^"]+" cycleStartedAt="[^"]+">/)
         assert(snapshot.content.includes('<llm_model role="active" provider="test" id="test-model" />'))
         assert(snapshot.content.includes('<llm_model role="initial" provider="test" id="test-model" />'))
-        assert(snapshot.content.includes('<immediate_continuity precedence="before-associative-memory">'))
-        assert(snapshot.content.includes('<active_tasks omitted='))
-        assert(snapshot.content.includes('<shared_memory role="reinforced-and-associative-memory"'))
-        assert(snapshot.content.includes("</shared_memory>"))
+        assert(snapshot.content.includes('<nearby_tasks budget='))
+        assert(snapshot.content.includes('<semantic_information budget='))
+        assert(snapshot.content.includes('<rules budget='))
+        assert(snapshot.content.includes('<inbox budget='))
 
         snapshots.set(input, [...snapshots.get(input) ?? [], snapshot.content])
 
@@ -399,7 +398,7 @@ model = {
         if (input === "delegated child") {
 
             assert.match(snapshot.content, /<origin type="task" task="[^"]+" call="create-child" \/>/)
-            assert.match(snapshot.content, /<objective source="task:[^"]+" method="task-input"/)
+            assert.match(snapshot.content, /<objective operation="[^"]+" sequence="\d+" kind="task.input"/)
 
             yield { type: "text" as const, content: "delegated child:complete" }
 
@@ -587,7 +586,7 @@ for (const [input, task] of [["first", firstTask], ["second", secondTask]] as co
 
     assert(recalled?.length)
     assert(recalled.every(snapshot => !snapshot.includes(`<episode task="${task.id}">`)))
-    assert(recalled.some(snapshot => snapshot.includes('source="tool:tools"')))
+    assert(recalled.some(snapshot => snapshot.includes('tool="tools"')))
 }
 
 const recordedInput = operations.find(operation => operation.task_id === firstTask.id)
@@ -599,7 +598,7 @@ assert.deepEqual(JSON.parse(String(recordedInput?.payload)), {
 })
 
 assert(!operations.some(operation => operation.kind === "model.request"))
-assert(!operations.some(operation => String(operation.payload).includes("# Reconstructed Mind Context")))
+assert(!operations.some(operation => String(operation.payload).includes("<perceptual_field")))
 
 const memoryTask = await lemo.task({ input: "recall first", model })
 
@@ -627,7 +626,7 @@ assert(memoryPayload.output.every(item => (
 
 assert(memoryPayload.output.reduce((size, item) => (
     typeof item === "object" && item !== null && "content" in item
-        ? size + String(item.content).length + 180
+        ? size + estimatedTokens(String(item.content)) + 96
         : size
 ), 0) <= 1_000)
 
@@ -728,7 +727,9 @@ await fittingDatabase.createTask("oversized", { input: "large ".repeat(300) })
 const fitting = await new Memory(fittingDatabase).recall({ query: "needle", budget: 1_000 })
 
 assert(fitting.some(result => result.task === "small"))
-assert(fitting.reduce((size, result) => size + result.content.length + 180, 0) <= 1_000)
+assert(fitting.reduce((size, result) => (
+    size + estimatedTokens(result.content) + 96
+), 0) <= 1_000)
 
 const activationSource = new DatabaseSync(":memory:")
 const activationDatabase = await LemoDatabase.open(activationSource)
@@ -867,6 +868,42 @@ assert.deepEqual((storedToolResult?.payload as Record<string, unknown>).output, 
     transport: "raw-preserved"
 })
 
+assert(storedToolResult)
+
+const toolResultMemory = new Memory(toolResultDatabase)
+const reconstructedTask = await toolResultMemory.task("workspace-history", 1_000)
+const reconstructedBlock = await toolResultMemory.block(
+    "workspace-history",
+    storedToolResult.id,
+    0,
+    256
+)
+
+assert(reconstructedTask.content.includes('<task task="workspace-history"'))
+assert(reconstructedBlock.content.includes(workspaceIdentity))
+assert.equal(reconstructedBlock.next, null)
+
+const longBlock = await toolResultDatabase.appendToTask("workspace-history", "tool.result", {
+    call: "long-output",
+    name: "shell",
+    ok: true,
+    output: { content: "durable-output ".repeat(2_000) },
+    modelOutput: { preview: "durable-output", truncated: true }
+})
+const firstBlockPage = await toolResultMemory.block("workspace-history", longBlock.id, 0, 256)
+
+assert(firstBlockPage.next !== null)
+assert(firstBlockPage.totalTokens > firstBlockPage.tokens)
+
+const secondBlockPage = await toolResultMemory.block(
+    "workspace-history",
+    longBlock.id,
+    firstBlockPage.next,
+    256
+)
+
+assert.equal(secondBlockPage.offset, firstBlockPage.next)
+
 const mindSource = new DatabaseSync(":memory:")
 const mindDatabase = await LemoDatabase.open(mindSource)
 
@@ -910,20 +947,19 @@ const mindSnapshot = await new Memory(mindDatabase).context(
     (await mindDatabase.operations("self", { limit: 10, order: "oldest" })).operations
 )
 
-assert(mindSnapshot.includes('<self task="self" perspective="self" relation="self" status="running"'))
+assert(mindSnapshot.includes('<current_task task="self" perspective="self" relation="self" status="running"'))
 assert(mindSnapshot.includes('<origin type="user" task="" call="" />'))
 assert(mindSnapshot.includes('<execution run="self-run" reason="created"'))
 assert(mindSnapshot.includes('<llm_model role="active" provider="test" id="test-model" />'))
-assert(mindSnapshot.includes('<task task="running-related" perspective="other" relation="concurrent" status="running"'))
-assert(mindSnapshot.includes('<task task="running-unrelated" perspective="other" relation="concurrent" status="running"'))
+assert(mindSnapshot.includes('<task task="running-related" perspective="other" relation="nearby" status="running"'))
+assert(mindSnapshot.includes('<task task="running-unrelated" perspective="other" relation="nearby" status="running"'))
 assert(mindSnapshot.includes("Waiting for the browser workspace event"))
 assert(mindSnapshot.includes("The browser workspace event has now arrived"))
-assert(mindSnapshot.includes('<episode task="completed-related" perspective="other" relation="associative" status="completed"'))
+assert(mindSnapshot.includes('<task task="completed-related" perspective="other" relation="nearby" status="completed"'))
 assert(mindSnapshot.includes('source="lemo" method="model-message"'))
 assert.match(mindSnapshot, /generatedAt="\d{4}-\d{2}-\d{2}T/)
-assert(mindSnapshot.includes('reason="possible-semantic-association"'))
-assert(!mindSnapshot.includes("completed-noise"))
-assert(!mindSnapshot.includes('<episode task="self"'))
+assert(mindSnapshot.includes('<semantic_information budget='))
+assert(!mindSnapshot.includes('<task task="self"'))
 
 const messageSource = new DatabaseSync(":memory:")
 const messageDatabase = await LemoDatabase.open(messageSource)
@@ -932,6 +968,8 @@ await messageDatabase.createTask("sender", { input: "Coordinate the work" })
 await messageDatabase.appendToTask("sender", "task.run.started", { run: "sender-run" })
 await messageDatabase.createTask("receiver", { input: "Perform the coordinated work" })
 await messageDatabase.appendToTask("receiver", "task.run.started", { run: "receiver-run" })
+const publishedMessages: string[] = []
+const stopMessages = messageDatabase.subscribeMessages(message => publishedMessages.push(message.event))
 
 for (let index = 0; index < 12; index++) {
 
@@ -939,9 +977,14 @@ for (let index = 0; index < 12; index++) {
         sourceTask: "sender",
         sourceCall: `message-call-${index}`,
         targetTask: "receiver",
-        content: `[directed-message:${String(index).padStart(2, "0")}]`
+        event: "coordination.progress",
+        message: `[directed-message:${String(index).padStart(2, "0")}]`
     })
 }
+
+stopMessages()
+assert.equal(publishedMessages.length, 12)
+assert(publishedMessages.every(event => event === "coordination.progress"))
 
 const receiverOperations = (await messageDatabase.operations("receiver", {
     limit: 10,
@@ -949,7 +992,8 @@ const receiverOperations = (await messageDatabase.operations("receiver", {
 })).operations
 const firstMessageContext = await new Memory(messageDatabase).context(receiverOperations)
 
-assert(firstMessageContext.includes("## Messages"))
+assert(firstMessageContext.includes("<inbox "))
+assert(firstMessageContext.includes('event="coordination.progress"'))
 assert.equal((firstMessageContext.match(/  <message /g) ?? []).length, maximumContextMessages)
 assert(!firstMessageContext.includes("[directed-message:00]"))
 assert(!firstMessageContext.includes("[directed-message:01]"))
@@ -997,14 +1041,16 @@ await assert.rejects(messageDatabase.sendMessage({
     sourceTask: "sender",
     sourceCall: "too-late",
     targetTask: "receiver",
-    content: "This should not be accepted"
+    event: "coordination.complete",
+    message: "This should not be accepted"
 }), /completed Task cannot receive messages/)
 
 await assert.rejects(messageDatabase.sendMessage({
     sourceTask: "sender",
     sourceCall: "self-message",
     targetTask: "sender",
-    content: "This should not be accepted"
+    event: "coordination.invalid",
+    message: "This should not be accepted"
 }), /cannot send a message to itself/)
 
 const perceptualSource = new DatabaseSync(":memory:")
@@ -1033,16 +1079,15 @@ const continuitySnapshot = await new Memory(continuityMindDatabase).context(
 )
 
 assert(continuitySnapshot.includes(
-    '<task task="immediate" perspective="other" relation="immediately-before" status="completed"'
-))
-assert(continuitySnapshot.includes('reason="temporal-continuity"'))
-assert(continuitySnapshot.includes(
-    '<task task="recent-background-a" perspective="other" relation="recent-predecessor" status="completed"'
+    '<task task="immediate" perspective="other" relation="nearby" status="completed"'
 ))
 assert(continuitySnapshot.includes(
-    '<episode task="older-association" perspective="other" relation="associative" status="completed"'
+    '<task task="recent-background-a" perspective="other" relation="nearby" status="completed"'
 ))
-assert(continuitySnapshot.includes('reason="semantic-association"'))
+assert(continuitySnapshot.includes(
+    '<task task="older-association" perspective="other" relation="nearby" status="completed"'
+))
+assert(continuitySnapshot.includes('<semantic_information budget='))
 assert(continuitySnapshot.indexOf('task="immediate"') < continuitySnapshot.indexOf('task="older-association"'))
 
 const transcriptSource = new DatabaseSync(":memory:")

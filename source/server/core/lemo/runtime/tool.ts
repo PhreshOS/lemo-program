@@ -1,13 +1,18 @@
 import type { LLMToolDefinition } from "../../llm/model"
 import type {
-    OperationPage,
     TaskListRequest,
     TaskMessage,
     TaskPage,
     TaskSummary
 } from "../database"
 import type { MemoryRecord } from "../memory"
-import type { MemoryRecallOptions, MemoryRecallRequest, MemoryResult } from "../memory"
+import type {
+    MemoryRecallOptions,
+    MemoryRecallRequest,
+    MemoryResult,
+    OperationBlockPage,
+    TaskContextPage
+} from "../memory"
 import type Operation from "../operation"
 import type { PromptAnswer, WaitAnswerRequest } from "./prompt-contract"
 
@@ -74,16 +79,15 @@ export type ToolRecord = Readonly<{
 
 export type ToolTasks = Readonly<{
     list(request: TaskListRequest): Promise<TaskPage>
-    read(task: string, limit: number, before?: number): Promise<Readonly<{
-        task: TaskSummary
-        operations: OperationPage
-    }>>
+    read(task: string, tokens?: number, before?: number): Promise<TaskContextPage>
+    readBlock(task: string, operation: string, offset?: number, tokens?: number): Promise<OperationBlockPage>
     create(input: string): Promise<TaskSummary>
-    send(task: string, message: string): Promise<TaskMessage>
+    send(task: string, event: string, message: string): Promise<TaskMessage>
     pause(task: string): Promise<TaskSummary>
     continue(task: string): Promise<TaskSummary>
     cancel(task: string): Promise<TaskSummary>
     wait(request: TaskWaitRequest): Promise<TaskEvent>
+    waitMessage(event: string, timeout?: number): Promise<TaskMessage>
 }>
 
 export type TaskEventName = "created" | "running" | "paused" | "continued" | "completed" | "failed" | "cancelled"

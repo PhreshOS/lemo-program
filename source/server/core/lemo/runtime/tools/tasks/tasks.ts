@@ -1,5 +1,10 @@
 import { z } from "zod"
-import { maximumOperationPage, maximumTaskPage } from "../../../database"
+import { maximumTaskPage } from "../../../database"
+import {
+    defaultMemoryBudget,
+    maximumMemoryBudget,
+    minimumMemoryBudget
+} from "../../../memory"
 import defineTool from "../../define-tool"
 import docs from "./docs.md?raw"
 
@@ -16,6 +21,8 @@ const event = z.enum([
 ])
 
 const task = z.string().trim().min(1)
+const messageEvent = z.string().trim().min(1).max(256)
+const tokenBudget = z.number().int().min(minimumMemoryBudget).max(maximumMemoryBudget)
 
 const input = z.discriminatedUnion("action", [
     z.object({
@@ -32,13 +39,21 @@ const input = z.discriminatedUnion("action", [
     z.object({
         action: z.literal("read"),
         task,
-        limit: z.number().int().min(1).max(maximumOperationPage).optional(),
+        tokens: tokenBudget.optional(),
         before: z.number().int().positive().optional()
+    }).strict(),
+    z.object({
+        action: z.literal("read_block"),
+        task,
+        operation: z.string().trim().min(1),
+        offset: z.number().int().nonnegative().optional(),
+        tokens: tokenBudget.optional()
     }).strict(),
     z.object({ action: z.literal("create"), input: z.string().trim().min(1) }).strict(),
     z.object({
         action: z.literal("send"),
         task,
+        event: messageEvent,
         message: z.string().trim().min(1)
     }).strict(),
     z.object({ action: z.literal("pause"), task }).strict(),
@@ -49,6 +64,11 @@ const input = z.discriminatedUnion("action", [
         tasks: z.array(task).min(1).max(maximumTaskPage).optional(),
         events: z.array(event).min(1).max(7).optional(),
         timeout: z.number().int().positive().optional()
+    }).strict(),
+    z.object({
+        action: z.literal("wait_message"),
+        event: messageEvent,
+        timeout: z.number().int().positive().optional()
     }).strict()
 ])
 
@@ -58,7 +78,7 @@ const tasks = defineTool({
     docs,
     input,
     name: "tasks",
-    description: "Create, find, inspect, message, control, and wait for Lemo Tasks.",
+    description: "Create, find, inspect, message, control, and coordinate Lemo Tasks.",
     async execute(request, context) {
 
         if (request.action === "list") {
@@ -79,14 +99,24 @@ const tasks = defineTool({
 
             return context.tasks.read(
                 request.task,
-                request.limit ?? defaultOperationLimit,
+                request.tokens ?? defaultMemoryBudget,
                 request.before
+            )
+        }
+
+        if (request.action === "read_block") {
+
+            return context.tasks.readBlock(
+                request.task,
+                request.operation,
+                request.offset,
+                request.tokens
             )
         }
 
         if (request.action === "create") return context.tasks.create(request.input)
 
-        if (request.action === "send") return context.tasks.send(request.task, request.message)
+        if (request.action === "send") return context.tasks.send(request.task, request.event, request.message)
 
         if (request.action === "pause") return context.tasks.pause(request.task)
 
@@ -94,15 +124,16 @@ const tasks = defineTool({
 
         if (request.action === "cancel") return context.tasks.cancel(request.task)
 
-        return context.tasks.wait({
+        if (request.action === "wait") return context.tasks.wait({
             tasks: request.tasks,
             events: request.events,
             timeout: request.timeout
         })
+
+        return context.tasks.waitMessage(request.event, request.timeout)
     }
 })
 
 export default tasks
 
 const defaultTaskLimit = 20
-const defaultOperationLimit = 100
