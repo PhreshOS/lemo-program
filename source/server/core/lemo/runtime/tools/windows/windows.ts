@@ -1,44 +1,15 @@
 import { host, type Process, type Window } from "@phreshos/server"
-import { z } from "zod"
 import defineTool from "../../define-tool"
+import systemTool from "../../system-tool"
 import waitEvent from "../../wait-event"
-import docs from "./docs.md?raw"
 
-const value = z.union([z.number().finite(), z.string().trim().min(1)])
-    .describe("Numbers are absolute pixels: 0.5 means half a pixel. Use a string such as 50% or 1/2 for workspace-relative geometry.")
-
-const position = z.object({ x: value, y: value }).strict()
-
-const size = z.object({ width: value, height: value }).strict()
-
-const coordinates = {
-    process: z.string().trim().min(1),
-    program: z.string().trim().min(1).optional()
-}
-
-const input = z.discriminatedUnion("action", [
-    z.object({ action: z.literal("inspect"), ...coordinates }).strict(),
-    z.object({ action: z.literal("move"), ...coordinates, position }).strict(),
-    z.object({ action: z.literal("resize"), ...coordinates, size }).strict(),
-    z.object({ action: z.literal("setGeometry"), ...coordinates, position, size }).strict(),
-    z.object({ action: z.literal("minimize"), ...coordinates, minimized: z.boolean().optional() }).strict(),
-    z.object({ action: z.literal("changeTitle"), ...coordinates, title: z.string() }).strict(),
-    z.object({ action: z.literal("raise"), ...coordinates }).strict(),
-    z.object({
-        action: z.literal("wait"),
-        ...coordinates,
-        event: z.enum(["move", "resize", "geometry", "minimize", "changeTitle", "front"]),
-        timeout: z.number().int().positive().optional()
-    }).strict()
-])
+const contract = systemTool("window")
 
 /** Reads and controls the authoritative Window of one live Client Endpoint. */
 const windows = defineTool({
     order: 9,
-    docs,
-    input,
+    ...contract,
     name: "windows",
-    description: "Inspect or change a live Client Window. Geometry numbers are pixels, never proportions; use strings such as \"50%\" or \"1/2\" for workspace-relative dimensions.",
     async execute(request, context) {
 
         const process = await requiredProcess(request.process, request.program)

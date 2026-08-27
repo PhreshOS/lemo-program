@@ -1,44 +1,15 @@
 import { host, type Program } from "@phreshos/server"
-import { z } from "zod"
 import defineTool from "../../define-tool"
+import systemTool from "../../system-tool"
 import waitEvent from "../../wait-event"
-import docs from "./docs.md?raw"
 
-const registryEvent = z.enum(["create", "forget", "install", "uninstall"])
-const programEvent = z.enum(["forget", "uninstall"])
-
-const input = z.discriminatedUnion("action", [
-    z.object({
-        action: z.literal("list"),
-        installedOnly: z.boolean().optional()
-    }).strict(),
-    z.object({
-        action: z.literal("inspect"),
-        program: z.string().trim().min(1)
-    }).strict(),
-    z.object({
-        action: z.literal("agent"),
-        program: z.string().trim().min(1)
-    }).strict(),
-    z.object({
-        action: z.literal("wait"),
-        event: registryEvent,
-        program: z.string().trim().min(1).optional(),
-        timeout: z.number().int().positive().optional()
-    }).strict()
-]).refine(request => (
-    request.action !== "wait"
-    || request.program === undefined
-    || programEvent.safeParse(request.event).success
-), { message: "A specific Program emits only forget and uninstall events" })
+const contract = systemTool("program")
 
 /** Reads installed Program and Endpoint declarations from the authoritative Host. */
 const programs = defineTool({
     order: 5,
-    docs,
-    input,
+    ...contract,
     name: "programs",
-    description: "Learn a PhreshOS Program and read its operating policy before acting on it.",
     async execute(request, context) {
 
         if (request.action === "wait") {
@@ -70,9 +41,20 @@ const programs = defineTool({
 
             const installedOnly = request.installedOnly ?? true
 
-            return await Promise.all((await host.program.list(installedOnly)).map(program => (
-                summary(program, installedOnly ? true : undefined)
-            )))
+            const query = request.search?.toLocaleLowerCase()
+            const found = (await host.program.list(installedOnly)).filter(program => (
+                !query || [program.identity, program.name, program.description]
+                    .some(value => value?.toLocaleLowerCase().includes(query))
+            ))
+            const selected = found
+                .sort((left, right) => left.identity.localeCompare(right.identity))
+                .slice(0, request.limit ?? 30)
+
+            return Object.freeze({
+                data: Object.freeze(await Promise.all(selected.map(program => summary(program, installedOnly ? true : undefined)))),
+                total: found.length,
+                truncated: found.length > selected.length
+            })
         }
 
         const program = await host.program.find(request.program)

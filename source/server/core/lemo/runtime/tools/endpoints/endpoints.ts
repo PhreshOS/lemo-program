@@ -1,82 +1,15 @@
 import { host, type Process } from "@phreshos/server"
-import { z } from "zod"
 import defineTool from "../../define-tool"
+import systemTool from "../../system-tool"
 import waitEvent from "../../wait-event"
-import docs from "./docs.md?raw"
 
-const coordinates = {
-    process: z.string().trim().min(1),
-    program: z.string().trim().min(1).optional()
-}
-
-const endpoint = z.enum(["server", "client"])
-
-const jsonValue = z.json()
-const payload = z.custom<z.infer<typeof jsonValue>>(value => jsonValue.safeParse(value).success)
-    .meta({
-        oneOf: [
-            { type: "object" },
-            { type: "array", items: {} },
-            { type: "string" },
-            { type: "number" },
-            { type: "boolean" },
-            { type: "null" }
-        ]
-    })
-
-const input = z.discriminatedUnion("action", [
-    z.object({
-        action: z.literal("inspect"),
-        ...coordinates,
-        endpoint
-    }).strict(),
-    z.object({
-        action: z.literal("start"),
-        ...coordinates,
-        endpoint
-    }).strict(),
-    z.object({
-        action: z.literal("stop"),
-        ...coordinates,
-        endpoint
-    }).strict(),
-    z.object({
-        action: z.literal("waitReady"),
-        ...coordinates,
-        endpoint: z.literal("server"),
-        timeout: z.number().int().positive().optional()
-    }).strict(),
-    z.object({
-        action: z.literal("ask"),
-        ...coordinates,
-        endpoint: z.literal("server"),
-        event: z.string().trim().min(1),
-        payload: payload.optional(),
-        timeout: z.number().int().positive().optional()
-    }).strict(),
-    z.object({
-        action: z.literal("publish"),
-        ...coordinates,
-        endpoint,
-        event: z.string().trim().min(1),
-        payload: payload.optional()
-    }).strict(),
-    z.object({
-        action: z.literal("wait"),
-        ...coordinates,
-        endpoint,
-        event: z.string().trim().min(1),
-        timeout: z.number().int().positive().optional()
-    }).strict()
-])
+const contract = systemTool("endpoint")
 
 /** Reads and controls individual Process Endpoints. */
 const endpoints = defineTool({
     order: 8,
-    docs,
-    input,
+    ...contract,
     name: "endpoints",
-    description: "Inspect, control, and communicate directly with PhreshOS Process Endpoints.",
     async execute(request, context) {
 
         const process = await requiredProcess(request.process, request.program)

@@ -1,83 +1,16 @@
 import { host, type Process } from "@phreshos/server"
-import { z } from "zod"
 import defineTool from "../../define-tool"
+import systemTool from "../../system-tool"
 import type { ToolContext } from "../../tool"
 import waitEvent from "../../wait-event"
-import docs from "./docs.md?raw"
 
-const processEvent = z.enum(["endpointStart", "endpointStop", "create", "exit"])
-
-const value = z.union([z.number().finite(), z.string().trim().min(1)])
-    .describe("Pixels as a number, or a workspace-relative expression such as 50% or 1/2.")
-
-const client = z.object({
-    title: z.string().optional(),
-    size: z.object({ width: value, height: value }).strict().optional(),
-    position: z.object({ x: value, y: value }).strict().optional(),
-    layer: z.enum(["window", "under", "over"]).optional(),
-    location: z.string().optional(),
-    minimize: z.boolean().optional()
-}).strict().describe(
-    "Selects the Client Endpoint and optionally overrides its Window. Omission of individual Window properties preserves Program defaults."
-)
-
-const launch = z.object({
-    name: z.string().trim().min(1).optional(),
-    server: z.boolean().optional().describe(
-        "Selects the Server Endpoint. Omission inherits the Program's server start default; pass false to disable it explicitly."
-    ),
-    client: z.union([z.boolean(), client]).optional().describe(
-        "Selects the Client Endpoint. Omission inherits the Program's client start default; pass false to disable it explicitly."
-    ),
-    options: z.record(z.string(), z.string()).optional()
-}).strict().describe(
-    "Complete Process launch. Endpoint selections inherit Program defaults when omitted, so server-only and client-only launches must disable the other Endpoint explicitly."
-)
-
-const input = z.discriminatedUnion("action", [
-    z.object({
-        action: z.literal("list"),
-        program: z.string().trim().min(1).optional()
-    }).strict(),
-    z.object({
-        action: z.literal("inspect"),
-        process: z.string().trim().min(1),
-        program: z.string().trim().min(1).optional()
-    }).strict(),
-    z.object({
-        action: z.literal("create"),
-        program: z.string().trim().min(1),
-        launch: launch.optional()
-    }).strict(),
-    z.object({
-        action: z.literal("findOrCreate"),
-        program: z.string().trim().min(1),
-        launch: launch.extend({ name: z.string().trim().min(1) })
-    }).strict(),
-    z.object({
-        action: z.literal("exit"),
-        process: z.string().trim().min(1)
-    }).strict(),
-    z.object({
-        action: z.literal("wait"),
-        event: processEvent,
-        process: z.string().trim().min(1).optional(),
-        program: z.string().trim().min(1).optional(),
-        timeout: z.number().int().positive().optional()
-    }).strict()
-]).refine(request => (
-    request.action !== "wait"
-    || request.process === undefined
-    || request.event !== "create"
-), { message: "An individual Process does not emit create" })
+const contract = systemTool("process")
 
 /** Reads and controls live Processes through their authoritative Program owners. */
 const processes = defineTool({
     order: 6,
-    docs,
-    input,
+    ...contract,
     name: "processes",
-    description: "List, inspect, create, find or create, and exit PhreshOS Processes.",
     async execute(request, context) {
 
         if (request.action === "wait") {
@@ -111,7 +44,20 @@ const processes = defineTool({
                 ? await (await requiredProgram(request.program)).process.list()
                 : await host.process.list()
 
-            return await Promise.all(found.map(snapshot))
+            const query = request.search?.toLocaleLowerCase()
+            const matching = found.filter(process => (
+                !query || [process.identity, process.name]
+                    .some(value => value?.toLocaleLowerCase().includes(query))
+            ))
+            const selected = matching
+                .sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime())
+                .slice(0, request.limit ?? 30)
+
+            return Object.freeze({
+                data: Object.freeze(await Promise.all(selected.map(snapshot))),
+                total: matching.length,
+                truncated: matching.length > selected.length
+            })
         }
 
         if (request.action === "inspect") {
@@ -121,7 +67,7 @@ const processes = defineTool({
 
         if (request.action === "exit") {
 
-            const process = await requiredProcess(request.process)
+            const process = await requiredProcess(request.process, request.program)
 
             const before = await snapshot(process)
 
