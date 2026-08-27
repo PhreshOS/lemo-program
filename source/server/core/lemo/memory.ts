@@ -77,7 +77,7 @@ export default class Memory {
         return this.builder.build(operations)
     }
 
-    /** Lazily reconstructs one Task through the Perceptual Field's Task shape. */
+    /** Lazily reconstructs one Task as a source-labelled event history. */
     public task(task: string, tokens?: number, before?: number): Promise<TaskContextPage> {
 
         return this.builder.task(task, tokens, before)

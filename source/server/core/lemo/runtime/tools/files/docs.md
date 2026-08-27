@@ -36,6 +36,11 @@ than 8 MiB; use `inspect` before working with unusually large files. Returned
 line ranges preserve the file's original line endings so they remain safe edit
 anchors.
 
+Repeating an equivalent `list`, `inspect`, or `read` after the underlying result
+remains unchanged is reported as `no-progress`. Use the existing evidence,
+request a specifically missing range, perform the intended change, or explain
+the blocker instead of repeating the observation.
+
 ## Create and write
 
 `create` creates a new file and fails if it already exists. Missing parent

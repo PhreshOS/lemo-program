@@ -12,6 +12,7 @@ type ToolOptions<Schema extends z.ZodType> = Readonly<{
     builtin?: boolean
     order?: number
     approval?(input: z.output<Schema>): ToolApproval | null | Promise<ToolApproval | null>
+    observation?(input: z.output<Schema>): boolean
     execute(input: z.output<Schema>, context: ToolContext): Promise<unknown>
     modelOutput?(output: unknown): unknown
 }>
@@ -43,6 +44,9 @@ export default function defineTool<Schema extends z.ZodType>(options: ToolOption
         },
         approval: options.approval
             ? (input: unknown) => options.approval!(input as z.output<Schema>)
+            : undefined,
+        observation: options.observation
+            ? (input: unknown) => options.observation!(input as z.output<Schema>)
             : undefined,
         execute: (input: unknown, context: ToolContext) => options.execute(input as z.output<Schema>, context),
         modelOutput: options.modelOutput

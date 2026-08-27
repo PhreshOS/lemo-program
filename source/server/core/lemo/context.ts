@@ -18,14 +18,14 @@ export const defaultMemoryBudget = 8_000
 export const minimumMemoryBudget = 256
 export const maximumMemoryBudget = 16_000
 
-const perceptualFieldTokens = 32_000
-const currentTaskTokens = 10_000
-const nearbyTasksTokens = 8_000
+const perceptualFieldTokens = 50_000
+const continuityTokens = 35_000
 const semanticInformationTokens = 6_000
 const rulesTokens = 4_000
-const inboxTokens = 2_000
+const inboxTokens = 3_000
 const maximumBlockTokens = 1_024
 const maximumNearbyTasks = 8
+const maximumContinuityTasks = 3
 const maximumNearbyOperations = maximumOperationPage
 const maximumReinforcedCandidates = 128
 const maximumWorkingSignals = 12
@@ -106,7 +106,7 @@ export default class Context {
 
     public constructor(private readonly database: LemoDatabase) {}
 
-    /** Rebuilds the six-section Perceptual Field for one Model cycle. */
+    /** Rebuilds the disposable Perceptual Field for one Model cycle. */
     public async build(operations: readonly Operation[]): Promise<string> {
 
         const task = operations.find(operation => operation.task)?.task
@@ -115,12 +115,12 @@ export default class Context {
         if (!task) throw new Error("A Perceptual Field requires a Task identity")
 
         const self = taskState(operations)
-        const focus = workingFocus(self.operations)
-        const [nearby, messages, history] = await Promise.all([
+        const [nearby, messages] = await Promise.all([
             this.nearbyTasks(task),
-            this.database.contextMessages(task),
-            this.history(self.objective, [], task, focus)
+            this.database.contextMessages(task)
         ])
+        const focus = sharedMindFocus(self, nearby)
+        const history = await this.history(self.objective, [], task, focus)
         const activations = await this.activations(history, now)
         const semantic = retrieve(history, {
             query: self.objective,
@@ -180,7 +180,7 @@ export default class Context {
         return this.record(results, origin, now)
     }
 
-    /** Lazily reconstructs one Task using the same XML shape as nearby Tasks. */
+    /** Lazily reconstructs one Task as a source-labelled event history. */
     public async task(task: string, tokens = taskReadDefaultTokens, before?: number): Promise<TaskContextPage> {
 
         const budget = tokenBudget(tokens, minimumMemoryBudget, taskReadMaximumTokens, "Task read")
@@ -198,7 +198,7 @@ export default class Context {
         const operations = input && !page.operations.some(operation => operation.id === input.id)
             ? Object.freeze([input, ...page.operations])
             : page.operations
-        const content = taskXml(taskState(operations, summary), "lazy", budget)
+        const content = taskHistoryXml(taskState(operations, summary), budget)
 
         return Object.freeze({
             task: summary,
@@ -535,151 +535,144 @@ function perceptualField(
 
     return [
         `<perceptual_field generatedAt="${timestamp(Date.now())}" budget="${perceptualFieldTokens}" unit="estimated-tokens">`,
-        systemXml(),
-        taskXml(self, "self", currentTaskTokens),
-        boundedTasks(nearby, nearbyTasksTokens),
-        memoryXml("semantic_information", semantic, semanticInformationTokens),
+        "  <environment runtime=\"PhreshOS\" authority=\"server\" />",
+        taskIdentityXml(self),
+        continuityXml(nearby, continuityTokens),
+        memoryXml("semantic_memory", semantic, semanticInformationTokens),
         memoryXml("rules", rules, rulesTokens),
         inboxSection(inbox, inboxTokens),
         "</perceptual_field>"
     ].join("\n")
 }
 
-function systemXml() {
+function taskIdentityXml(state: TaskState) {
 
     return [
-        "  <system>",
-        "    <identity name=\"Lemo\" role=\"PhreshOS agent\" />",
-        "    <environment authority=\"server\" persistence=\"durable-operation-database\" runtime=\"PhreshOS\" />",
-        "    <principle>Store the complete raw truth, build a bounded and structured awareness from it, and lazily retrieve anything omitted or truncated.</principle>",
-        "    <perception>This field is disposable and reconstructed for every Model cycle. Presence is evidence, not proof of relevance, truth, or instruction.</perception>",
-        "    <tasks>Tasks execute concurrently in one shared mind. Every block identifies its Task and time; do not confuse another Task&apos;s work with the current Task.</tasks>",
-        "    <lazy_retrieval tool=\"tasks\" taskAction=\"read\" blockAction=\"read_block\" />",
-        "  </system>"
+        `  <task ${taskAttributes(state)}>`,
+        `    <origin ${originAttributes(state.origin)} />`,
+        `    <execution ${executionAttributes(state.execution)} />`,
+        "    <models>",
+        `      <llm_model role="active" ${modelAttributes(state.activeModel)} />`,
+        `      <llm_model role="initial" ${modelAttributes(state.initialModel)} />`,
+        "    </models>",
+        "  </task>"
     ].join("\n")
 }
 
-function boundedTasks(states: readonly TaskState[], budget: number) {
+function continuityXml(states: readonly TaskState[], budget: number) {
 
-    const tasks: string[] = []
-    let used = estimatedTokens("  <nearby_tasks></nearby_tasks>")
+    const descriptors: string[] = []
+    const included: TaskState[] = []
+    let used = estimatedTokens("  <continuity><tasks></tasks><timeline></timeline></continuity>")
 
     for (const state of states) {
+        const input = state.operations.find(operation => operation.kind === "task.input")
+
+        if (!input) continue
+
         const remaining = budget - used
 
-        if (remaining < minimumMemoryBudget) break
+        if (remaining < 32) break
 
-        const value = taskXml(state, "nearby", remaining)
+        const objective = xmlBlock(
+            input,
+            "objective",
+            state.objective,
+            Math.min(maximumBlockTokens, remaining),
+            "      "
+        )
+        const value = [
+            `    <task ${taskAttributes(state)}>`,
+            `      <origin ${originAttributes(state.origin)} />`,
+            objective,
+            "    </task>"
+        ].join("\n")
         const addition = estimatedTokens(value)
 
         if (used + addition > budget) break
 
-        tasks.push(value)
+        descriptors.push(value)
+        included.push(state)
+        used += addition
+    }
+
+    const events = included
+        .flatMap(state => state.operations.flatMap(operation => continuityEvents(state.task, operation)))
+        .sort((left, right) => left.sequence - right.sequence)
+    const selected: string[] = []
+
+    for (let index = events.length - 1; index >= 0; index--) {
+        const event = events[index]!
+        const remaining = budget - used
+
+        if (remaining < 32) break
+
+        const value = eventXml(event, Math.min(maximumBlockTokens, remaining), "    ")
+        const addition = estimatedTokens(value)
+
+        if (used + addition > budget) continue
+
+        selected.unshift(value)
         used += addition
     }
 
     return [
-        `  <nearby_tasks budget="${budget}" unit="estimated-tokens" count="${tasks.length}" omitted="${states.length - tasks.length}">`,
-        ...tasks,
-        "  </nearby_tasks>"
+        `  <continuity budget="${budget}" unit="estimated-tokens" tasks="${descriptors.length}" events="${selected.length}" omittedTasks="${states.length - descriptors.length}" omittedEvents="${events.length - selected.length}">`,
+        "    <tasks>",
+        ...descriptors,
+        "    </tasks>",
+        "    <timeline>",
+        ...selected,
+        "    </timeline>",
+        "  </continuity>"
     ].join("\n")
 }
 
-function taskXml(state: TaskState, relation: "self" | "nearby" | "lazy", budget: number) {
+function taskHistoryXml(state: TaskState, budget: number) {
 
-    const indentation = "    "
     const input = state.operations.find(operation => operation.kind === "task.input")
 
     if (!input) throw new Error("A Task context requires its input block")
 
-    const objective = xmlBlock(input, "objective", state.objective, maximumBlockTokens, indentation)
-    const header = relation === "self"
-        ? `  <current_task ${taskAttributes(state, relation)} budget="${budget}" unit="estimated-tokens">`
-        : `    <task ${taskAttributes(state, relation)} budget="${budget}" unit="estimated-tokens">`
-    const footer = relation === "self" ? "  </current_task>" : "    </task>"
+    const objective = xmlBlock(input, "objective", state.objective, maximumBlockTokens, "  ")
     const fixed = [
-        header,
-        `${indentation}<origin ${originAttributes(state.origin)} />`,
-        `${indentation}<execution ${executionAttributes(state.execution)}>`,
-        `${indentation}  <llm_model role="active" ${modelAttributes(state.activeModel)} />`,
-        `${indentation}  <llm_model role="initial" ${modelAttributes(state.initialModel)} />`,
-        `${indentation}</execution>`,
+        `<task_history ${taskAttributes(state)} budget="${budget}" unit="estimated-tokens">`,
+        `  <origin ${originAttributes(state.origin)} />`,
+        `  <execution ${executionAttributes(state.execution)} />`,
+        "  <models>",
+        `    <llm_model role="active" ${modelAttributes(state.activeModel)} />`,
+        `    <llm_model role="initial" ${modelAttributes(state.initialModel)} />`,
+        "  </models>",
         objective
     ]
-    const cycles = taskCycles(state.operations)
+    const events = state.operations.flatMap(operation => continuityEvents(state.task, operation))
     const selected: string[] = []
-    let used = estimatedTokens([...fixed, footer].join("\n"))
+    let used = estimatedTokens([...fixed, "  <timeline>", "  </timeline>", "</task_history>"].join("\n"))
 
-    for (let index = cycles.length - 1; index >= 0; index--) {
+    for (let index = events.length - 1; index >= 0; index--) {
         const remaining = budget - used
 
-        if (remaining < minimumMemoryBudget) break
+        if (remaining < 32) break
 
-        const cycle = cycleXml(cycles[index]!, index === 0 ? state.objective : null, remaining, indentation)
-        const addition = estimatedTokens(cycle)
+        const value = eventXml(events[index]!, Math.min(maximumBlockTokens, remaining), "    ")
+        const addition = estimatedTokens(value)
 
-        if (used + addition > budget) break
+        if (used + addition > budget) continue
 
-        selected.unshift(cycle)
+        selected.unshift(value)
         used += addition
     }
 
     return [
         ...fixed,
-        `${indentation}<cycles count="${selected.length}" omitted="${cycles.length - selected.length}">`,
+        `  <timeline count="${selected.length}" omitted="${events.length - selected.length}">`,
         ...selected,
-        `${indentation}</cycles>`,
-        footer
+        "  </timeline>",
+        "</task_history>"
     ].join("\n")
 }
 
-function cycleXml(cycle: CycleState, firstInput: string | null, budget: number, indentation: string) {
-
-    const lines = [
-        `${indentation}  <cycle id="${xml(cycle.id)}" run="${xml(cycle.run)}" status="${cycle.status}" startedAt="${timestamp(cycle.startedAt)}" endedAt="${cycle.endedAt === null ? "" : timestamp(cycle.endedAt)}">`
-    ]
-    const bodyIndentation = `${indentation}    `
-
-    if (firstInput !== null) {
-        lines.push(xmlBlock(cycle.started, "input", firstInput, maximumBlockTokens, bodyIndentation, {
-            source: "task-objective"
-        }))
-    } else {
-        lines.push(`${bodyIndentation}<input source="reconstructed-durable-history">The input is the Task transcript and Perceptual Field reconstructed immediately before this cycle.</input>`)
-    }
-
-    const visible = cycle.operations.filter(operation => operation.kind !== "model.event")
-    let used = estimatedTokens([...lines, `${indentation}  </cycle>`].join("\n"))
-    let included = 0
-
-    for (const operation of visible) {
-        const remaining = budget - used
-
-        if (remaining < 32) break
-
-        const value = cycleOperation(operation, Math.min(maximumBlockTokens, remaining), bodyIndentation)
-
-        if (!value) continue
-
-        const addition = estimatedTokens(value)
-
-        if (used + addition > budget) break
-
-        lines.push(value)
-        used += addition
-        included++
-    }
-
-    if (included < visible.length) {
-        lines.push(`${bodyIndentation}<omitted operations="${visible.length - included}" reason="cycle-token-limit" />`)
-    }
-
-    lines.push(`${indentation}  </cycle>`)
-
-    return lines.join("\n")
-}
-
-function cycleOperation(operation: Operation, budget: number, indentation: string) {
+function continuityEvents(task: string, operation: Operation): readonly TimelineEvent[] {
 
     const payload = record(operation.payload)
 
@@ -687,17 +680,17 @@ function cycleOperation(operation: Operation, budget: number, indentation: strin
         const content = typeof payload?.content === "string" ? payload.content : ""
         const calls = Array.isArray(payload?.toolCalls) ? payload.toolCalls : []
 
-        return [
-            xmlBlock(operation, "output", content, budget, indentation, { source: "lemo" }),
-            ...calls.map(value => {
+        return Object.freeze([
+            ...(content ? [timelineEvent(task, operation, "assistant", content, { source: "lemo" })] : []),
+            ...calls.flatMap(value => {
                 const call = record(value)
 
-                return xmlBlock(operation, "tool_call", contextualText(call?.input), budget, indentation, {
+                return call ? [timelineEvent(task, operation, "tool_call", contextualText(call.input), {
                     call: text(call?.id),
                     tool: text(call?.name)
-                })
+                })] : []
             })
-        ].join("\n")
+        ])
     }
 
     if (operation.kind === "tool.result") {
@@ -710,58 +703,51 @@ function cycleOperation(operation: Operation, budget: number, indentation: strin
             }
             : operation.payload
 
-        return xmlBlock(operation, "tool_result", contextualText(contextual), budget, indentation, {
+        return Object.freeze([timelineEvent(task, operation, "tool_result", contextualText(contextual), {
             call: text(payload?.call),
             tool: text(payload?.name),
             ok: String(payload?.ok === true)
-        })
+        })])
     }
 
-    return xmlBlock(operation, "metadata", contextualText(operation.payload), budget, indentation)
-}
+    if (operation.kind === "memory.recorded") {
+        const value = record(payload?.record)
 
-function taskCycles(operations: readonly Operation[]): readonly CycleState[] {
-
-    const cycles: MutableCycle[] = []
-    let current: MutableCycle | null = null
-
-    for (const operation of operations) {
-        if (operation.kind === "cycle.started") {
-            const payload = record(operation.payload)
-
-            current = {
-                id: operation.id,
-                run: text(payload?.run),
-                started: operation,
-                startedAt: operation.createdAt,
-                endedAt: null,
-                status: "running",
-                operations: []
-            }
-            cycles.push(current)
-            continue
-        }
-
-        if (!current) continue
-
-        current.operations.push(operation)
-
-        if (operation.kind === "cycle.completed") {
-            current.status = "completed"
-            current.endedAt = operation.createdAt
-        } else if (operation.kind === "cycle.failed") {
-            current.status = "failed"
-            current.endedAt = operation.createdAt
-        }
+        return Object.freeze([timelineEvent(task, operation, "memory", contextualText(value?.content), {
+            source: text(value?.source),
+            method: text(value?.method),
+            tool: text(payload?.tool),
+            call: text(payload?.call)
+        })])
     }
 
-    return Object.freeze(cycles.map(cycle => Object.freeze({
-        ...cycle,
-        operations: Object.freeze(cycle.operations)
-    })))
+    if (operation.kind === "task.failed") {
+        return Object.freeze([timelineEvent(task, operation, "failure", contextualText(operation.payload))])
+    }
+
+    return Object.freeze([])
 }
 
-function memoryXml(name: "semantic_information" | "rules", results: readonly MemoryResult[], budget: number) {
+function timelineEvent(
+    task: string,
+    operation: Operation,
+    element: TimelineEvent["element"],
+    content: string,
+    attributes: Readonly<Record<string, string>> = {}
+): TimelineEvent {
+
+    return Object.freeze({ task, operation, element, content, attributes, sequence: operation.sequence })
+}
+
+function eventXml(event: TimelineEvent, budget: number, indentation: string) {
+
+    return xmlBlock(event.operation, event.element, event.content, budget, indentation, {
+        task: event.task,
+        ...event.attributes
+    })
+}
+
+function memoryXml(name: "semantic_memory" | "rules", results: readonly MemoryResult[], budget: number) {
 
     const values: string[] = []
     let used = estimatedTokens(`  <${name}></${name}>`)
@@ -776,13 +762,13 @@ function memoryXml(name: "semantic_information" | "rules", results: readonly Mem
         used += addition
     }
 
-    const explanation = name === "semantic_information"
-        ? "Semantic relevance selects candidates; semantic relevance, learned score, and recency rank them."
-        : "Learned score selects candidates; learned score, semantic relevance, and recency rank them."
+    const selection = name === "semantic_memory" ? "semantic-relevance" : "reinforcement"
+    const ranking = name === "semantic_memory"
+        ? "semantic-relevance+reinforcement+recency"
+        : "reinforcement+semantic-relevance+recency"
 
     return [
-        `  <${name} budget="${budget}" unit="estimated-tokens" count="${values.length}" omitted="${results.length - values.length}">`,
-        `    <ranking>${xml(explanation)}</ranking>`,
+        `  <${name} budget="${budget}" unit="estimated-tokens" selection="${selection}" ranking="${ranking}" count="${values.length}" omitted="${results.length - values.length}">`,
         ...values,
         `  </${name}>`
     ].join("\n")
@@ -929,12 +915,10 @@ function taskState(operations: readonly Operation[], summary?: TaskSummary): Tas
     })
 }
 
-function taskAttributes(state: TaskState, relation: string) {
+function taskAttributes(state: TaskState) {
 
     return [
-        ["task", state.task],
-        ["perspective", relation === "self" ? "self" : "other"],
-        ["relation", relation],
+        ["id", state.task],
         ["status", state.status],
         ["startedAt", timestamp(state.createdAt)],
         ["updatedAt", timestamp(state.updatedAt)],
@@ -979,11 +963,43 @@ function modelIdentity(value: unknown): ModelIdentity | null {
         : null
 }
 
-function workingFocus(operations: readonly Operation[]): readonly MemoryFocus[] {
+function sharedMindFocus(self: TaskState, nearby: readonly TaskState[]): readonly MemoryFocus[] {
+
+    const focus = [...workingFocus(self.operations, 8)]
+    const continuity = [...nearby].sort((left, right) => (
+        right.updatedAt - left.updatedAt || right.sequence - left.sequence
+    ))
+
+    for (
+        let index = 0;
+        index < Math.min(continuity.length, maximumContinuityTasks) && focus.length < maximumWorkingSignals;
+        index++
+    ) {
+        const state = continuity[index]!
+        const weight = 0.75 / (1 + index * 0.25)
+
+        for (const signal of workingFocus(state.operations, 2)) {
+            if (focus.length >= maximumWorkingSignals) break
+
+            focus.push(Object.freeze({
+                source: `nearby-task:${state.task}:${signal.source}`,
+                content: signal.content,
+                weight: signal.weight * weight
+            }))
+        }
+    }
+
+    return Object.freeze(focus)
+}
+
+function workingFocus(
+    operations: readonly Operation[],
+    maximum = maximumWorkingSignals
+): readonly MemoryFocus[] {
 
     const focus: MemoryFocus[] = []
 
-    for (let index = operations.length - 1; index >= 0 && focus.length < maximumWorkingSignals; index--) {
+    for (let index = operations.length - 1; index >= 0 && focus.length < maximum; index--) {
         const operation = operations[index]!
 
         for (const value of candidate(operation)) {
@@ -1418,24 +1434,13 @@ type TaskExecution = Readonly<{
     cycleStartedAt: number | null
 }>
 
-type CycleState = Readonly<{
-    id: string
-    run: string
-    started: Operation
-    startedAt: number
-    endedAt: number | null
-    status: "running" | "completed" | "failed"
-    operations: readonly Operation[]
+type TimelineEvent = Readonly<{
+    task: string
+    operation: Operation
+    element: "assistant" | "tool_call" | "tool_result" | "memory" | "failure"
+    content: string
+    attributes: Readonly<Record<string, string>>
+    sequence: number
 }>
-
-type MutableCycle = {
-    id: string
-    run: string
-    started: Operation
-    startedAt: number
-    endedAt: number | null
-    status: "running" | "completed" | "failed"
-    operations: Operation[]
-}
 
 const terminalTaskStatuses = new Set<TaskStatus>(["cancelled", "completed", "failed"])

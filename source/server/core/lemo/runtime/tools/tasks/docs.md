@@ -8,10 +8,11 @@ and cannot exceed 100. Continue from `next` by passing it as `cursor`. Filter by
 status, creating Task, creation time, or input text. A list never returns Task
 operation histories.
 
-Use `read` with a Task identity to reconstruct a token-bounded XML page in the
-same Task/cycle shape used by the Perceptual Field. `tokens` defaults to 8,000
-estimated tokens and cannot exceed 16,000. Pass the returned `before` cursor to
-continue toward older cycles.
+Use `read` with a Task identity to reconstruct a token-bounded XML event history.
+It identifies the Task, its objective and execution metadata, then presents its
+meaningful assistant, Tool, Memory, and failure events in chronological order.
+`tokens` defaults to 8,000 estimated tokens and cannot exceed 16,000. Pass the
+returned `before` cursor to continue toward older events.
 
 Every truncated block identifies its durable operation and says
 `retrieve="tasks.read_block"`. Use `read_block` with the Task and operation

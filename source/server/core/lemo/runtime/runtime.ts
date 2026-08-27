@@ -174,6 +174,9 @@ export default class Runtime {
         })
 
         let output: unknown
+        const observation = tool.observation?.(input) === true
+            ? await this.previousObservation(run.task, call.name, input)
+            : null
 
         try {
             output = await waitForRun(tool.execute(input, context), run.signal)
@@ -182,12 +185,61 @@ export default class Runtime {
             return
         }
 
+        const noProgress = observation
+            ? await this.recordObservation(run, call, observation, output)
+            : null
+
         await run.append("tool.result", {
             call: call.id,
             name: call.name,
             ok: true,
             output,
-            ...(tool.modelOutput ? { modelOutput: tool.modelOutput(output) } : {})
+            ...(noProgress
+                ? { modelOutput: noProgress }
+                : tool.modelOutput
+                    ? { modelOutput: tool.modelOutput(output) }
+                    : {})
+        })
+    }
+
+    private async previousObservation(task: string, tool: string, input: unknown): Promise<Observation> {
+
+        const inputSignature = await signature(input)
+        const kind = `tool.${tool}.observation.${inputSignature}`
+        const previous = await this.database.latestOperation(task, kind)
+        const payload = record(previous?.payload)
+
+        return Object.freeze({
+            kind,
+            inputSignature,
+            previousCall: typeof payload?.call === "string" ? payload.call : null,
+            previousOutput: typeof payload?.outputSignature === "string" ? payload.outputSignature : null
+        })
+    }
+
+    private async recordObservation(
+        run: TaskRun,
+        call: LLMToolCall,
+        observation: Observation,
+        output: unknown
+    ) {
+
+        const outputSignature = await signature(output)
+
+        await run.append(observation.kind, {
+            call: call.id,
+            name: call.name,
+            inputSignature: observation.inputSignature,
+            outputSignature
+        })
+
+        if (observation.previousOutput !== outputSignature) return null
+
+        return Object.freeze({
+            status: "no-progress",
+            tool: call.name,
+            previousCall: observation.previousCall,
+            message: "This observation is unchanged from the previous equivalent invocation. Use the existing evidence. Change state, inspect a specifically missing scope, or report the blocker; do not repeat the same observation."
         })
     }
 
@@ -289,3 +341,18 @@ function same(left: unknown, right: unknown) {
 
     return JSON.stringify(left) === JSON.stringify(right)
 }
+
+async function signature(value: unknown) {
+
+    const bytes = new TextEncoder().encode(JSON.stringify(value) ?? "undefined")
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))
+
+    return [...digest].map(value => value.toString(16).padStart(2, "0")).join("")
+}
+
+type Observation = Readonly<{
+    kind: string
+    inputSignature: string
+    previousCall: string | null
+    previousOutput: string | null
+}>

@@ -213,21 +213,25 @@ holding context in Process or Task memory.
 ## Cycles
 
 A Cycle is an internal, disposable Model operation. It records its start and
-reconstructs a token-bounded transcript and XML Perceptual Field from the same
-raw database. Raw streamed `model.event` chunks never consume transcript
-capacity. The field contains, in order, `system`, `current_task`,
-`nearby_tasks`, `semantic_information`, `rules`, and `inbox`. The current and
-nearby Task sections use the same Task/cycle shape and identify objective,
-origin, active and initial Model, execution state, inputs, outputs, Tool calls,
-Tool results, provenance, and timestamps. Provider configuration and credentials
-remain Provider-owned and never enter Task context.
+reconstructs a token-bounded native transcript and a 50,000-token XML
+Perceptual Field from the same raw database. Raw streamed `model.event` chunks
+never consume transcript capacity. The Model receives one concise system
+contract, then the Perceptual Field as contextual user data, followed by the
+current Task's native user, assistant, and Tool messages. The current Task's
+chronology therefore has one representation and one authority.
+
+The field contains `environment`, current `task` identity, `continuity`,
+`semantic_memory`, `rules`, and `inbox`. `continuity` is a single chronological,
+source-labelled stream from nearby Tasks rather than a collection of synthetic
+conversations. Provider configuration and credentials remain Provider-owned and
+never enter Task context.
 
 Each section has an estimated-token budget. Until Models expose their actual
 tokenizers, Lemo uses a deterministic UTF-8 estimate of four bytes per token.
 Oversized blocks are represented by bounded previews that retain their Task and
-operation identities. `tasks.read` reconstructs omitted Task history in the
-same XML shape; `tasks.read_block` reads a raw operation completely in bounded
-token pages. No generated Perceptual Field is ever stored.
+operation identities. `tasks.read` reconstructs omitted Task history as a
+source-labelled event timeline; `tasks.read_block` reads a raw operation
+completely in bounded token pages. No generated Perceptual Field is ever stored.
 Every accepted text or tool-call event and the final assistant message are
 persisted before the Cycle completes. Neither the constructed request nor its
 snapshot is retained or reused by another Cycle.
@@ -255,6 +259,14 @@ invocation, while a Tool may require approval from its own policy. Runtime
 normalizes and validates the complete input once, publishes one bounded approval
 interaction, and enters `execute` only after approval. Approval is invocation
 state, never a second Tool call.
+
+A Tool can identify its read-only operations as observations. Runtime compares
+equivalent observations through durable input and output signatures. When the
+observed state has not changed, the complete raw result is still preserved, but
+the Model receives a concise `no-progress` result directing it to use existing
+evidence, narrow the missing scope, change state, or report a blocker. This
+prevents successful reads from becoming an invisible infinite loop without
+misreporting the observation as a failure.
 
 Ordinary tools are not loaded into every Model request. Only the `tools`,
 `docs`, and `memory` tools are initially visible. Tool discovery records which
@@ -311,7 +323,7 @@ that value has a 30-day half-life while unused and becomes a factor in later
 ranking. Each retrieval advances strength toward `1` rather than adding an
 unbounded counter.
 
-The Perceptual Field separates two retrieval directions. `semantic_information`
+The Perceptual Field separates two retrieval directions. `semantic_memory`
 selects candidates by semantic relevance and ranks them by semantic relevance
 plus learned score and recency. `rules` selects candidates by learned score and
 ranks them by learned score plus semantic relevance and recency. One operation
@@ -340,22 +352,20 @@ a few large facts fit, while short dependent statements keep the surrounding
 evidence needed to understand them.
 
 Every Cycle loads bounded candidate windows from the global operation history
-and independently rebuilds the six Perceptual Field sections. `current_task`
-contains the Task's objective and newest complete cycles within its token
-budget. `nearby_tasks` exposes the bounded running and recent Task frontier so
-concurrent work remains visible without merging identities. `inbox` contains
-only the 10 newest directed messages and identifies event, source, creation
-time, delivery time, and whether this is their first appearance.
+and independently rebuilds the Perceptual Field. The current Task contributes
+identity, origin, execution state, and Model identity to the field while its
+actual chronology remains in native messages. Nearby Tasks contribute objective
+descriptors and one merged chronological timeline of meaningful assistant,
+Tool, Memory, and failure events. A new Task with unclear direction therefore
+inherits immediate continuity without losing the source of any action.
 
-Every Task envelope declares whether it is self or other and its reconstructed
-status, relationship, start, update, and terminal times. Self additionally
-declares whether the Task came directly from the user or another Task and, for
-delegated work, identifies the source Task and Tool call. Every objective,
-focus signal, and selected operation retains an ISO timestamp and its source
-and recording method. Associative operations additionally state their selection
-reason, matching terms, numerical association, and supporting anchor. The
-Perceptual Field uses XML so Models can distinguish sections, envelopes,
-provenance, and retrieval hints without JSON escaping overhead.
+`inbox` contains only the 10 newest directed messages and identifies event,
+source, creation time, delivery time, and whether this is their first
+appearance. Every selected operation retains an ISO timestamp and its source.
+Associative operations additionally state their selection reason, matching
+terms, numerical association, and supporting anchor. XML keeps provenance and
+lazy-retrieval hints explicit without converting retrieved context into another
+system instruction.
 
 Presence in the snapshot does not imply relevance, truth, or instruction.
 Concurrent Tasks can therefore contribute committed experience to one shared

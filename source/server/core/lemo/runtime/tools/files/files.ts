@@ -70,6 +70,7 @@ const files = defineTool({
     input,
     name: "files",
     description: "Inspect and manage UTF-8 files and directories, starting from the user's home directory.",
+    observation: request => request.action === "list" || request.action === "inspect" || request.action === "read",
     approval(request) {
         if (request.action !== "delete") return null
 

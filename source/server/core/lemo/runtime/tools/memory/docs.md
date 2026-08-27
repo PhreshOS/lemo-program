@@ -16,7 +16,7 @@ retrieval strengthens a saturating activation value that fades with a 30-day
 half-life while unused. That activation contributes to later ranking. Once it
 is sufficiently strong, an operation can enter the Perceptual Field's `rules`
 section independently of the current semantic query. The automatic
-`semantic_information` section selects by semantic relevance and ranks by
+`semantic_memory` section selects by semantic relevance and ranks by
 semantic relevance plus learned score and recency. `rules` selects by learned
 score and ranks by learned score plus semantic relevance and recency.
 
@@ -37,5 +37,5 @@ results themselves are excluded so Memory does not recursively retrieve copies
 of earlier retrieval output.
 
 Every result identifies its raw Task and operation. Use `tasks.read` to recover
-the Task as bounded XML cycles, or `tasks.read_block` to read a truncated raw
+the Task as a bounded XML event history, or `tasks.read_block` to read a truncated raw
 operation completely in token pages.

@@ -29,6 +29,9 @@ export default interface Tool {
     /** Requires approval for a normalized invocation before execute is entered. */
     approval?(input: unknown): ToolApproval | null | Promise<ToolApproval | null>
 
+    /** Identifies read-only invocations whose unchanged repetition is not progress. */
+    observation?(input: unknown): boolean
+
     execute(input: unknown, context: ToolContext): Promise<unknown>
 
     /**

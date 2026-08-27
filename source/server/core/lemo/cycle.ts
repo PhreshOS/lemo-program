@@ -107,7 +107,7 @@ function modelRequest(
 
     const messages: LLMMessage[] = [
         { role: "system", content: system.trim() },
-        { role: "system", content: memory }
+        { role: "user", content: memory }
     ]
     const calls = new Set<string>()
 
