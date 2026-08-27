@@ -1,4 +1,4 @@
-import { host, type Process, type Window } from "@phreshos/server"
+import { system, type Process, type Window } from "@phreshos/server"
 import defineTool from "../../define-tool"
 import systemTool from "../../system-tool"
 import waitEvent from "../../wait-event"
@@ -46,14 +46,14 @@ async function requiredProcess(identityOrName: string, programIdentity?: string)
 
     if (!programIdentity) {
 
-        const process = await host.process.find(identityOrName)
+        const process = await system.process.find(identityOrName)
 
         if (process) return process
 
         throw new Error(`Unknown Process "${identityOrName}"`)
     }
 
-    const program = await host.program.find(programIdentity)
+    const program = await system.program.find(programIdentity)
 
     if (!program) throw new Error(`Unknown Program "${programIdentity}"`)
 

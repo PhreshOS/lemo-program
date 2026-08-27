@@ -1,4 +1,4 @@
-import { host, type Process } from "@phreshos/server"
+import { system, type Process } from "@phreshos/server"
 import defineTool from "../../define-tool"
 import systemTool from "../../system-tool"
 import type { ToolContext } from "../../tool"
@@ -27,10 +27,10 @@ const processes = defineTool({
                         context.invocation.signal,
                         request.timeout
                     )
-                    : await waitEvent(host.process, request.event, context.invocation.signal, request.timeout)
+                    : await waitEvent(system.process, request.event, context.invocation.signal, request.timeout)
 
             return Object.freeze({
-                scope: scoped ? "process" : request.program ? "program" : "host",
+                scope: scoped ? "process" : request.program ? "program" : "system",
                 ...(scoped ? { process: scoped.identity } : {}),
                 ...(request.program ? { program: request.program } : {}),
                 event: request.event,
@@ -42,7 +42,7 @@ const processes = defineTool({
 
             const found = request.program
                 ? await (await requiredProgram(request.program)).process.list()
-                : await host.process.list()
+                : await system.process.list()
 
             const query = request.search?.toLocaleLowerCase()
             const matching = found.filter(process => (
@@ -101,7 +101,7 @@ export default processes
 
 async function requiredProgram(identity: string) {
 
-    const program = await host.program.find(identity)
+    const program = await system.program.find(identity)
 
     if (!program) throw new Error(`Unknown Program "${identity}"`)
 
@@ -112,7 +112,7 @@ async function requiredProcess(identityOrName: string, programIdentity?: string)
 
     const process = programIdentity
         ? await (await requiredProgram(programIdentity)).process.find(identityOrName)
-        : await host.process.find(identityOrName)
+        : await system.process.find(identityOrName)
 
     if (!process) {
 

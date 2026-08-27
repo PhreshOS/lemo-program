@@ -1,4 +1,4 @@
-import { host, type Program } from "@phreshos/server"
+import { system, type Program } from "@phreshos/server"
 import defineTool from "../../define-tool"
 import systemTool from "../../system-tool"
 import waitEvent from "../../wait-event"
@@ -16,7 +16,7 @@ const programs = defineTool({
 
             if (request.program) {
 
-                const program = await host.program.find(request.program)
+                const program = await system.program.find(request.program)
 
                 if (!program) throw new Error(`Unknown Program "${request.program}"`)
 
@@ -28,10 +28,10 @@ const programs = defineTool({
                 })
             }
 
-            const payload = await waitEvent(host.program, request.event, context.invocation.signal, request.timeout)
+            const payload = await waitEvent(system.program, request.event, context.invocation.signal, request.timeout)
 
             return Object.freeze({
-                scope: "host",
+                scope: "system",
                 event: request.event,
                 payload: registryPayload(request.event, payload)
             })
@@ -42,7 +42,7 @@ const programs = defineTool({
             const installedOnly = request.installedOnly ?? true
 
             const query = request.search?.toLocaleLowerCase()
-            const found = (await host.program.list(installedOnly)).filter(program => (
+            const found = (await system.program.list(installedOnly)).filter(program => (
                 !query || [program.identity, program.name, program.description]
                     .some(value => value?.toLocaleLowerCase().includes(query))
             ))
@@ -57,7 +57,7 @@ const programs = defineTool({
             })
         }
 
-        const program = await host.program.find(request.program)
+        const program = await system.program.find(request.program)
 
         if (!program) throw new Error(`Unknown Program "${request.program}"`)
 
