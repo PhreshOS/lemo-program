@@ -13,7 +13,7 @@ export default defineConfig({
     server: {
         start: false,
         location: "dist/server",
-        startCommand: "node main.js",
+        entryFile: "main.js",
         development: {
             startCommand: "vite-node source/server/main.ts"
         }

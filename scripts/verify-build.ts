@@ -11,7 +11,7 @@ assert.equal(config.version, manifest.version)
 
 assert.equal(config.server?.location, "dist/server")
 
-assert.equal(config.server?.startCommand, "node main.js")
+assert.equal(config.server?.entryFile, "main.js")
 
 assert.equal(config.server?.start, false)
 
