@@ -1,25 +1,22 @@
-import { lazy, Suspense, useState } from "react"
+import { useState } from "react"
 import { Redirect, Route, Router, Switch } from "wouter"
-import { ApplicationBoundary, StartupState } from "./state"
+import Agent from "./agent"
+import Manager from "./manager"
+import { ApplicationBoundary } from "./state"
 import "./style.css"
 
-const Manager = lazy(() => import("./manager"))
-const Agent = lazy(() => import("./agent"))
-
-/** Routes one Client document without eagerly loading the other Lemo View. */
+/** Routes one Client document between the Lemo Manager and Agent Views. */
 export default function View() {
 
     const [attempt, setAttempt] = useState(0)
 
     return <ApplicationBoundary key={attempt} retry={() => setAttempt(value => value + 1)}>
         <Router base={programAssetsBase()}>
-            <Suspense fallback={<StartupState title="Opening Lemo…" />}>
-                <Switch>
-                    <Route path="/" component={Manager} />
-                    <Route path="/agent" component={Agent} />
-                    <Route><Redirect to="/" replace /></Route>
-                </Switch>
-            </Suspense>
+            <Switch>
+                <Route path="/" component={Manager} />
+                <Route path="/agent" component={Agent} />
+                <Route><Redirect to="/" replace /></Route>
+            </Switch>
         </Router>
     </ApplicationBoundary>
 }
