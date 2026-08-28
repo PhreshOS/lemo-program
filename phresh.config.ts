@@ -4,7 +4,7 @@ export default defineConfig({
     identity: "lemo",
     name: "Lemo",
     description: "The official PhreshOS agent.",
-    version: "0.1.8",
+    version: "0.1.9",
     icon: "icon.png",
     categories: ["Productivity", "AI"],
     keywords: ["agent", "tasks", "memory", "tools"],
