@@ -1,4 +1,4 @@
-import { system, type Process } from "@phreshos/server"
+import { system, type SystemProcessEntity } from "@phreshos/server"
 import defineTool from "../../define-tool"
 import systemTool from "../../system-tool"
 import waitEvent from "../../wait-event"
@@ -133,7 +133,7 @@ async function requiredProcess(identityOrName: string, programIdentity?: string)
     return process
 }
 
-async function requireEndpoint(process: Process, endpoint: "server" | "client") {
+async function requireEndpoint(process: SystemProcessEntity, endpoint: "server" | "client") {
 
     const program = await process.program()
 
@@ -144,7 +144,7 @@ async function requireEndpoint(process: Process, endpoint: "server" | "client") 
 
 }
 
-async function snapshot(process: Process, endpoint: "server" | "client") {
+async function snapshot(process: SystemProcessEntity, endpoint: "server" | "client") {
 
     const program = await process.program()
 

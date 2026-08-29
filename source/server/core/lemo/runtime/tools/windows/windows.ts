@@ -1,4 +1,4 @@
-import { system, type Process, type Window } from "@phreshos/server"
+import { system, type SystemProcessEntity, type Window } from "@phreshos/server"
 import defineTool from "../../define-tool"
 import systemTool from "../../system-tool"
 import waitEvent from "../../wait-event"
@@ -64,7 +64,7 @@ async function requiredProcess(identityOrName: string, programIdentity?: string)
     return process
 }
 
-async function requiredWindow(process: Process) {
+async function requiredWindow(process: SystemProcessEntity) {
 
     const program = await process.program()
 
@@ -75,7 +75,7 @@ async function requiredWindow(process: Process) {
     return process.client.window
 }
 
-async function snapshot(process: Process, window: Window) {
+async function snapshot(process: SystemProcessEntity, window: Window) {
 
     const [title, position, size, minimized, front, layer, location] = await Promise.all([
         window.title(),
