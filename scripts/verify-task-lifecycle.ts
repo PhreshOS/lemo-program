@@ -29,6 +29,7 @@ const provider: LLMProvider = {
 model = {
     id: "lifecycle",
     provider,
+    async reasoning() { return null },
     async *generate(request) {
 
         const input = request.messages.find(message => message.role === "user")?.content ?? ""

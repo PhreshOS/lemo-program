@@ -57,6 +57,7 @@ export default class OpenCodeProvider implements LLMProvider {
             model = new OpenCodeModel(
                 this,
                 identity,
+                () => this.modelsSource.reasoning(this.identity, identity),
                 request => this.modelsSource.generate(this.identity, identity, request)
             )
 

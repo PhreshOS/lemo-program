@@ -144,7 +144,19 @@ const provider = new OllamaCloudProvider({ apiKey: "secret" }, true, async funct
 
     if (String(input).endsWith("/api/tags")) {
 
-        return Response.json({ models: [{ model: "qwen3:latest" }] })
+        return Response.json({ models: [
+            { model: "qwen3:latest" },
+            { model: "gpt-oss:latest" }
+        ] })
+    }
+
+    if (String(input).endsWith("/api/show")) {
+
+        const body = JSON.parse(String(init?.body)) as { model: string }
+
+        return body.model === "gpt-oss:latest"
+            ? Response.json({ capabilities: ["thinking"], details: { family: "gptoss", families: ["gptoss"] } })
+            : Response.json({ capabilities: ["thinking"], details: { family: "qwen3", families: ["qwen3"] } })
     }
 
     assert.equal(init?.body, JSON.stringify({
@@ -173,13 +185,29 @@ const provider = new OllamaCloudProvider({ apiKey: "secret" }, true, async funct
 
 const models = await provider.models()
 
-assert.equal(models.length, 1)
+assert.equal(models.length, 2)
 
 assert.equal(models[0]?.id, "qwen3:latest")
 
 assert.equal(models[0]?.provider, provider)
 
 assert.equal((await provider.models())[0], models[0])
+
+assert.equal(await models[0]?.reasoning(), null)
+
+assert.equal(await models[0]?.reasoning(), null)
+
+assert.deepEqual(await models[1]?.reasoning(), {
+    levels: ["low", "medium", "high"],
+    default: null,
+    required: true
+})
+
+assert.deepEqual(await models[1]?.reasoning(), {
+    levels: ["low", "medium", "high"],
+    default: null,
+    required: true
+})
 
 const chunks: string[] = []
 const calls: unknown[] = []
@@ -200,6 +228,8 @@ assert.deepEqual(calls, [{ id: "call-time", name: "time", input: {} }])
 assert.deepEqual(requests, [
     "https://ollama.com/api/tags",
     "https://ollama.com/api/tags",
+    "https://ollama.com/api/show",
+    "https://ollama.com/api/show",
     "https://ollama.com/api/chat"
 ])
 

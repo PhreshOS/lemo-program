@@ -5,7 +5,7 @@ import OllamaCloudModel from "./model"
 import type LLMProvider from "../../provider"
 import type { LLMProviderHandle, LLMProviderRegistration } from "../../provider"
 import { llmProviderActiveKey, llmProviderActiveSchema } from "../../provider"
-import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMToolCall } from "../../model"
+import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMReasoning, LLMToolCall } from "../../model"
 
 const host = "https://ollama.com"
 
@@ -53,12 +53,48 @@ export default class OllamaCloudProvider implements LLMProvider {
 
         if (!model) {
 
-            model = new OllamaCloudModel(this, identity, (request, execution) => this.generate(identity, request, execution))
+            model = new OllamaCloudModel(
+                this,
+                identity,
+                () => this.reasoning(identity),
+                (request, execution) => this.generate(identity, request, execution)
+            )
 
             this.retainedModels.set(identity, model)
         }
 
         return model
+    }
+
+    private async reasoning(model: string): Promise<LLMReasoning | null> {
+
+        const response = await this.fetch("/api/show", {
+            method: "POST",
+            body: JSON.stringify({ model })
+        })
+
+        const value: unknown = await response.json()
+
+        if (!record(value) || !Array.isArray(value.capabilities)
+            || !value.capabilities.every(capability => typeof capability === "string")) {
+
+            throw new Error(`Ollama Cloud returned invalid capabilities for Model "${model}"`)
+        }
+
+        if (!value.capabilities.includes("thinking")) return null
+
+        if (!record(value.details) || typeof value.details.family !== "string"
+            || value.details.families !== undefined && (!Array.isArray(value.details.families)
+                || !value.details.families.every(family => typeof family === "string"))) {
+
+            throw new Error(`Ollama Cloud returned invalid details for Model "${model}"`)
+        }
+
+        const families = [value.details.family, ...(value.details.families ?? [])]
+
+        if (!families.includes("gptoss")) return null
+
+        return gptOssReasoning
     }
 
     private async *generate(model: string, request: LLMModelRequest, execution?: LLMModelExecution) {
@@ -209,6 +245,11 @@ class OllamaCloudHandle implements LLMProviderHandle {
 
 const configurationKey = `${OllamaCloudProvider.identity}:config`
 const activeKey = llmProviderActiveKey(OllamaCloudProvider.identity)
+const gptOssReasoning: LLMReasoning = Object.freeze({
+    levels: Object.freeze(["low", "medium", "high"]),
+    default: null,
+    required: true
+})
 
 export const registration: LLMProviderRegistration = Object.freeze({
     identity: OllamaCloudProvider.identity,

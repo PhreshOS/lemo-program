@@ -8,9 +8,24 @@ export default interface LLMModel {
     /** LLM Provider that owns and supports this Model. */
     readonly provider: LLMProvider
 
+    /** Returns this Model's selectable reasoning levels, or `null` when it exposes none. */
+    reasoning(): Promise<LLMReasoning | null>
+
     /** Generates structured events from one complete, ordered Model request. */
     generate(request: LLMModelRequest, execution?: LLMModelExecution): AsyncGenerator<LLMModelEvent, void, unknown>
 }
+
+/** Provider-authored selectable reasoning levels for one exact Model. */
+export type LLMReasoning = Readonly<{
+    /** Exact accepted values, ordered from weakest to strongest. */
+    levels: readonly string[]
+
+    /** Provider default when it is known. */
+    default: string | null
+
+    /** Whether this Model rejects disabling reasoning. */
+    required: boolean
+}>
 
 export type LLMModelExecution = Readonly<{
     signal: AbortSignal

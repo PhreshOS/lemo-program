@@ -290,6 +290,7 @@ const provider: LLMProvider = {
 model = {
     id: "test-model",
     provider,
+    async reasoning() { return null },
     async *generate(request) {
 
         const input = request.messages.findLast(message => message.role === "user")?.content

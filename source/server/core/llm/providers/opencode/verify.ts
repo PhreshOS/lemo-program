@@ -19,10 +19,14 @@ const provider = new OpenCodeProvider(true, async function (input, init) {
         return Response.json({
             opencode: {
                 models: {
-                    "big-pickle": { cost: { input: 0, output: 0 } },
+                    "big-pickle": {
+                        cost: { input: 0, output: 0 },
+                        reasoning_options: [{ type: "effort", values: [null, "low", "high"] }]
+                    },
                     "muse-free": {
                         cost: { input: 0, output: 0 },
-                        provider: { npm: "@ai-sdk/openai" }
+                        provider: { npm: "@ai-sdk/openai" },
+                        reasoning_options: [{ type: "effort", values: ["low", "medium", "high"] }]
                     },
                     paid: { cost: { input: 1, output: 1 } },
                     retired: { status: "deprecated", cost: { input: 0, output: 0 } },
@@ -79,6 +83,18 @@ const models = await provider.models()
 assert.deepEqual(models.map(model => model.id), ["big-pickle", "muse-free"])
 
 assert.equal((await provider.models())[0], models[0])
+
+assert.deepEqual(await models[0]!.reasoning(), {
+    levels: ["none", "low", "high"],
+    default: null,
+    required: false
+})
+
+assert.deepEqual(await models[1]!.reasoning(), {
+    levels: ["low", "medium", "high"],
+    default: null,
+    required: true
+})
 
 const chatEvents = []
 

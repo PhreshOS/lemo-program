@@ -1,16 +1,18 @@
 import type LLMProvider from "./provider"
-import type { LLMModelEvent, LLMModelRecord, LLMModelRequest } from "@server/core/llm/model"
+import type { LLMModelEvent, LLMModelRecord, LLMModelRequest, LLMReasoning } from "@server/core/llm/model"
 
 /** One local handle to an authoritative LLM Model. */
 export default interface LLMModel {
     readonly id: string
     readonly provider: LLMProvider
 
+    reasoning(): Promise<LLMReasoning | null>
     generate(request: LLMModelRequest): AsyncGenerator<LLMModelEvent, void, unknown>
 }
 
 /** Authoritative Model operations shared by every local LLM Provider handle. */
 export interface LLMModelSource {
     models(): Promise<readonly LLMModelRecord[]>
+    reasoning(provider: string, model: string): Promise<LLMReasoning | null>
     generate(provider: string, model: string, request: LLMModelRequest): AsyncGenerator<LLMModelEvent, void, unknown>
 }

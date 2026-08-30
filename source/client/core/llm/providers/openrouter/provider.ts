@@ -67,6 +67,7 @@ export default class OpenRouterProvider implements LLMProvider {
             model = new OpenRouterModel(
                 this,
                 identity,
+                () => this.modelsSource.reasoning(this.identity, identity),
                 request => this.modelsSource.generate(this.identity, identity, request)
             )
 

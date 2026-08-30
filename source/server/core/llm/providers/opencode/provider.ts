@@ -6,6 +6,7 @@ import type {
     LLMMessage,
     LLMModelExecution,
     LLMModelRequest,
+    LLMReasoning,
     LLMToolCall
 } from "../../model"
 import OpenCodeModel, { type OpenCodeProtocol } from "./model"
@@ -25,7 +26,11 @@ export default class OpenCodeProvider implements LLMProvider {
     public readonly identity = OpenCodeProvider.identity
     public readonly name = "OpenCode Zen"
 
-    private readonly retainedModels = new Map<string, OpenCodeModel>()
+    private readonly retainedModels = new Map<string, Readonly<{
+        model: OpenCodeModel
+        protocol: OpenCodeProtocol
+        reasoning: LLMReasoning | null
+    }>>()
     private loaded: Readonly<{ expires: number; models: readonly OpenCodeModel[] }> | null = null
     private loading: Promise<readonly OpenCodeModel[]> | null = null
 
@@ -70,26 +75,31 @@ export default class OpenCodeProvider implements LLMProvider {
 
             const protocol = freeProtocol(value)
 
-            return protocol ? [this.model(modelIdentity(identity), protocol)] : []
+            if (!protocol) return []
+
+            const model = modelIdentity(identity)
+
+            return [this.model(model, protocol, modelReasoning(model, value))]
         })
 
         return Object.freeze(models)
     }
 
-    private model(identity: string, protocol: OpenCodeProtocol) {
+    private model(identity: string, protocol: OpenCodeProtocol, reasoning: LLMReasoning | null) {
 
         const retained = this.retainedModels.get(identity)
 
-        if (retained?.protocol === protocol) return retained
+        if (retained?.protocol === protocol && sameReasoning(retained.reasoning, reasoning)) return retained.model
 
         const model = new OpenCodeModel(
             this,
             identity,
             protocol,
+            reasoning,
             (request, execution) => this.generate(identity, protocol, request, execution)
         )
 
-        this.retainedModels.set(identity, model)
+        this.retainedModels.set(identity, Object.freeze({ model, protocol, reasoning }))
 
         return model
     }
@@ -290,6 +300,51 @@ function freeProtocol(value: unknown): OpenCodeProtocol | null {
     if (value.provider.npm === "@ai-sdk/openai") return "responses"
 
     return null
+}
+
+function modelReasoning(model: string, value: unknown): LLMReasoning | null {
+
+    if (!record(value)) throw new Error(`OpenCode returned invalid metadata for Model "${model}"`)
+
+    if (value.reasoning_options === undefined) return null
+
+    if (!Array.isArray(value.reasoning_options)) {
+        throw new Error(`OpenCode returned invalid reasoning options for Model "${model}"`)
+    }
+
+    const effort = value.reasoning_options.find(option => record(option) && option.type === "effort")
+
+    if (effort === undefined) return null
+
+    if (!record(effort) || !Array.isArray(effort.values)
+        || !effort.values.every(level => level === null || typeof level === "string" && level.trim().length > 0)) {
+
+        throw new Error(`OpenCode returned invalid reasoning levels for Model "${model}"`)
+    }
+
+    const levels = effort.values.map(level => level ?? "none")
+
+    if (!levels.length) return null
+
+    if (new Set(levels).size !== levels.length) {
+        throw new Error(`OpenCode returned duplicate reasoning levels for Model "${model}"`)
+    }
+
+    return Object.freeze({
+        levels: Object.freeze(levels),
+        default: null,
+        required: !levels.includes("none")
+    })
+}
+
+function sameReasoning(left: LLMReasoning | null, right: LLMReasoning | null) {
+
+    if (left === null || right === null) return left === right
+
+    return left.default === right.default
+        && left.required === right.required
+        && left.levels.length === right.levels.length
+        && left.levels.every((level, index) => level === right.levels[index])
 }
 
 function chatMessage(message: LLMMessage) {

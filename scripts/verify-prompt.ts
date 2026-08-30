@@ -26,6 +26,7 @@ const provider: LLMProvider = {
 model = {
     id: "test",
     provider,
+    async reasoning() { return null },
     async *generate(request) {
 
         cycle++
@@ -153,6 +154,7 @@ let pausedCycle = 0
 const pausedModel: LLMModel = {
     id: "paused",
     provider,
+    async reasoning() { return null },
     async *generate() {
 
         pausedCycle++
@@ -220,6 +222,7 @@ const approvalProvider: LLMProvider = {
 approvalModel = {
     id: "approval-test",
     provider: approvalProvider,
+    async reasoning() { return null },
     async *generate(request) {
 
         approvalCycle++

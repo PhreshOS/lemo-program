@@ -71,6 +71,7 @@ const provider: LLMProvider = {
 model = {
     id: "model",
     provider,
+    async reasoning() { return null },
     async *generate() {}
 }
 

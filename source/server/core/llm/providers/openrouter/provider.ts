@@ -1,16 +1,17 @@
 import { OpenRouter } from "@openrouter/sdk"
-import type { ChatMessages, ChatStreamChunk, ChatStreamToolCall } from "@openrouter/sdk/models"
+import type { ChatMessages, ChatStreamChunk, ChatStreamToolCall, Model } from "@openrouter/sdk/models"
 import type { ProgramStore } from "@phreshos/core"
 import type LLMProvider from "../../provider"
 import type { LLMProviderHandle, LLMProviderRegistration } from "../../provider"
 import { llmProviderActiveKey, llmProviderActiveSchema } from "../../provider"
-import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMToolCall } from "../../model"
+import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMReasoning, LLMToolCall } from "../../model"
 import openRouterConfiguration from "./configuration"
 import type { OpenRouterConfiguration } from "./configuration"
 import OpenRouterModel from "./model"
 
 const catalogLifetime = 5 * 60 * 1_000
 const maximumModels = 1_000
+const gatewayReasoningLevels = Object.freeze(["max", "xhigh", "high", "medium", "low", "minimal", "none"])
 
 /** OpenRouter's official SDK-backed LLM Provider. */
 export default class OpenRouterProvider implements LLMProvider {
@@ -20,7 +21,10 @@ export default class OpenRouterProvider implements LLMProvider {
     public readonly identity = OpenRouterProvider.identity
     public readonly name = "OpenRouter"
 
-    private readonly retainedModels = new Map<string, OpenRouterModel>()
+    private readonly retainedModels = new Map<string, Readonly<{
+        model: OpenRouterModel
+        reasoning: LLMReasoning | null
+    }>>()
     private loaded: Readonly<{ expires: number; models: readonly OpenRouterModel[] }> | null = null
     private loading: Promise<readonly OpenRouterModel[]> | null = null
 
@@ -66,20 +70,25 @@ export default class OpenRouterProvider implements LLMProvider {
             throw new Error(`OpenRouter's Model catalog exceeds the ${maximumModels}-Model safety bound`)
         }
 
-        return Object.freeze(page.result.data.map(value => this.model(modelIdentity(value.id))))
+        return Object.freeze(page.result.data.map(value => {
+
+            const identity = modelIdentity(value.id)
+
+            return this.model(identity, modelReasoning(identity, value))
+        }))
     }
 
-    private model(identity: string) {
+    private model(identity: string, reasoning: LLMReasoning | null) {
 
-        let model = this.retainedModels.get(identity)
+        const retained = this.retainedModels.get(identity)
 
-        if (!model) {
-            model = new OpenRouterModel(this, identity, (request, execution) => (
-                this.generate(identity, request, execution)
-            ))
+        if (retained && sameReasoning(retained.reasoning, reasoning)) return retained.model
 
-            this.retainedModels.set(identity, model)
-        }
+        const model = new OpenRouterModel(this, identity, reasoning, (request, execution) => (
+            this.generate(identity, request, execution)
+        ))
+
+        this.retainedModels.set(identity, Object.freeze({ model, reasoning }))
 
         return model
     }
@@ -270,6 +279,52 @@ function modelIdentity(value: string) {
     if (!identity) throw new Error("OpenRouter returned a Model without an identity")
 
     return identity
+}
+
+function modelReasoning(model: string, value: Model): LLMReasoning | null {
+
+    const reasoning = value.reasoning
+    if (!reasoning || reasoning.supportedEfforts === undefined) return null
+
+    const efforts = reasoning.supportedEfforts === null
+        ? gatewayReasoningLevels
+        : reasoning.supportedEfforts
+
+    if (!efforts.every(level => level === null || level.trim().length > 0)) {
+        throw new Error(`OpenRouter returned invalid reasoning levels for Model "${model}"`)
+    }
+
+    const levels = efforts
+        .filter((level): level is string => level !== null && (!reasoning.mandatory || level !== "none"))
+        .toReversed()
+
+    if (!levels.length) return null
+
+    if (new Set(levels).size !== levels.length) {
+        throw new Error(`OpenRouter returned duplicate reasoning levels for Model "${model}"`)
+    }
+
+    const defaultLevel = reasoning.defaultEffort ?? null
+
+    if (defaultLevel !== null && !levels.includes(defaultLevel)) {
+        throw new Error(`OpenRouter returned a reasoning default outside the levels for Model "${model}"`)
+    }
+
+    return Object.freeze({
+        levels: Object.freeze(levels),
+        default: defaultLevel,
+        required: reasoning.mandatory
+    })
+}
+
+function sameReasoning(left: LLMReasoning | null, right: LLMReasoning | null) {
+
+    if (left === null || right === null) return left === right
+
+    return left.default === right.default
+        && left.required === right.required
+        && left.levels.length === right.levels.length
+        && left.levels.every((level, index) => level === right.levels[index])
 }
 
 function isStream(value: unknown): value is AsyncIterable<ChatStreamChunk> {

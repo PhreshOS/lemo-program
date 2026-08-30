@@ -2,13 +2,15 @@ import { current } from "@phreshos/server"
 import Application from "@server/core/application"
 import type {
     LLMGenerationEvent,
-    LLMModelRecord
+    LLMModelRecord,
+    LLMReasoning
 } from "@server/core/llm/model"
 import type { TaskSnapshot } from "@server/core/lemo/task"
 import type { OperationPage } from "@server/core/lemo/database"
 import type ClientChannel from "@server/core/client-channel"
 import {
     generationRequest,
+    modelReference,
     providerConfiguration,
     providerRequest,
     startupConfiguration,
@@ -68,6 +70,13 @@ export default async function view() {
     })
 
     current.answer<unknown, readonly LLMModelRecord[]>("llm-models", () => application.modelRecords())
+
+    current.answer<unknown, LLMReasoning | null>("llm-model.reasoning", function ({ payload }) {
+
+        const request = modelReference.parse(payload)
+
+        return application.modelReasoning(request.provider, request.model)
+    })
 
     current.answer<unknown, readonly TaskSnapshot[]>("lemo.tasks", async function () {
 

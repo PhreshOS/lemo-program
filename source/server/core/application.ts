@@ -1,5 +1,5 @@
 import type { Launch, LaunchClient, ProgramStore } from "@phreshos/core"
-import type { LLMModelRecord, LLMModelRequest } from "./llm/model"
+import type { LLMModelRecord, LLMModelRequest, LLMReasoning } from "./llm/model"
 import type { LLMProviderState } from "./llm/provider"
 import LLMProviders from "./llm/providers"
 import Lemo from "./lemo/lemo"
@@ -91,6 +91,15 @@ export default class Application {
         if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
 
         yield* model.generate(request)
+    }
+
+    public async modelReasoning(providerIdentity: string, modelIdentity: string): Promise<LLMReasoning | null> {
+
+        const model = await this.providers.model(providerIdentity, modelIdentity)
+
+        if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
+
+        return await model.reasoning()
     }
 
     public async startupEnabled() {

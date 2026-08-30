@@ -2,7 +2,8 @@ import type { Server } from "@phreshos/client"
 import type {
     LLMGenerationEvent,
     LLMGenerationRequest,
-    LLMModelRecord
+    LLMModelRecord,
+    LLMReasoning
 } from "@server/core/llm/model"
 import type { LLMProviderState } from "@server/core/llm/provider"
 import type { LLMModelSource } from "./model"
@@ -22,6 +23,10 @@ export function llmServerSources(server: Server): Readonly<{
         providers: providerSource(server),
         models: {
             models: () => server.ask<readonly LLMModelRecord[]>("llm-models"),
+            reasoning: async (provider, model) => reasoning(await server.ask<unknown>(
+                "llm-model.reasoning",
+                { provider, model }
+            )),
             async *generate(provider, model, request) {
 
                 yield* stream(
@@ -31,6 +36,30 @@ export function llmServerSources(server: Server): Readonly<{
                 )
             }
         }
+    })
+}
+
+function reasoning(value: unknown): LLMReasoning | null {
+
+    if (value === null) return null
+
+    if (!record(value) || !Array.isArray(value.levels) || value.levels.length === 0
+        || !value.levels.every(level => typeof level === "string" && level.trim().length > 0)
+        || new Set(value.levels).size !== value.levels.length
+        || value.default !== null && typeof value.default !== "string"
+        || typeof value.required !== "boolean") {
+
+        throw new Error("The Server returned invalid LLM reasoning levels")
+    }
+
+    if (value.default !== null && !value.levels.includes(value.default)) {
+        throw new Error("The Server returned an LLM reasoning default outside its levels")
+    }
+
+    return Object.freeze({
+        levels: Object.freeze([...value.levels]) as readonly string[],
+        default: value.default,
+        required: value.required
     })
 }
 

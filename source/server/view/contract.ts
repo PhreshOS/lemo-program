@@ -55,6 +55,11 @@ export const providerConfiguration = z.object({
     configuration: z.unknown()
 }).strict()
 
+export const modelReference = z.object({
+    provider: identity,
+    model: identity
+}).strict()
+
 export const taskCreation = z.object({
     input: identity,
     provider: identity,

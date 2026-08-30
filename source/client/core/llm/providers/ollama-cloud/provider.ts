@@ -70,6 +70,7 @@ export default class OllamaCloudProvider implements LLMProvider {
             model = new OllamaCloudModel(
                 this,
                 identity,
+                () => this.modelsSource.reasoning(this.identity, identity),
                 request => this.modelsSource.generate(this.identity, identity, request)
             )
 

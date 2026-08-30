@@ -14,9 +14,29 @@ const client = {
 
             return {
                 result: {
-                    data: [{ id: "anthropic/claude-test" }],
+                    data: [{
+                        id: "anthropic/claude-test",
+                        reasoning: {
+                            supportedEfforts: ["max", "high", "low"],
+                            defaultEffort: "high",
+                            mandatory: true
+                        }
+                    }, {
+                        id: "openai/gpt-test",
+                        reasoning: {
+                            supportedEfforts: null,
+                            defaultEffort: "medium",
+                            mandatory: false
+                        }
+                    }, {
+                        id: "qwen/qwen-test",
+                        reasoning: {
+                            mandatory: false,
+                            supportsMaxTokens: true
+                        }
+                    }],
                     links: { next: null },
-                    totalCount: 1
+                    totalCount: 3
                 }
             }
         }
@@ -33,10 +53,21 @@ const client = {
 const provider = new OpenRouterProvider({ apiKey: "secret" }, true, client)
 const models = await provider.models()
 
-assert.equal(models.length, 1)
+assert.equal(models.length, 3)
 assert.equal(models[0]?.id, "anthropic/claude-test")
 assert.equal(models[0]?.provider, provider)
 assert.equal((await provider.models())[0], models[0])
+assert.deepEqual(await models[0]?.reasoning(), {
+    levels: ["low", "high", "max"],
+    default: "high",
+    required: true
+})
+assert.deepEqual(await models[1]?.reasoning(), {
+    levels: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+    default: "medium",
+    required: false
+})
+assert.equal(await models[2]?.reasoning(), null)
 assert.deepEqual(modelRequests, [{
     limit: 1_000,
     outputModalities: "text",
