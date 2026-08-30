@@ -1,6 +1,6 @@
 import Application from "@client/core/application"
 import usePromise from "@libs/react-promise"
-import { CurrentProvider, useProcess } from "@phreshos/react"
+import { ContextProvider, useProcess } from "@phreshos/react"
 import { useEffect, useState } from "react"
 import { StartupState } from "./state"
 import Tasks from "./tasks"
@@ -8,13 +8,13 @@ import useProviderRevision from "./use-provider-revision"
 
 export default function AgentRoute() {
 
-    return <CurrentProvider
+    return <ContextProvider
         provide={["process"]}
         waitServer
         fallback={<StartupState title="Starting Lemo Agent…" />}
     >
         <Agent />
-    </CurrentProvider>
+    </ContextProvider>
 }
 
 function Agent() {

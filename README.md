@@ -484,7 +484,7 @@ resource; they are not converted into one-shot requests.
 
 The reusable hook is copied from the established System implementation into
 `source/libs/react-promise.ts`; it remains local to Lemo and is not part of the
-React SDK. Lemo uses the React SDK's `CurrentProvider` and `useProgram` instead
+React SDK. Lemo uses the React SDK's `ContextProvider` and `useProgram` instead
 of maintaining a second application-name request and enables
 `reactCompilerPreset`. The hook protects against stale
 executions and updates after unmount while exposing explicit pending, solve,
