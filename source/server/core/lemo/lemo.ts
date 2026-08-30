@@ -1,6 +1,5 @@
 import LemoDatabase, { type LemoDatabaseSource } from "./database"
 import type { TaskListRequest, TaskMessage, TaskPage } from "./database"
-import type ClientChannel from "../client-channel"
 import Memory from "./memory"
 import Task, { type TaskRequest, type TaskSource } from "./task"
 import Runtime from "./runtime/runtime"
@@ -23,14 +22,13 @@ export default class Lemo {
     private readonly runtime: Runtime
     private creation = Promise.resolve()
 
-    private constructor(private readonly database: LemoDatabase, client: ClientChannel) {
+    private constructor(private readonly database: LemoDatabase) {
 
         this.memory = new Memory(database)
 
         this.runtime = new Runtime(
             database,
             this.memory,
-            client,
             (invocation, model) => this.toolTasks(invocation, model)
         )
 
@@ -42,10 +40,10 @@ export default class Lemo {
         )
     }
 
-    public static async wakeUp(database: LemoDatabaseSource, client: ClientChannel): Promise<Lemo> {
+    public static async wakeUp(database: LemoDatabaseSource): Promise<Lemo> {
 
         const opened = await LemoDatabase.open(database)
-        const lemo = new Lemo(opened, client)
+        const lemo = new Lemo(opened)
 
         await lemo.executions.recover()
 
@@ -94,6 +92,11 @@ export default class Lemo {
     public subscribe(subscriber: (operation: Operation) => void) {
 
         return this.database.subscribeOperations(subscriber)
+    }
+
+    public respond(task: string, call: string, response: unknown) {
+
+        this.runtime.respond(task, call, response)
     }
 
     private createTask(request: TaskRequest, source: TaskSource): Promise<Task> {

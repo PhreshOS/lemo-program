@@ -1,5 +1,5 @@
 import defineTool from "../../define-tool"
-import { interactivePromptRequestSchema } from "../../prompt-contract"
+import { interactivePromptRequestSchema, parsePromptResponse } from "./contract"
 import docs from "./docs.md?raw"
 
 /** Waits for the Client's first response to one user-facing form or HTML prompt. */
@@ -11,7 +11,11 @@ const prompt = defineTool({
     description: "Present a structured form or interactive HTML document to the user and wait for its result.",
     async execute(request, context) {
 
-        return await context.client.waitAnswer(request)
+        const response = await context.invocation.wait(value => parsePromptResponse(request, value))
+
+        if (response.type === "failed") throw new Error(response.error)
+
+        return response
     }
 })
 

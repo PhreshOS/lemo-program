@@ -1,24 +1,29 @@
-import type { PromptRequest, PromptValue } from "@client/core/prompts/contract"
-import type Prompt from "@client/core/prompts/prompt"
+import type { PromptRequest, PromptValue } from "@server/core/lemo/runtime/tools/prompt/contract"
+import type Tool from "@client/core/lemo/tool"
 import { useEffect, useMemo, useRef, useState } from "react"
-import htmlPromptDocument from "./html-document"
+import promptHtmlDocument from "./html-document"
 
 type HtmlRequest = Extract<PromptRequest, { type: "html" }>
 
-export default function HtmlPrompt({ prompt, request, report }: Readonly<{
-    prompt: Prompt
+export default function PromptHtml({ tool, request, report }: Readonly<{
+    tool: Tool
     request: HtmlRequest
     report(error: string): void
 }>) {
 
     const frame = useRef<HTMLIFrameElement>(null)
     const [channel] = useState(() => crypto.randomUUID())
-    const source = useMemo(() => htmlPromptDocument(request.html, channel), [request.html, channel])
+    const source = useMemo(() => promptHtmlDocument(request.html, channel), [request.html, channel])
 
     function fail(error: unknown) {
 
         try {
-            prompt.fail(error)
+            const content = error instanceof Error ? error.message : String(error)
+
+            void tool.respond({
+                type: "failed",
+                error: (content || "The interactive document failed").slice(0, 1_000)
+            }).catch(cause => report(cause instanceof Error ? cause.message : String(cause)))
         } catch (cause) {
             report(cause instanceof Error ? cause.message : String(cause))
         }
@@ -38,7 +43,12 @@ export default function HtmlPrompt({ prompt, request, report }: Readonly<{
 
             try {
                 if (value.type === "submit" && record(value.values)) {
-                    prompt.submit(value.values as Record<string, PromptValue>)
+                    void tool.respond({
+                        type: "submitted",
+                        values: value.values as Record<string, PromptValue>
+                    }).catch(cause => report(
+                        cause instanceof Error ? cause.message : String(cause)
+                    ))
                     return
                 }
 
@@ -57,7 +67,7 @@ export default function HtmlPrompt({ prompt, request, report }: Readonly<{
 
         return () => window.removeEventListener("message", receive)
 
-    }, [channel, prompt, report])
+    }, [channel, tool, report])
 
     return <div className="html-prompt">
         <iframe

@@ -1,7 +1,6 @@
 import type Application from "@client/core/application"
 import type Task from "@client/core/lemo/task"
 import type LLMModel from "@client/core/llm/model"
-import type Prompt from "@client/core/prompts/prompt"
 import usePromise, { type PromiseWithDependencies } from "@libs/react-promise"
 import {
     useCallback,
@@ -16,7 +15,7 @@ import {
 } from "react"
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
-import PromptView from "./prompts/prompt"
+import ToolView from "./tools/view"
 
 const maximumVisibleModels = 100
 
@@ -48,8 +47,6 @@ export default function Tasks({ application, models: modelResource }: Properties
     const recentTasks = tasks.filter(task => !executing(task.status))
 
     const models = modelResource.solve ?? []
-
-    const prompts = usePrompts(application.prompts)
 
     const available = useMemo(() => new Map(models.map(model => [modelKey(model), model])), [models])
 
@@ -240,10 +237,7 @@ export default function Tasks({ application, models: modelResource }: Properties
 
             </div>}
 
-            {currentTask && <TaskHistory
-                task={currentTask}
-                prompts={prompts.filter(prompt => prompt.task === currentTask.id)}
-            />}
+            {currentTask && <TaskHistory task={currentTask} />}
 
             <form className="composer" onSubmit={submit}>
                 <textarea
@@ -369,7 +363,7 @@ function TaskLink({ task, selected, select }: Readonly<{
     </button>
 }
 
-function TaskHistory({ task, prompts }: Readonly<{ task: Task; prompts: readonly Prompt[] }>) {
+function TaskHistory({ task }: Readonly<{ task: Task }>) {
 
     const history = useRef<HTMLDivElement>(null)
 
@@ -406,17 +400,16 @@ function TaskHistory({ task, prompts }: Readonly<{ task: Task; prompts: readonly
             followsLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 48
         }}
     >
-        <TaskView task={task} snapshot={snapshot} prompts={prompts} />
+        <TaskView task={task} snapshot={snapshot} />
     </div>
 }
 
-function TaskView({ task, snapshot, prompts }: Readonly<{
+function TaskView({ task, snapshot }: Readonly<{
     task: Task
     snapshot: TaskViewSnapshot
-    prompts: readonly Prompt[]
 }>) {
 
-    const events = timeline(snapshot.operations)
+    const events = task.timeline()
     const earlier = usePromise(() => task.loadEarlierOperations())
 
     return <article className="task" data-status={snapshot.status}>
@@ -433,13 +426,13 @@ function TaskView({ task, snapshot, prompts }: Readonly<{
             {earlier.exception && <span role="alert">{message(earlier.exception.current)}</span>}
         </div>}
 
-        {events.map(event => event.type === "user"
+        {events.map(event => event.type === "input"
             ? <div className="user-message-container" key={event.key}>
                 <div className="user-message">
                     <p>{event.content}</p>
                 </div>
             </div>
-            : event.type === "message"
+            : event.type === "output"
                 ? <div className="assistant-message" key={event.key}>
                     <div className="assistant-header">
                         <span className="assistant-avatar">L</span>
@@ -448,18 +441,7 @@ function TaskView({ task, snapshot, prompts }: Readonly<{
                     <MarkdownMessage content={event.content} />
                 </div>
                 : event.type === "tool"
-                    ? <div className="runtime-message" key={event.key}>
-                        <div className="tool-event" data-status={event.status}>
-                            <div className="tool-event-header">
-                                <span className="tool-icon">{toolIcon(event.name)}</span>
-                                <code className="tool-name">{event.name}</code>
-                                <span className={`tool-status-pill status-${event.status}`}>
-                                    {toolStatus(event.status)}
-                                </span>
-                            </div>
-                            {event.error && <div className="tool-error"><small>{event.error}</small></div>}
-                        </div>
-                    </div>
+                    ? <ToolView key={event.key} tool={event.tool} />
                     : <div className="assistant-message failure-message" key={event.key}>
                         <div className="assistant-header">
                             <span className="assistant-avatar failure-avatar">!</span>
@@ -467,8 +449,6 @@ function TaskView({ task, snapshot, prompts }: Readonly<{
                         </div>
                         <p role="alert" className="failure-text">{event.content}</p>
                     </div>)}
-
-        {prompts.map(prompt => <PromptView key={prompt.id} prompt={prompt} />)}
 
         {snapshot.status === "running" && <div className="working-container">
             <div className="working" aria-label="Lemo is working">
@@ -616,129 +596,11 @@ function MarkdownMessage({ content }: Readonly<{ content: string }>) {
     </div>
 }
 
-function toolIcon(name: string) {
-
-    switch (name) {
-        case "programs": return "⚡"
-        case "processes": return "⚙"
-        case "endpoints": return "🔌"
-        case "windows": return "🪟"
-        case "docs": return "📖"
-        case "memory": return "🧠"
-        case "time": return "⏱"
-        case "prompt": return "💬"
-        default: return "🔧"
-    }
-}
-
 function taskQuestion(operations: ReturnType<Task["operations"]>) {
 
     const input = operations.find(operation => operation.kind === "task.input")
 
     return text(record(input?.payload)?.input) || "Task"
-}
-
-function timeline(operations: ReturnType<Task["operations"]>): readonly TimelineEvent[] {
-
-    const results = toolResults(operations)
-    const events: TimelineEvent[] = []
-    let cycleHasText = false
-
-    for (const operation of operations) {
-
-        const payload = record(operation.payload)
-
-        if (operation.kind === "task.input") {
-
-            const content = text(payload?.input)
-
-            if (content) events.push({ type: "user", key: operation.id, content })
-        }
-
-        if (operation.kind === "cycle.started") cycleHasText = false
-
-        if (operation.kind === "model.event" && payload?.type === "text") {
-
-            const content = text(payload.content)
-
-            if (!content) continue
-
-            cycleHasText = true
-
-            const previous = events.at(-1)
-
-            if (previous?.type === "message") previous.content += content
-            else events.push({ type: "message", key: operation.id, content })
-        }
-
-        if (operation.kind === "model.event" && payload?.type === "tool-call") {
-
-            const call = record(payload.call)
-            const id = text(call?.id)
-            const name = text(call?.name)
-
-            if (!id || !name) continue
-
-            const result = results.get(id)
-
-            events.push({
-                type: "tool",
-                key: operation.id,
-                name,
-                status: result ? result.ok ? "completed" : "failed" : "running",
-                error: result?.error
-            })
-        }
-
-        if (operation.kind === "model.message" && !cycleHasText) {
-
-            const content = text(payload?.content)
-
-            if (content) events.push({ type: "message", key: operation.id, content })
-        }
-
-        if (operation.kind === "task.failed") {
-
-            events.push({
-                type: "failure",
-                key: operation.id,
-                content: text(payload?.message) || "The Task failed"
-            })
-        }
-    }
-
-    return events
-}
-
-function toolResults(operations: ReturnType<Task["operations"]>) {
-
-    const results = new Map<string, ToolResult>()
-
-    for (const operation of operations) {
-
-        if (operation.kind !== "tool.result") continue
-
-        const payload = record(operation.payload)
-        const call = text(payload?.call)
-
-        if (!call) continue
-
-        results.set(call, {
-            ok: payload?.ok === true,
-            error: payload?.ok === true ? undefined : text(payload?.error) || "The tool failed"
-        })
-    }
-
-    return results
-}
-
-function toolStatus(status: ToolStatus) {
-
-    if (status === "running") return "Running"
-
-    if (status === "failed") return "Failed"
-
-    return "Completed"
 }
 
 function statusLabel(status: Task["status"]) {
@@ -768,15 +630,6 @@ function useTask(task: Task): TaskViewSnapshot {
     const operations = useSyncExternalStore(subscribe, snapshot, snapshot)
 
     return { operations, status: task.status, error: task.error }
-}
-
-function usePrompts(prompts: Application["prompts"]) {
-
-    const subscribe = useCallback((listener: () => void) => prompts.subscribe(listener), [prompts])
-
-    const snapshot = useCallback(() => prompts.all(), [prompts])
-
-    return useSyncExternalStore(subscribe, snapshot, snapshot)
 }
 
 function useTasks(lemo: Application["lemo"]) {
@@ -810,30 +663,11 @@ function record(value: unknown) {
         : null
 }
 
-type ToolStatus = "running" | "completed" | "failed"
-
 type TaskViewSnapshot = Readonly<{
     operations: ReturnType<Task["operations"]>
     status: Task["status"]
     error: Error | null
 }>
-
-type ToolResult = Readonly<{
-    ok: boolean
-    error?: string
-}>
-
-type TimelineEvent = {
-    type: "user" | "message" | "failure"
-    key: string
-    content: string
-} | {
-    type: "tool"
-    key: string
-    name: string
-    status: ToolStatus
-    error?: string
-}
 
 type Properties = Readonly<{
     application: Application

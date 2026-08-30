@@ -1026,6 +1026,7 @@ export const maximumOperationPage = 256
 export const maximumContextOperations = 2_048
 export const maximumTaskContextBatch = 100
 export const maximumContextMessages = 10
+export const maximumMemoryRetrievalBatch = 256
 
 export const memoryReinforcementHalfLife = 30 * 24 * 60 * 60 * 1_000
 export const maximumMemoryRetrievalScore = 1.65
@@ -1033,7 +1034,6 @@ export const maximumMemoryRetrievalScore = 1.65
 const maximumSearchTerms = 12
 const maximumSqlList = 400
 const maximumMemoryActivationBatch = maximumContextOperations * 4
-const maximumMemoryRetrievalBatch = 256
 const maximumRetrievalInsertBatch = 100
 const memoryLearningRate = 0.25
 

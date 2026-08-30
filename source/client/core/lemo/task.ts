@@ -2,14 +2,26 @@ import type Operation from "@server/core/lemo/operation"
 import type { OperationPage } from "@server/core/lemo/database"
 import type { TaskSnapshot, TaskStatus } from "@server/core/lemo/task"
 import { taskOperation } from "./operation"
+import Tool, { type ToolControl } from "./tool"
 
 export type TaskSubscriber = (task: Task) => void
+
+export type TaskTimelineEvent = Readonly<{
+    type: "input" | "output" | "failure"
+    key: string
+    content: string
+}> | Readonly<{
+    type: "tool"
+    key: string
+    tool: Tool
+}>
 
 export type TaskControl = Readonly<{
     pause(): Promise<void>
     cancel(): Promise<void>
     continue(): Promise<void>
     history(limit: number, before: number): Promise<unknown>
+    respond(call: string, response: Parameters<ToolControl["respond"]>[0]): Promise<void>
 }>
 
 /** A local handle to one authoritative Server Task. */
@@ -19,6 +31,8 @@ export default class Task {
     private readonly subscribers = new Set<TaskSubscriber>()
     private synchronizationError: Error | null = null
     private before: number | null
+    private readonly toolRecords = new Map<string, Tool>()
+    private timelineProjection: readonly TaskTimelineEvent[] = Object.freeze([])
 
     private constructor(
         public readonly id: string,
@@ -28,6 +42,7 @@ export default class Task {
 
         this.history = Object.freeze([...operations])
         this.before = null
+        this.synchronizeTimeline()
     }
 
     public static from(snapshot: TaskSnapshot, control: TaskControl) {
@@ -53,6 +68,12 @@ export default class Task {
     public operations(): readonly Operation[] {
 
         return this.history
+    }
+
+    /** Model output and Tool calls in their authoritative order. */
+    public timeline(): readonly TaskTimelineEvent[] {
+
+        return this.timelineProjection
     }
 
     public subscribe(subscriber: TaskSubscriber) {
@@ -158,7 +179,92 @@ export default class Task {
 
     private changed() {
 
+        this.synchronizeTimeline()
+
         for (const subscriber of this.subscribers) subscriber(this)
+    }
+
+    private synchronizeTimeline() {
+
+        const timeline: TaskTimelineEvent[] = []
+        const tools = new Set<string>()
+        let cycleHasText = false
+
+        for (const operation of this.history) {
+            const payload = object(operation.payload)
+
+            if (operation.kind === "task.input") {
+                const content = text(payload?.input)
+
+                if (content) timeline.push({ type: "input", key: operation.id, content })
+            }
+
+            if (operation.kind === "cycle.started") cycleHasText = false
+
+            if (operation.kind === "model.event" && payload?.type === "text") {
+                const content = rawText(payload.content)
+
+                if (!content) continue
+
+                cycleHasText = true
+
+                const previous = timeline.at(-1)
+
+                if (previous?.type === "output") {
+                    timeline[timeline.length - 1] = {
+                        ...previous,
+                        content: previous.content + content
+                    }
+                } else timeline.push({ type: "output", key: operation.id, content })
+            }
+
+            if (operation.kind === "model.message" && !cycleHasText) {
+                const content = rawText(payload?.content)
+
+                if (content) timeline.push({ type: "output", key: operation.id, content })
+            }
+
+            if (operation.kind === "task.failed") {
+                timeline.push({
+                    type: "failure",
+                    key: operation.id,
+                    content: text(payload?.message) || "The Task failed"
+                })
+            }
+
+            if (operation.kind !== "model.event" || payload?.type !== "tool-call") continue
+
+            const call = object(payload.call)
+            const id = text(call?.id)
+            const name = text(call?.name)
+
+            if (!id || !name) continue
+
+            let tool = this.toolRecords.get(id)
+
+            if (!tool) {
+                const control = Object.freeze({
+                    respond: (response: Parameters<ToolControl["respond"]>[0]) => (
+                        this.control.respond(id, response)
+                    )
+                })
+
+                tool = new Tool(this.id, id, name, call?.input, control)
+
+                this.toolRecords.set(id, tool)
+            }
+
+            tools.add(id)
+            timeline.push({ type: "tool", key: operation.id, tool })
+        }
+
+        for (const tool of this.toolRecords.values()) tool.synchronize(this.history, this.status)
+
+        for (const call of this.toolRecords.keys()) {
+            if (!tools.has(call)) this.toolRecords.delete(call)
+        }
+
+        this.timelineProjection = Object.freeze(timeline)
     }
 }
 
@@ -253,9 +359,19 @@ function text(value: unknown) {
     return typeof value === "string" ? value.trim() : ""
 }
 
+function rawText(value: unknown) {
+
+    return typeof value === "string" ? value : ""
+}
+
 function record(value: unknown): value is Record<string, unknown> {
 
     return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function object(value: unknown) {
+
+    return record(value) ? value : null
 }
 
 const historyPageSize = 256

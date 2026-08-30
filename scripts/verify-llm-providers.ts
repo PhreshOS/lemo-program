@@ -10,28 +10,6 @@ import Application from "../source/server/core/application"
 
 const values = new Map<string, unknown>()
 const database = new DatabaseSync(":memory:")
-const client = {
-    publish() {},
-    subscribe() { return () => {} }
-}
-let agentStarted = false
-const environment = {
-    identity: "lemo",
-    startup: {
-        async get() { return null },
-        async enable() {},
-        async disable() {}
-    },
-    client: {
-        async exists() { return agentStarted },
-        async start(overrides?: { location?: string }) {
-
-            assert.deepEqual(overrides, { location: "/agent" })
-
-            agentStarted = true
-        }
-    }
-}
 
 const store: ProgramStore = {
     async get<Value = unknown>(key: string): Promise<Value | undefined> {
@@ -60,13 +38,7 @@ const store: ProgramStore = {
     }
 }
 
-const unconfigured = await Application.init(store, database, client, environment)
-
-assert.equal(agentStarted, false)
-
-await unconfigured.start()
-
-assert.equal(agentStarted, true)
+const unconfigured = await Application.init(store, database)
 
 assert.equal(unconfigured.llmProviders.all().length, 1)
 
@@ -82,10 +54,7 @@ assert.equal(await store.get("openrouter:active"), true)
 
 await store.set("ollama-cloud:config", { apiKey: "secret" })
 
-const application = await Application.init(store, database, client, environment)
-const applicationEvents: unknown[] = []
-
-application.subscribe(event => applicationEvents.push(event))
+const application = await Application.init(store, database)
 
 assert.equal(application.llmProviders.all().length, 2)
 
@@ -116,18 +85,6 @@ await application.activateLLMProvider("ollama-cloud")
 await application.activateLLMProvider("opencode")
 
 assert.deepEqual(application.llmProviderState("ollama-cloud"), { configured: true, active: true })
-
-await application.configureStartup(true)
-
-assert(applicationEvents.some(event => (
-    typeof event === "object"
-    && event !== null
-    && (event as { type?: unknown }).type === "llm-provider.changed"
-)))
-assert.deepEqual(applicationEvents.at(-1), {
-    type: "manager.startup.changed",
-    enabled: true
-})
 
 const requests: string[] = []
 const tool = {

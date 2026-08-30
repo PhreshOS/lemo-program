@@ -14,7 +14,6 @@ import type {
     TaskContextPage
 } from "../memory"
 import type Operation from "../operation"
-import type { PromptAnswer, WaitAnswerRequest } from "./prompt-contract"
 
 /** One Runtime-owned capability exposed to LLM Models. */
 export default interface Tool {
@@ -58,6 +57,7 @@ export type ToolContext = Readonly<{
         call: string
         signal: AbortSignal
         record(kind: string, payload: unknown): Promise<Operation>
+        wait<Response>(parseResponse: (response: unknown) => Response): Promise<Response>
     }>
     memory: Readonly<{
         recall(request: MemoryRecallRequest, options?: MemoryRecallOptions): Promise<readonly MemoryResult[]>
@@ -69,9 +69,6 @@ export type ToolContext = Readonly<{
         load(names: readonly string[]): Promise<void>
     }>
     tasks: ToolTasks
-    client: Readonly<{
-        waitAnswer(request: WaitAnswerRequest): Promise<PromptAnswer>
-    }>
 }>
 
 export type ToolRecord = Readonly<{

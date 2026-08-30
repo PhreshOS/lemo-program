@@ -3,15 +3,14 @@ import { access, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import type { PromptEvent, PromptRecord } from "../source/client/core/prompts/contract"
-import type ClientChannel from "../source/server/core/client-channel"
 import Lemo from "../source/server/core/lemo/lemo"
+import type Operation from "../source/server/core/lemo/operation"
+import type Task from "../source/server/core/lemo/task"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
 
 const database = new DatabaseSync(":memory:")
-const client = channel()
-const lemo = await Lemo.wakeUp(database, client)
+const lemo = await Lemo.wakeUp(database)
 
 let cycle = 0
 let model!: LLMModel
@@ -101,57 +100,38 @@ model = {
 }
 
 const task = await lemo.task({ input: "Ask for my name", model })
-const opened = await client.waitFor("lemo.prompt.open") as PromptRecord
+const opened = await waitForOperation(task, "tool.prompt.waiting", "request-name")
+const openedState = payload(opened)
 
 assert.equal(opened.task, task.id)
-assert.equal(opened.call, "request-name")
-assert.equal(opened.request.type, "form")
-assert.equal(opened.request.content, "What is your name?")
-assert(opened.expiresAt > opened.createdAt)
+assert.equal("request" in openedState, false)
+assert((openedState.expiresAt as number) > opened.createdAt)
 
-client.receive("lemo.prompt.ready", { client: "reloaded-client" })
-
-assert.equal(client.published.filter(event => event.name === "lemo.prompt.open").length, 2)
-
-client.receive("lemo.prompt.response", {
-    id: opened.id,
+assert.throws(() => lemo.respond(task.id, "request-name", {
     type: "submitted",
     values: { name: "" }
-})
+}), /must be text/)
 
-assert(client.published.some(event => (
-    event.name === "lemo.prompt.invalid"
-    && (event.payload as { id?: string }).id === opened.id
-)))
-
-client.receive("lemo.prompt.response", {
-    id: opened.id,
+lemo.respond(task.id, "request-name", {
     type: "submitted",
     values: { name: "Zohayr" }
 })
 
-const html = await client.waitFor("lemo.prompt.open", 2) as PromptRecord
+const html = await waitForOperation(task, "tool.prompt.waiting", "request-choice")
 
-assert.equal(html.call, "request-choice")
-assert.equal(html.request.type, "html")
+assert.equal("request" in payload(html), false)
 
-client.receive("lemo.prompt.response", {
-    id: html.id,
+lemo.respond(task.id, "request-choice", {
     type: "submitted",
     values: { choice: "first" }
 })
 
 assert.equal(await task.result(), "Thank you, Zohayr.")
 
-const released = client.published.find(event => event.name === "lemo.prompt.release")
-
-assert.deepEqual(released?.payload, { id: opened.id, reason: "answered" })
-
 database.close()
 
 const pausedDatabase = new DatabaseSync(":memory:")
-const pausedClient = channel()
-const pausedLemo = await Lemo.wakeUp(pausedDatabase, pausedClient)
+const pausedLemo = await Lemo.wakeUp(pausedDatabase)
 let pausedCycle = 0
 
 const pausedModel: LLMModel = {
@@ -190,16 +170,11 @@ const pausedModel: LLMModel = {
 }
 
 const pausedTask = await pausedLemo.task({ input: "Wait for me", model: pausedModel })
-const pending = await pausedClient.waitFor("lemo.prompt.open") as PromptRecord
+await waitForOperation(pausedTask, "tool.prompt.waiting", "paused-prompt")
 
 await pausedTask.pause()
 
 assert.equal(await pausedTask.status(), "paused")
-assert(pausedClient.published.some(event => (
-    event.name === "lemo.prompt.release"
-    && (event.payload as { id?: string }).id === pending.id
-    && (event.payload as { reason?: string }).reason === "cancelled"
-)))
 assert((await pausedTask.operations()).some(operation => (
     operation.kind === "tool.result"
     && (operation.payload as { call?: string }).call === "paused-prompt"
@@ -213,8 +188,7 @@ const approvalTarget = join(approvalRoot, "delete-me.txt")
 await writeFile(approvalTarget, "temporary", "utf8")
 
 const approvalDatabase = new DatabaseSync(":memory:")
-const approvalClient = channel()
-const approvalLemo = await Lemo.wakeUp(approvalDatabase, approvalClient)
+const approvalLemo = await Lemo.wakeUp(approvalDatabase)
 let approvalCycle = 0
 let approvalModel!: LLMModel
 
@@ -287,20 +261,33 @@ approvalModel = {
 }
 
 const approvalTask = await approvalLemo.task({ input: "Test approval", model: approvalModel })
-const optionalApproval = await approvalClient.waitFor("lemo.prompt.open") as PromptRecord
+const optionalApproval = await waitForOperation(
+    approvalTask,
+    "tool.time.approval.requested",
+    "approved-time"
+)
+const optionalRequest = payload(optionalApproval).request as Record<string, unknown>
 
-assert.equal(optionalApproval.request.type, "approval")
-assert.equal(optionalApproval.call, "approved-time")
+assert.equal(optionalRequest.type, "approval")
 
-approvalClient.receive("lemo.prompt.response", { id: optionalApproval.id, type: "rejected" })
+assert.throws(() => approvalLemo.respond(approvalTask.id, "approved-time", {
+    type: "submitted",
+    values: {}
+}))
 
-const mandatoryApproval = await approvalClient.waitFor("lemo.prompt.open", 1) as PromptRecord
+approvalLemo.respond(approvalTask.id, "approved-time", { type: "rejected" })
 
-assert.equal(mandatoryApproval.request.type, "approval")
-assert.equal(mandatoryApproval.call, "mandatory-delete")
-assert.match(mandatoryApproval.request.content, /delete-me\.txt/)
+const mandatoryApproval = await waitForOperation(
+    approvalTask,
+    "tool.files.approval.requested",
+    "mandatory-delete"
+)
+const mandatoryRequest = payload(mandatoryApproval).request as Record<string, unknown>
 
-approvalClient.receive("lemo.prompt.response", { id: mandatoryApproval.id, type: "approved" })
+assert.equal(mandatoryRequest.type, "approval")
+assert.match(String(mandatoryRequest.content), /delete-me\.txt/)
+
+approvalLemo.respond(approvalTask.id, "mandatory-delete", { type: "approved" })
 
 assert.equal(await approvalTask.result(), "Approval flow complete.")
 
@@ -312,57 +299,32 @@ assert(approvalOperations.some(operation => operation.kind === "tool.files.appro
 approvalDatabase.close()
 await rm(approvalRoot, { recursive: true, force: true })
 
-function channel() {
+async function waitForOperation(task: Task, kind: string, call: string): Promise<Operation> {
 
-    const subscribers = new Map<string, Set<(value: unknown) => void>>()
-    const waiting = new Map<string, ((value: unknown) => void)[]>()
-    const published: { name: string; payload: unknown }[] = []
+    const find = async () => (await task.operations()).find(operation => (
+        operation.kind === kind
+        && (operation.payload as { call?: string }).call === call
+    ))
+    const existing = await find()
 
-    const source: ClientChannel & {
-        published: typeof published
-        receive(event: PromptEvent, payload: unknown): void
-        waitFor(event: PromptEvent, occurrence?: number): Promise<unknown>
-    } = {
-        published,
-        publish(name, payload) {
+    if (existing) return existing
 
-            published.push({ name, payload })
+    return new Promise(resolve => {
 
-            waiting.get(name)?.shift()?.(payload)
-        },
-        subscribe(name, subscriber) {
+        const unsubscribe = task.subscribe(() => {
 
-            const listeners = subscribers.get(name) ?? new Set()
+            void find().then(operation => {
 
-            listeners.add(subscriber)
-            subscribers.set(name, listeners)
+                if (!operation) return
 
-            return () => listeners.delete(subscriber)
-        },
-        receive(name, payload) {
-
-            for (const subscriber of subscribers.get(name) ?? []) subscriber(payload)
-        },
-        waitFor(name, occurrence = 0) {
-
-            const existing = published.filter(event => event.name === name)[occurrence]
-
-            if (existing) return Promise.resolve(existing.payload)
-
-            return new Promise(resolve => {
-
-                const listeners = waiting.get(name) ?? []
-
-                listeners.push(() => {
-                    const events = published.filter(event => event.name === name)
-
-                    if (events.length > occurrence) resolve(events[occurrence]?.payload)
-                    else listeners.push(resolve)
-                })
-                waiting.set(name, listeners)
+                unsubscribe()
+                resolve(operation)
             })
-        }
-    }
+        })
+    })
+}
 
-    return source
+function payload(operation: Operation) {
+
+    return (operation.payload as { payload: Record<string, unknown> }).payload
 }

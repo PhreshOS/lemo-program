@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import files from "../source/server/core/lemo/runtime/tools/files/files"
+import files from "../source/server/core/lemo/runtime/tools/files/tool"
 import TextFiles from "../source/server/core/lemo/runtime/tools/files/internal/text-files"
 
 assert.equal(files.definition.name, "files")

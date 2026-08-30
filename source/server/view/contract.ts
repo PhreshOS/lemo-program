@@ -75,6 +75,11 @@ export const taskRequest = z.object({
     task: identity
 }).strict()
 
+export const taskToolResponse = taskRequest.extend({
+    call: identity,
+    response: z.unknown()
+}).strict()
+
 export const taskHistory = z.object({
     task: identity,
     limit: z.number().int(),

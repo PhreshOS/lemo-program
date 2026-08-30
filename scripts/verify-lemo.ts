@@ -12,17 +12,17 @@ import { estimatedTokens } from "../source/server/core/lemo/token-budget"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
 import type { ToolContext } from "../source/server/core/lemo/runtime/tool"
-import endpoints, { endpointModelOutput } from "../source/server/core/lemo/runtime/tools/endpoints/endpoints"
-import files from "../source/server/core/lemo/runtime/tools/files/files"
-import memoryTool from "../source/server/core/lemo/runtime/tools/memory/memory"
-import processes from "../source/server/core/lemo/runtime/tools/processes/processes"
-import programs from "../source/server/core/lemo/runtime/tools/programs/programs"
-import promptTool from "../source/server/core/lemo/runtime/tools/prompt/prompt"
-import shellTool from "../source/server/core/lemo/runtime/tools/shell/shell"
-import tasks from "../source/server/core/lemo/runtime/tools/tasks/tasks"
-import timeTool from "../source/server/core/lemo/runtime/tools/time/time"
-import toolsTool from "../source/server/core/lemo/runtime/tools/tools/tools"
-import windows from "../source/server/core/lemo/runtime/tools/windows/windows"
+import endpoints, { endpointModelOutput } from "../source/server/core/lemo/runtime/tools/endpoints/tool"
+import files from "../source/server/core/lemo/runtime/tools/files/tool"
+import memoryTool from "../source/server/core/lemo/runtime/tools/memory/tool"
+import processes from "../source/server/core/lemo/runtime/tools/processes/tool"
+import programs from "../source/server/core/lemo/runtime/tools/programs/tool"
+import promptTool from "../source/server/core/lemo/runtime/tools/prompt/tool"
+import shellTool from "../source/server/core/lemo/runtime/tools/shell/tool"
+import tasks from "../source/server/core/lemo/runtime/tools/tasks/tool"
+import timeTool from "../source/server/core/lemo/runtime/tools/time/tool"
+import toolsTool from "../source/server/core/lemo/runtime/tools/tools/tool"
+import windows from "../source/server/core/lemo/runtime/tools/windows/tool"
 import toolInput from "../source/server/core/lemo/runtime/tool-input"
 import waitEvent from "../source/server/core/lemo/runtime/wait-event"
 
@@ -255,16 +255,11 @@ assert.deepEqual(endpointModelOutput({
 
 const database = new DatabaseSync(":memory:")
 
-const client = {
-    publish() {},
-    subscribe() { return () => {} }
-}
-
-const lemo = await Lemo.wakeUp(database, client)
+const lemo = await Lemo.wakeUp(database)
 
 assert(lemo instanceof Lemo)
 
-await Lemo.wakeUp(database, client)
+await Lemo.wakeUp(database)
 
 const tables = database.prepare(`
     SELECT name
@@ -728,7 +723,7 @@ const toolFailureContext = await lemo.task({ input: "inspect missing capability 
 
 assert.equal(await toolFailureContext.result(), "tool-failure:recalled")
 
-const restarted = await Lemo.wakeUp(database, client)
+const restarted = await Lemo.wakeUp(database)
 
 const restored = await restarted.findTask(firstTask.id)
 
@@ -770,6 +765,33 @@ for (let index = 0; index < 5; index++) {
 const large = await new Memory(largeDatabase).recall({ query: "large", budget: 1_000 })
 
 assert(compact.length > large.length)
+
+const retrievalBatchSource = new DatabaseSync(":memory:")
+const retrievalBatchDatabase = await LemoDatabase.open(retrievalBatchSource)
+
+for (let index = 0; index < 300; index++) {
+    await retrievalBatchDatabase.createTask(`retrieval-batch-${index}`, {
+        input: `shared memory ${index}`
+    })
+}
+
+await retrievalBatchDatabase.createTask("retrieval-batch-current", { input: "shared memory" })
+await retrievalBatchDatabase.appendToTask("retrieval-batch-current", "task.run.started", {
+    run: "retrieval-batch-run"
+})
+
+const retrievalBatchOperations = (await retrievalBatchDatabase.operations("retrieval-batch-current", {
+    limit: 10,
+    order: "oldest"
+})).operations
+
+await new Memory(retrievalBatchDatabase).context(retrievalBatchOperations, 300_000)
+
+const recordedRetrievals = retrievalBatchSource.prepare(
+    "SELECT COUNT(*) AS count FROM memory_retrievals"
+).get() as { count: number }
+
+assert(recordedRetrievals.count > 256)
 
 const continuitySource = new DatabaseSync(":memory:")
 const continuityDatabase = await LemoDatabase.open(continuitySource)
@@ -1199,6 +1221,18 @@ assert(continuitySnapshot.includes(
 assert(continuitySnapshot.includes('<semantic_memory budget='))
 assert(continuitySnapshot.indexOf('id="immediate"') < continuitySnapshot.indexOf('id="older-association"'))
 
+const compactPerceptualField = await new Memory(continuityMindDatabase).context(
+    (await continuityMindDatabase.operations("follow-up", { limit: 10, order: "oldest" })).operations,
+    1_000
+)
+
+assert(compactPerceptualField.includes('<semantic_memory budget="120"'))
+assert(compactPerceptualField.includes('<rules budget="80"'))
+await assert.rejects(
+    new Memory(continuityMindDatabase).recall({ query: "YouTube", budget: 120 }),
+    /Memory recall budget must be between 256 and 16000 estimated tokens/
+)
+
 const transcriptSource = new DatabaseSync(":memory:")
 const transcriptDatabase = await LemoDatabase.open(transcriptSource)
 
@@ -1227,6 +1261,7 @@ assert.equal(transcript.some(operation => operation.kind === "model.event"), fal
 database.close()
 compactSource.close()
 largeSource.close()
+retrievalBatchSource.close()
 perceptualSource.close()
 fittingSource.close()
 activationSource.close()

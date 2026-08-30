@@ -1,12 +1,5 @@
 import { z } from "zod"
 
-export type PromptEvent =
-    | "lemo.prompt.open"
-    | "lemo.prompt.release"
-    | "lemo.prompt.invalid"
-    | "lemo.prompt.response"
-    | "lemo.prompt.ready"
-
 const key = z.string().trim().min(1).max(64)
 const label = z.string().trim().min(1).max(160)
 const description = z.string().trim().min(1).max(500).optional()
@@ -23,7 +16,7 @@ const common = {
     required: z.boolean().optional()
 }
 
-export const promptFieldSchema = z.discriminatedUnion("type", [
+const field = z.discriminatedUnion("type", [
     z.strictObject({
         ...common,
         type: z.literal("text"),
@@ -43,6 +36,8 @@ export const promptFieldSchema = z.discriminatedUnion("type", [
         maximum: z.number().finite().optional(),
         step: z.number().finite().positive().optional(),
         value: z.number().finite().optional()
+    }).refine(value => value.minimum === undefined || value.maximum === undefined || value.minimum <= value.maximum, {
+        message: "A number field's minimum cannot exceed its maximum"
     }),
     z.strictObject({
         ...common,
@@ -73,46 +68,46 @@ export const promptFieldSchema = z.discriminatedUnion("type", [
     })
 ])
 
-export const promptRequestSchema = z.discriminatedUnion("type", [
-    z.strictObject({
-        type: z.literal("form"),
-        title: z.string().trim().min(1).max(200).optional(),
-        content: z.string().trim().min(1).max(4_000).optional(),
-        submit: z.string().trim().min(1).max(80).optional(),
-        fields: z.array(promptFieldSchema).min(1).max(32)
-    }).superRefine((value, context) => {
+export type PromptField = Readonly<z.infer<typeof field>>
 
-        const keys = new Set<string>()
+const form = z.strictObject({
+    type: z.literal("form"),
+    title: z.string().trim().min(1).max(200).optional(),
+    content: z.string().trim().min(1).max(4_000).optional(),
+    submit: z.string().trim().min(1).max(80).optional(),
+    fields: z.array(field).min(1).max(32)
+}).superRefine((value, context) => {
 
-        for (const [index, field] of value.fields.entries()) {
-            if (keys.has(field.key)) {
-                context.addIssue({
-                    code: "custom",
-                    path: ["fields", index, "key"],
-                    message: `Duplicate field key "${field.key}"`
-                })
-            }
+    const keys = new Set<string>()
 
-            keys.add(field.key)
+    for (const [index, item] of value.fields.entries()) {
+        if (keys.has(item.key)) {
+            context.addIssue({
+                code: "custom",
+                path: ["fields", index, "key"],
+                message: `Duplicate field key "${item.key}"`
+            })
         }
-    }),
-    z.strictObject({
-        type: z.literal("html"),
-        title: z.string().trim().min(1).max(200).optional(),
-        html: z.string().trim().min(1).max(100_000)
-    }),
-    z.strictObject({
-        type: z.literal("approval"),
-        title: z.string().trim().min(1).max(200),
-        content: z.string().trim().min(1).max(4_000)
-    })
-])
+
+        keys.add(item.key)
+    }
+})
+
+const html = z.strictObject({
+    type: z.literal("html"),
+    title: z.string().trim().min(1).max(200).optional(),
+    html: z.string().trim().min(1).max(100_000)
+})
+
+export const interactivePromptRequestSchema = z.discriminatedUnion("type", [form, html])
+
+export type PromptRequest = Readonly<z.infer<typeof interactivePromptRequestSchema>>
 
 export type PromptValue = null | boolean | number | string | readonly PromptValue[] | {
     readonly [key: string]: PromptValue
 }
 
-const promptValueSchema: z.ZodType<PromptValue> = z.lazy(() => z.union([
+export const promptValueSchema: z.ZodType<PromptValue> = z.lazy(() => z.union([
     z.null(),
     z.boolean(),
     z.number().finite(),
@@ -121,67 +116,49 @@ const promptValueSchema: z.ZodType<PromptValue> = z.lazy(() => z.union([
     z.record(z.string(), promptValueSchema)
 ]))
 
-export const promptRecordSchema = z.strictObject({
-    id: z.string().trim().min(1),
-    task: z.string().trim().min(1),
-    call: z.string().trim().min(1),
-    request: promptRequestSchema,
-    createdAt: z.number().int().nonnegative(),
-    expiresAt: z.number().int().nonnegative()
-})
-
-export const promptReleaseSchema = z.strictObject({
-    id: z.string().trim().min(1),
-    reason: z.enum(["answered", "timeout", "cancelled", "failed"])
-})
-
-export const promptInvalidSchema = z.strictObject({
-    id: z.string().trim().min(1),
-    error: z.string().trim().min(1).max(1_000)
-})
-
 export const promptResponseSchema = z.discriminatedUnion("type", [
     z.strictObject({
-        id: z.string().trim().min(1),
         type: z.literal("submitted"),
         values: z.record(z.string().trim().min(1).max(64), promptValueSchema)
     }),
+    z.strictObject({ type: z.literal("cancelled") }),
     z.strictObject({
-        id: z.string().trim().min(1),
-        type: z.literal("cancelled")
-    }),
-    z.strictObject({
-        id: z.string().trim().min(1),
         type: z.literal("failed"),
         error: z.string().trim().min(1).max(1_000)
-    }),
-    z.strictObject({ id: z.string().trim().min(1), type: z.literal("approved") }),
-    z.strictObject({ id: z.string().trim().min(1), type: z.literal("rejected") })
+    })
 ])
 
-export type PromptField = Readonly<z.infer<typeof promptFieldSchema>>
-export type PromptRequest = Readonly<z.infer<typeof promptRequestSchema>>
-export type PromptRecord = Readonly<z.infer<typeof promptRecordSchema>>
-export type PromptRelease = Readonly<z.infer<typeof promptReleaseSchema>>
-export type PromptInvalid = Readonly<z.infer<typeof promptInvalidSchema>>
 export type PromptResponse = Readonly<z.infer<typeof promptResponseSchema>>
 
-export function validatePromptValues(request: PromptRequest, values: Readonly<Record<string, PromptValue>>) {
+export function parsePromptResponse(request: PromptRequest, value: unknown): PromptResponse {
 
-    if (request.type === "approval") throw new Error("An approval does not accept form values")
+    const answer = promptResponseSchema.parse(value)
 
-    const serialized = JSON.stringify(values)
+    if (answer.type === "cancelled" || answer.type === "failed") return answer
+
+    const serialized = JSON.stringify(answer.values)
 
     if (serialized.length > 16_000) throw new Error("Prompt values cannot exceed 16000 characters")
-    if (request.type === "html") return
 
-    const expected = new Map(request.fields.map(field => [field.key, field]))
+    if (request.type === "html") return answer
 
-    for (const key of Object.keys(values)) {
+    const expected = new Map(request.fields.map(item => [item.key, item]))
+
+    for (const key of Object.keys(answer.values)) {
         if (!expected.has(key)) throw new Error(`Prompt returned unknown field "${key}"`)
     }
 
-    for (const field of request.fields) validateField(field, values[field.key])
+    for (const item of request.fields) validateField(item, answer.values[item.key])
+
+    return answer
+}
+
+export function validatePromptValues(
+    request: PromptRequest,
+    values: Readonly<Record<string, PromptValue>>
+) {
+
+    parsePromptResponse(request, { type: "submitted", values })
 }
 
 function validateField(field: PromptField, value: PromptValue | undefined) {
@@ -242,7 +219,7 @@ function validateField(field: PromptField, value: PromptValue | undefined) {
         return
     }
 
-    const options = new Set(field.options.map(option => option.value))
+    const options = new Set(field.options.map(item => item.value))
 
     if (field.type === "select") {
         if (typeof value !== "string" || !options.has(value)) {

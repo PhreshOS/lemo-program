@@ -1,7 +1,7 @@
 const scope = "lemo.html-prompt"
 
 /** Composes the isolated document and injects its complete public SDK first. */
-export default function htmlPromptDocument(html: string, channel: string) {
+export default function promptHtmlDocument(html: string, channel: string) {
 
     const document = new DOMParser().parseFromString(html, "text/html")
     const policy = document.createElement("meta")

@@ -1,6 +1,7 @@
 import type LemoDatabase from "./database"
 import {
     maximumContextOperations,
+    maximumMemoryRetrievalBatch,
     maximumOperationPage,
     maximumTaskContextBatch
 } from "./database"
@@ -202,16 +203,25 @@ export default class Context {
         }
     ): Promise<readonly MemoryResult[]> {
 
+        const validatedRequest = Object.freeze({
+            ...request,
+            budget: tokenBudget(
+                request.budget ?? defaultMemoryBudget,
+                minimumMemoryBudget,
+                maximumMemoryBudget,
+                "Memory recall"
+            )
+        })
         const now = Date.now()
         const operations = await this.history(
-            request.query,
+            validatedRequest.query,
             [],
             options.excludeTask,
-            request.focus ?? []
+            validatedRequest.focus ?? []
         )
         const results = retrieve(
             operations,
-            request,
+            validatedRequest,
             "recall",
             await this.activations(operations, now)
         )
@@ -370,7 +380,11 @@ export default class Context {
             retrievedAt
         }))
 
-        await this.database.recordMemoryRetrievals(values)
+        for (let index = 0; index < values.length; index += maximumMemoryRetrievalBatch) {
+            await this.database.recordMemoryRetrievals(
+                values.slice(index, index + maximumMemoryRetrievalBatch)
+            )
+        }
 
         const activations = await this.database.memoryActivations(
             unique.map(result => result.operation),
@@ -403,9 +417,9 @@ function retrieve(
 
     const budget = tokenBudget(
         request.budget ?? defaultMemoryBudget,
-        minimumMemoryBudget,
-        maximumMemoryBudget,
-        "Memory recall"
+        1,
+        Number.MAX_SAFE_INTEGER,
+        "Memory retrieval"
     )
     const candidates = operations.flatMap(candidate)
 

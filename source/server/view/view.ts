@@ -1,3 +1,4 @@
+import type { Launch } from "@phreshos/core"
 import { current } from "@phreshos/server"
 import Application from "@server/core/application"
 import type {
@@ -7,7 +8,6 @@ import type {
 } from "@server/core/llm/model"
 import type { TaskSnapshot } from "@server/core/lemo/task"
 import type { OperationPage } from "@server/core/lemo/database"
-import type ClientChannel from "@server/core/client-channel"
 import {
     generationRequest,
     modelReasoning,
@@ -17,57 +17,76 @@ import {
     startupConfiguration,
     taskCreation,
     taskHistory,
-    taskRequest
+    taskRequest,
+    taskToolResponse
 } from "./contract"
 
 export default async function view() {
 
     const program = await current.program()
 
-    const application = await Application.init(program.store, program.database, clientChannel, {
-        client: current.client,
-        identity: program.identity,
-        startup: program.startup
-    })
+    const application = await Application.init(program.store, program.database)
 
-    application.subscribe(event => {
-
-        if (event.type === "lemo.operation") current.publish(event.type, event.operation)
-        else current.publish(event.type, event)
-    })
+    application.lemo.subscribe(operation => current.publish("lemo.operation", operation))
 
     current.answer("llm-provider.state", function ({ payload }) {
 
         return application.llmProviderState(providerRequest.parse(payload).provider)
     })
 
-    current.answer<unknown, boolean>("manager.startup", () => application.startupEnabled())
+    current.answer<unknown, boolean>("manager.startup", async function () {
+
+        return await program.startup.get() !== null
+    })
 
     current.answer<unknown, void>("manager.startup.configure", async function ({ payload }) {
 
-        await application.configureStartup(startupConfiguration.parse(payload).enabled)
+        const enabled = startupConfiguration.parse(payload).enabled
+
+        if (enabled) await program.startup.enable(fixedLaunch(program.identity))
+        else await program.startup.disable()
+
+        current.publish("manager.startup.changed", {
+            type: "manager.startup.changed",
+            enabled
+        })
     })
 
     current.answer<unknown, void>("llm-provider.configure", async function ({ payload }) {
 
         const request = providerConfiguration.parse(payload)
 
-        await application.configureLLMProvider(request.provider, request.configuration)
+        const state = await application.configureLLMProvider(request.provider, request.configuration)
+
+        current.publish("llm-provider.changed", {
+            type: "llm-provider.changed",
+            provider: request.provider,
+            state
+        })
     })
 
     current.answer<unknown, void>("llm-provider.remove-configuration", async function ({ payload }) {
 
-        await application.removeLLMProviderConfiguration(providerRequest.parse(payload).provider)
+        const provider = providerRequest.parse(payload).provider
+        const state = await application.removeLLMProviderConfiguration(provider)
+
+        current.publish("llm-provider.changed", { type: "llm-provider.changed", provider, state })
     })
 
     current.answer<unknown, void>("llm-provider.activate", async function ({ payload }) {
 
-        await application.activateLLMProvider(providerRequest.parse(payload).provider)
+        const provider = providerRequest.parse(payload).provider
+        const state = await application.activateLLMProvider(provider)
+
+        current.publish("llm-provider.changed", { type: "llm-provider.changed", provider, state })
     })
 
     current.answer<unknown, void>("llm-provider.deactivate", async function ({ payload }) {
 
-        await application.deactivateLLMProvider(providerRequest.parse(payload).provider)
+        const provider = providerRequest.parse(payload).provider
+        const state = await application.deactivateLLMProvider(provider)
+
+        current.publish("llm-provider.changed", { type: "llm-provider.changed", provider, state })
     })
 
     current.answer<unknown, readonly LLMModelRecord[]>("llm-models", () => application.modelRecords())
@@ -130,6 +149,13 @@ export default async function view() {
         await application.continueTask(taskRequest.parse(payload).task)
     })
 
+    current.answer<unknown, void>("lemo.task.tool.respond", function ({ payload }) {
+
+        const request = taskToolResponse.parse(payload)
+
+        application.respondToTool(request.task, request.call, request.response)
+    })
+
     current.answer<unknown, void>("llm-generate", async function ({ payload }) {
 
         const request = generationRequest.parse(payload)
@@ -142,22 +168,16 @@ export default async function view() {
         current.publish<LLMGenerationEvent>(request.generation, { type: "complete" })
     })
 
-    // Process creation must settle independently. Server Core owns this
-    // lifecycle, while View only starts it after every Server capability has
-    // been registered.
-    void application.start().catch(error => console.error(error))
+    // Start the representation only after its Server API is complete.
+    void startAgent().catch(error => console.error(error))
 }
 
-const clientChannel: ClientChannel = {
-    publish(event, payload) {
+async function startAgent() {
 
-        current.client.publish(event, payload)
-    },
-    subscribe(event, listener) {
+    if (!await current.client.exists()) await current.client.start({ location: "/agent" })
+}
 
-        return current.subscribe(event, value => {
+function fixedLaunch(identity: string): Launch {
 
-            listener((value as { payload: unknown }).payload)
-        })
-    }
+    return Object.freeze({ name: identity, server: true, client: false })
 }

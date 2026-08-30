@@ -2,7 +2,6 @@ import Application from "@client/core/application"
 import usePromise from "@libs/react-promise"
 import { CurrentProvider, useProcess } from "@phreshos/react"
 import { useEffect, useState } from "react"
-import promptSource from "./prompt-source"
 import { StartupState } from "./state"
 import Tasks from "./tasks"
 import useProviderRevision from "./use-provider-revision"
@@ -21,7 +20,7 @@ export default function AgentRoute() {
 function Agent() {
 
     const process = useProcess()
-    const [application] = useState(() => new Application(process.server, promptSource))
+    const [application] = useState(() => new Application(process.server))
     const providerRevision = useProviderRevision(application.llmProviders)
     const models = usePromise(
         () => application.llmProviders.models(),

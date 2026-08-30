@@ -3,35 +3,29 @@ import LLMProviders from "./llm/providers"
 import { llmServerSources } from "./llm/server"
 import Lemo, { type LemoSource } from "./lemo/lemo"
 import type LLMModel from "./llm/model"
-import { taskSnapshot } from "./lemo/task"
-import Prompts, { type PromptSource } from "./prompts/prompts"
+import { taskSnapshot, type TaskControl } from "./lemo/task"
 import serverEvents from "./server-events"
 
 export default class Application {
 
     public readonly llmProviders: LLMProviders
     public readonly lemo: Lemo
-    public readonly prompts: Prompts
 
-    public constructor(server: Server, promptSource: PromptSource) {
+    public constructor(server: Server) {
 
         const sources = llmServerSources(server)
 
         this.llmProviders = new LLMProviders(sources.models, sources.providers)
         this.lemo = new Lemo(serverLemoSource(server))
-        this.prompts = new Prompts(promptSource)
     }
 
     public start() {
-
-        this.prompts.start()
 
         return this.llmProviders.start()
     }
 
     public stop() {
 
-        this.prompts.stop()
         this.lemo.stop()
         this.llmProviders.stop()
     }
@@ -77,12 +71,17 @@ function serverLemoSource(server: Server): LemoSource {
     }
 }
 
-function taskControl(server: Server, task: string) {
+function taskControl(server: Server, task: string): TaskControl {
 
     return Object.freeze({
         pause: () => controlTask(server, "lemo.task.pause", task),
         cancel: () => controlTask(server, "lemo.task.cancel", task),
         continue: () => controlTask(server, "lemo.task.continue", task),
+        respond: (call, response) => server.ask<void>("lemo.task.tool.respond", {
+            task,
+            call,
+            response
+        }),
         history: (limit: number, before: number) => server.ask<unknown>("lemo.task.history", {
             task,
             limit,

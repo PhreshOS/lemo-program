@@ -6,29 +6,28 @@ import type { MemoryRecord } from "../memory"
 import type { MemoryRecallOptions, MemoryRecallRequest } from "../memory"
 import type Operation from "../operation"
 import { assertRunning, waitForRun, type TaskRun } from "../executions"
-import type ClientChannel from "@server/core/client-channel"
 import type Tool from "./tool"
 import type { ToolContext, ToolRecord, ToolTasks } from "./tool"
+import {
+    approvalRequestSchema,
+    approvalResponseSchema,
+    type ApprovalResponse
+} from "./approval-contract"
 import { defaultApproval } from "./tool-approval"
-import { waitAnswerRequestSchema, type WaitAnswerRequest } from "./prompt-contract"
-import WaitAnswers from "./wait-answers"
-const modules = import.meta.glob<{ default: Tool }>("./tools/*/*.ts", { eager: true })
+const modules = import.meta.glob<{ default: Tool }>("./tools/*/tool.ts", { eager: true })
 
 /** Lemo's internal owner and executor of available tools. */
 export default class Runtime {
 
     private readonly tools: ReadonlyMap<string, Tool>
-    private readonly answers: WaitAnswers
+    private readonly pending = new Map<string, PendingResponse>()
     private readonly loading = new Map<string, Promise<void>>()
 
     public constructor(
         private readonly database: LemoDatabase,
         private readonly memory: Memory,
-        client: ClientChannel,
         private readonly taskContext: (invocation: ToolContext["invocation"], model: LLMModel) => ToolTasks
     ) {
-
-        this.answers = new WaitAnswers(client)
 
         const catalog = Object.values(modules)
             .map(module => module.default)
@@ -59,6 +58,16 @@ export default class Runtime {
     public async execute(run: TaskRun, model: LLMModel, calls: readonly LLMToolCall[]) {
 
         await Promise.all(calls.map(call => this.executeCall(run, model, call)))
+    }
+
+    /** Resolves the live Tool call owned by one Task. */
+    public respond(task: string, call: string, value: unknown) {
+
+        const pending = this.pending.get(responseKey(task, call))
+
+        if (!pending) throw new Error(`Tool call "${call}" is not awaiting a Client response`)
+
+        pending.resolve(pending.parse(value))
     }
 
     private async executeCall(run: TaskRun, model: LLMModel, call: LLMToolCall) {
@@ -129,7 +138,15 @@ export default class Runtime {
             task: run.task,
             call: call.id,
             signal: run.signal,
-            record
+            record,
+            wait: <Response>(parseResponse: (response: unknown) => Response) => this.wait(
+                run,
+                call,
+                parseResponse,
+                record,
+                "waiting",
+                {}
+            )
         })
 
         const context: ToolContext = Object.freeze({
@@ -164,13 +181,7 @@ export default class Runtime {
                 },
                 load: (names: readonly string[]) => this.loadTools(run.task, names, record)
             }),
-            tasks: this.taskContext(invocation, model),
-            client: Object.freeze({
-                waitAnswer: (request: WaitAnswerRequest) => this.answers.wait({
-                    task: run.task,
-                    call: call.id
-                }, request, run.signal)
-            })
+            tasks: this.taskContext(invocation, model)
         })
 
         let output: unknown
@@ -251,15 +262,83 @@ export default class Runtime {
         record: (kind: string, payload: unknown) => Promise<Operation>
     ) {
 
-        const request = waitAnswerRequestSchema.parse({ type: "approval", ...approval })
+        const request = approvalRequestSchema.parse({ type: "approval", ...approval })
 
-        await record("approval.requested", { requestedBy, request })
-
-        const answer = await this.answers.wait({ task: run.task, call: call.id }, request, run.signal)
+        const answer = await this.wait<ApprovalResponse>(
+            run,
+            call,
+            value => approvalResponseSchema.parse(value),
+            record,
+            "approval.requested",
+            { requestedBy, request }
+        )
 
         await record(`approval.${answer.type}`, { requestedBy })
 
         return answer.type === "approved"
+    }
+
+    private wait<Response>(
+        run: TaskRun,
+        call: LLMToolCall,
+        parseResponse: (response: unknown) => Response,
+        announce: (kind: string, payload: unknown) => Promise<Operation>,
+        kind: string,
+        detail: Readonly<Record<string, unknown>>
+    ): Promise<Response> {
+
+        if (this.pending.size >= maximumPendingResponses) {
+            throw new Error(`Runtime already has its maximum of ${maximumPendingResponses} pending Tool responses`)
+        }
+
+        assertRunning(run.signal)
+
+        const key = responseKey(run.task, call.id)
+
+        if (this.pending.has(key)) throw new Error(`Tool call "${call.id}" is already awaiting a response`)
+
+        const expiresAt = Date.now() + responseTimeout
+
+        return new Promise<Response>((resolve, reject) => {
+
+            let settled = false
+
+            const settle = (action: () => void) => {
+
+                if (settled) return
+
+                settled = true
+                clearTimeout(timer)
+                run.signal.removeEventListener("abort", abort)
+                this.pending.delete(key)
+                action()
+            }
+            const abort = () => settle(() => reject(
+                run.signal.reason instanceof Error
+                    ? run.signal.reason
+                    : new Error("Task run stopped")
+            ))
+            const timer = setTimeout(() => settle(() => reject(
+                new Error(`No Client responded within ${responseTimeout}ms`)
+            )), responseTimeout)
+
+            this.pending.set(key, Object.freeze({
+                parse: parseResponse,
+                resolve: answer => settle(() => resolve(answer as Response)),
+                reject: error => settle(() => reject(error))
+            }))
+
+            run.signal.addEventListener("abort", abort, { once: true })
+
+            if (run.signal.aborted) {
+                abort()
+                return
+            }
+
+            void announce(kind, { ...detail, expiresAt }).catch(cause => {
+                settle(() => reject(cause))
+            })
+        })
     }
 
     private async loadTools(
@@ -291,6 +370,19 @@ export default class Runtime {
 }
 
 const defaultToolOrder = 1_000
+const maximumPendingResponses = 4
+const responseTimeout = 2 * 60 * 1_000
+
+type PendingResponse = Readonly<{
+    parse(value: unknown): unknown
+    resolve(answer: unknown): void
+    reject(error: Error): void
+}>
+
+function responseKey(task: string, call: string) {
+
+    return `${task}\0${call}`
+}
 
 function loadedTools(operation: Operation | null) {
 

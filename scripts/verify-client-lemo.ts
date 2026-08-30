@@ -1,9 +1,11 @@
 import assert from "node:assert/strict"
 import Lemo, { type LemoSource } from "../source/client/core/lemo/lemo"
+import Tool from "../source/client/core/lemo/tool"
 import type { TaskSnapshot } from "../source/server/core/lemo/task"
 import type LLMModel from "../source/client/core/llm/model"
 import type LLMProvider from "../source/client/core/llm/provider"
-import Prompts, { type PromptSource } from "../source/client/core/prompts/prompts"
+
+const responses: { task: string; call: string; response: unknown }[] = []
 
 const events = channel()
 
@@ -37,9 +39,9 @@ const source: LemoSource = {
             }
         })
     },
-    control() {
+    control(task) {
 
-        return controlFor()
+        return controlFor(task)
     }
 }
 
@@ -102,25 +104,40 @@ events.push({
 
 events.push({
     sequence: 3,
-    id: "complete",
+    id: "spaced-text",
     task: task.id,
     parent: "text",
-    kind: "task.completed",
-    payload: { output: "Hi" },
+    kind: "model.event",
+    payload: { type: "text", content: " there" },
     createdAt: 3
+})
+
+events.push({
+    sequence: 4,
+    id: "complete",
+    task: task.id,
+    parent: "spaced-text",
+    kind: "task.completed",
+    payload: { output: "Hi there" },
+    createdAt: 4
 })
 
 await settled()
 
 assert.equal(task.status, "completed")
 
-assert.equal(task.operations().length, 3)
+assert.equal(task.operations().length, 4)
+
+const outputEvent = task.timeline().find(event => event.type === "output")
+
+assert(outputEvent?.type === "output")
+assert.equal(outputEvent.content, "Hi there")
 
 assert.notEqual(task.operations(), initialOperations)
 
 assert.equal(task.operations(), task.operations())
 
-assert.equal(changes, 2)
+assert.equal(changes, 3)
 
 const restored = new Lemo({
     ...source,
@@ -174,68 +191,88 @@ await settled()
 
 assert.equal(projected.tasks()[0]?.id, "active-latest")
 
-const promptListeners = new Set<(value: unknown) => void>()
-let ready = 0
-
-const promptSource: PromptSource = {
-    open(listener) {
-
-        promptListeners.add(listener)
-
-        return () => { promptListeners.delete(listener) }
+projectionEvents.push({
+    sequence: 401,
+    id: "prompt-call",
+    task: "active-latest",
+    parent: "active-latest-input",
+    kind: "model.event",
+    payload: {
+        type: "tool-call",
+        call: {
+            id: "call-one",
+            name: "prompt",
+            input: {
+                type: "form",
+                content: "Continue?",
+                fields: [{ type: "confirmation", key: "continue", label: "Continue", required: true }]
+            }
+        }
     },
-    release() {
-
-        return () => {}
-    },
-    invalid() {
-
-        return () => {}
-    },
-    respond() {},
-    ready() { ready++ }
-}
-
-const prompts = new Prompts(promptSource)
-
-const initialPrompts = prompts.all()
-
-assert.equal(prompts.all(), initialPrompts)
-
-prompts.start()
-
-assert.equal(ready, 1)
-assert.equal(promptListeners.size, 1)
-
-prompts.stop()
-
-assert.equal(promptListeners.size, 0)
-
-prompts.start()
-
-assert.equal(ready, 2)
-assert.equal(promptListeners.size, 1)
-
-for (const listener of promptListeners) listener({
-    id: "prompt-one",
-    task: "task-one",
-    call: "call-one",
-    request: {
-        type: "form",
-        content: "Continue?",
-        fields: [{ type: "confirmation", key: "continue", label: "Continue", required: true }]
-    },
-    createdAt: 1,
-    expiresAt: 2
+    createdAt: 201
 })
 
-assert.equal(prompts.forTask("task-one")[0]?.request.type, "form")
+await settled()
 
-assert.notEqual(prompts.all(), initialPrompts)
+const projectedTask = projected.tasks().find(task => task.id === "active-latest")!
+const promptEvent = projectedTask.timeline().find(event => event.type === "tool")
 
-assert.equal(prompts.all(), prompts.all())
+assert(promptEvent?.type === "tool")
 
-prompts.stop()
+const prompt = promptEvent.tool
+const runningPrompt = prompt.snapshot()
+
+assert(prompt instanceof Tool)
+assert.equal(prompt.name, "prompt")
+assert.equal(runningPrompt.status, "running")
+
+projectionEvents.push({
+    sequence: 402,
+    id: "prompt-waiting",
+    task: "active-latest",
+    parent: "prompt-call",
+    kind: "tool.prompt.waiting",
+    payload: {
+        call: "call-one",
+        payload: {
+            expiresAt: 10_000
+        }
+    },
+    createdAt: 202
+})
+
+await settled()
+
+assert.notEqual(prompt.snapshot(), runningPrompt)
+assert.equal(prompt.snapshot().status, "waiting")
+assert.equal(prompt.status, "waiting")
+assert.equal(projectedTask.timeline(), projectedTask.timeline())
+
+await prompt.respond({ type: "submitted", values: { continue: true } })
+
+assert.deepEqual(responses.at(-1), {
+    task: "active-latest",
+    call: "call-one",
+    response: { type: "submitted", values: { continue: true } }
+})
+
+projectionEvents.push({
+    sequence: 403,
+    id: "prompt-result",
+    task: "active-latest",
+    parent: "prompt-waiting",
+    kind: "tool.result",
+    payload: { call: "call-one", name: "prompt", ok: true, output: { type: "submitted" } },
+    createdAt: 203
+})
+
+await settled()
+
+const completedPrompt = projectedTask.timeline().find(event => event.type === "tool")
+
+assert(completedPrompt?.type === "tool")
+assert.equal(completedPrompt.tool, prompt)
+assert.equal(prompt.status, "completed")
 
 function channel() {
 
@@ -275,12 +312,13 @@ function channel() {
     }
 }
 
-function controlFor() {
+function controlFor(task = "") {
 
     return {
         async pause() {},
         async cancel() {},
         async continue() {},
+        async respond(call: string, response: unknown) { responses.push({ task, call, response }) },
         async history() { return { operations: [], next: null } }
     }
 }

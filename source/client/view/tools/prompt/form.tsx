@@ -2,15 +2,18 @@ import type {
     PromptField,
     PromptRequest,
     PromptValue
-} from "@client/core/prompts/contract"
-import type Prompt from "@client/core/prompts/prompt"
+} from "@server/core/lemo/runtime/tools/prompt/contract"
+import { validatePromptValues } from "@server/core/lemo/runtime/tools/prompt/contract"
+import type Tool from "@client/core/lemo/tool"
+import type { ToolSnapshot } from "@client/core/lemo/tool"
 import { useState, type FormEvent } from "react"
 
 type FormRequest = Extract<PromptRequest, { type: "form" }>
 type Values = Record<string, PromptValue | undefined>
 
-export default function FormPrompt({ prompt, request, report }: Readonly<{
-    prompt: Prompt
+export default function PromptForm({ tool, snapshot, request, report }: Readonly<{
+    tool: Tool
+    snapshot: ToolSnapshot
     request: FormRequest
     report(error: string): void
 }>) {
@@ -28,8 +31,13 @@ export default function FormPrompt({ prompt, request, report }: Readonly<{
         report("")
 
         try {
-            prompt.submit(Object.fromEntries(
+            const submitted = Object.fromEntries(
                 Object.entries(values).filter((entry): entry is [string, PromptValue] => entry[1] !== undefined)
+            )
+
+            validatePromptValues(request, submitted)
+            void tool.respond({ type: "submitted", values: submitted }).catch(cause => report(
+                cause instanceof Error ? cause.message : String(cause)
             ))
         } catch (cause) {
             report(cause instanceof Error ? cause.message : String(cause))
@@ -44,13 +52,13 @@ export default function FormPrompt({ prompt, request, report }: Readonly<{
                 key={field.key}
                 field={field}
                 value={values[field.key]}
-                disabled={prompt.isResponding}
+                disabled={snapshot.isResponding}
                 change={value => change(field.key, value)}
             />)}
         </div>
 
-        <button className="primary" type="submit" disabled={prompt.isResponding}>
-            {prompt.isResponding ? "Sending…" : request.submit ?? "Submit"}
+        <button className="primary" type="submit" disabled={snapshot.isResponding}>
+            {snapshot.isResponding ? "Sending…" : request.submit ?? "Submit"}
         </button>
     </form>
 }

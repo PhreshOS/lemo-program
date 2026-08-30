@@ -1,19 +1,13 @@
 import assert from "node:assert/strict"
 import { DatabaseSync } from "node:sqlite"
-import type ClientChannel from "../source/server/core/client-channel"
 import LemoDatabase from "../source/server/core/lemo/database"
 import Lemo from "../source/server/core/lemo/lemo"
 import type Task from "../source/server/core/lemo/task"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
 
-const client: ClientChannel = {
-    publish() {},
-    subscribe() { return () => {} }
-}
-
 const database = new DatabaseSync(":memory:")
-const lemo = await Lemo.wakeUp(database, client)
+const lemo = await Lemo.wakeUp(database)
 const entered = signals()
 const calls = new Map<string, number>()
 
@@ -108,7 +102,7 @@ await raw.appendToTask("orphan", "task.run.started", {
     model: { provider: "test", id: "lifecycle" }
 })
 
-const recovered = await Lemo.wakeUp(recoverySource, client)
+const recovered = await Lemo.wakeUp(recoverySource)
 const orphan = await recovered.findTask("orphan")
 
 assert(orphan)

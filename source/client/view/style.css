@@ -801,6 +801,15 @@ p {
     white-space: nowrap;
 }
 
+.tool-detail {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--fg-muted);
+    font-size: 11px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .tool-status-pill {
     margin-left: auto;
     font-size: 10px;
@@ -812,6 +821,11 @@ p {
 .tool-status-pill.status-running {
     color: var(--status-ready);
     background: var(--status-ready-bg);
+}
+
+.tool-status-pill.status-waiting {
+    color: var(--status-warning);
+    background: var(--status-warning-bg);
 }
 
 .tool-status-pill.status-completed {
