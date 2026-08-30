@@ -310,13 +310,21 @@ function modelContextWindow(model: string, value: Model): number | null {
 
     const context = value.contextLength
 
-    if (context === null) return null
+    if (validContextWindow(context)) return context
 
-    if (!Number.isSafeInteger(context) || context < 1) {
-        throw new Error(`OpenRouter returned an invalid context window for Model "${model}"`)
-    }
+    const providerContext = value.topProvider?.contextLength
 
-    return context
+    if (validContextWindow(providerContext)) return providerContext
+
+    if ((context === null || context === 0)
+        && (providerContext === undefined || providerContext === null || providerContext === 0)) return null
+
+    throw new Error(`OpenRouter returned an invalid context window for Model "${model}"`)
+}
+
+function validContextWindow(value: unknown): value is number {
+
+    return Number.isSafeInteger(value) && (value as number) > 0
 }
 
 function modelReasoning(model: string, value: Model): LLMReasoningLevels | null {

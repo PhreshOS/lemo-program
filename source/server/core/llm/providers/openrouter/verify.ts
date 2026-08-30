@@ -37,9 +37,13 @@ const client = {
                             mandatory: false,
                             supportsMaxTokens: true
                         }
+                    }, {
+                        id: "openai/gpt-oss-safeguard-20b",
+                        contextLength: 0,
+                        topProvider: { contextLength: 131_072 }
                     }],
                     links: { next: null },
-                    totalCount: 3
+                    totalCount: 4
                 }
             }
         }
@@ -56,13 +60,14 @@ const client = {
 const provider = new OpenRouterProvider({ apiKey: "secret" }, true, client)
 const models = await provider.models()
 
-assert.equal(models.length, 3)
+assert.equal(models.length, 4)
 assert.equal(models[0]?.id, "anthropic/claude-test")
 assert.equal(models[0]?.provider, provider)
 assert.equal((await provider.models())[0], models[0])
 assert.equal(await models[0]?.contextWindow(), 200_000)
 assert.equal(await models[1]?.contextWindow(), 128_000)
 assert.equal(await models[2]?.contextWindow(), null)
+assert.equal(await models[3]?.contextWindow(), 131_072)
 assert.deepEqual(await models[0]?.reasoningLevels(), {
     levels: ["low", "high", "max"],
     default: "high",
