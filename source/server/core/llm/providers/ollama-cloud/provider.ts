@@ -2,10 +2,11 @@ import type { ProgramStore } from "@phreshos/core"
 import ollamaCloudConfiguration from "./configuration"
 import type { OllamaCloudConfiguration } from "./configuration"
 import OllamaCloudModel from "./model"
+import type { OllamaModelMetadata } from "./model"
 import type LLMProvider from "../../provider"
 import type { LLMProviderHandle, LLMProviderRegistration } from "../../provider"
 import { llmProviderActiveKey, llmProviderActiveSchema } from "../../provider"
-import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMReasoning, LLMToolCall } from "../../model"
+import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMReasoningLevels, LLMToolCall } from "../../model"
 
 const host = "https://ollama.com"
 
@@ -56,8 +57,8 @@ export default class OllamaCloudProvider implements LLMProvider {
             model = new OllamaCloudModel(
                 this,
                 identity,
-                () => this.reasoning(identity),
-                (request, execution) => this.generate(identity, request, execution)
+                () => this.loadModelMetadata(identity),
+                (request, reasoning, execution) => this.generate(identity, request, reasoning, execution)
             )
 
             this.retainedModels.set(identity, model)
@@ -66,7 +67,7 @@ export default class OllamaCloudProvider implements LLMProvider {
         return model
     }
 
-    private async reasoning(model: string): Promise<LLMReasoning | null> {
+    private async loadModelMetadata(model: string): Promise<OllamaModelMetadata> {
 
         const response = await this.fetch("/api/show", {
             method: "POST",
@@ -81,8 +82,6 @@ export default class OllamaCloudProvider implements LLMProvider {
             throw new Error(`Ollama Cloud returned invalid capabilities for Model "${model}"`)
         }
 
-        if (!value.capabilities.includes("thinking")) return null
-
         if (!record(value.details) || typeof value.details.family !== "string"
             || value.details.families !== undefined && (!Array.isArray(value.details.families)
                 || !value.details.families.every(family => typeof family === "string"))) {
@@ -91,13 +90,23 @@ export default class OllamaCloudProvider implements LLMProvider {
         }
 
         const families = [value.details.family, ...(value.details.families ?? [])]
+        const contextWindow = modelContextWindow(model, value, value.details.family)
 
-        if (!families.includes("gptoss")) return null
+        if (!value.capabilities.includes("thinking")) {
+            return Object.freeze({ contextWindow, reasoning: null })
+        }
 
-        return gptOssReasoning
+        const reasoning = families.includes("gptoss") ? gptOssReasoning : null
+
+        return Object.freeze({ contextWindow, reasoning })
     }
 
-    private async *generate(model: string, request: LLMModelRequest, execution?: LLMModelExecution) {
+    private async *generate(
+        model: string,
+        request: LLMModelRequest,
+        reasoning: string | null,
+        execution?: LLMModelExecution
+    ) {
 
         const response = await this.fetch("/api/chat", {
             method: "POST",
@@ -106,6 +115,7 @@ export default class OllamaCloudProvider implements LLMProvider {
                 model,
                 messages: request.messages.map(ollamaMessage),
                 tools: request.tools.map(tool => ({ type: "function", function: tool })),
+                ...(reasoning !== null && { think: reasoning }),
                 stream: true
             })
         })
@@ -245,7 +255,7 @@ class OllamaCloudHandle implements LLMProviderHandle {
 
 const configurationKey = `${OllamaCloudProvider.identity}:config`
 const activeKey = llmProviderActiveKey(OllamaCloudProvider.identity)
-const gptOssReasoning: LLMReasoning = Object.freeze({
+const gptOssReasoning: LLMReasoningLevels = Object.freeze({
     levels: Object.freeze(["low", "medium", "high"]),
     default: null,
     required: true
@@ -299,6 +309,25 @@ async function failure(response: Response) {
     } catch {}
 
     return body.trim() || `Ollama Cloud request failed with status ${response.status}`
+}
+
+function modelContextWindow(model: string, value: Record<string, unknown>, family: string): number | null {
+
+    if (value.model_info === undefined) return null
+
+    if (!record(value.model_info)) {
+        throw new Error(`Ollama Cloud returned invalid Model information for "${model}"`)
+    }
+
+    const context = value.model_info[`${family}.context_length`]
+
+    if (context === undefined) return null
+
+    if (!Number.isSafeInteger(context) || (context as number) < 1) {
+        throw new Error(`Ollama Cloud returned an invalid context window for Model "${model}"`)
+    }
+
+    return context as number
 }
 
 function modelIdentity(value: string) {

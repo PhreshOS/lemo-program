@@ -3,13 +3,14 @@ import Application from "@server/core/application"
 import type {
     LLMGenerationEvent,
     LLMModelRecord,
-    LLMReasoning
+    LLMReasoningLevels
 } from "@server/core/llm/model"
 import type { TaskSnapshot } from "@server/core/lemo/task"
 import type { OperationPage } from "@server/core/lemo/database"
 import type ClientChannel from "@server/core/client-channel"
 import {
     generationRequest,
+    modelReasoning,
     modelReference,
     providerConfiguration,
     providerRequest,
@@ -71,11 +72,25 @@ export default async function view() {
 
     current.answer<unknown, readonly LLMModelRecord[]>("llm-models", () => application.modelRecords())
 
-    current.answer<unknown, LLMReasoning | null>("llm-model.reasoning", function ({ payload }) {
+    current.answer<unknown, number | null>("llm-model.context-window", function ({ payload }) {
 
         const request = modelReference.parse(payload)
 
-        return application.modelReasoning(request.provider, request.model)
+        return application.modelContextWindow(request.provider, request.model)
+    })
+
+    current.answer<unknown, LLMReasoningLevels | null>("llm-model.reasoning-levels", function ({ payload }) {
+
+        const request = modelReference.parse(payload)
+
+        return application.modelReasoningLevels(request.provider, request.model)
+    })
+
+    current.answer<unknown, void>("llm-model.set-reasoning", async function ({ payload }) {
+
+        const request = modelReasoning.parse(payload)
+
+        await application.setModelReasoning(request.provider, request.model, request.reasoning)
     })
 
     current.answer<unknown, readonly TaskSnapshot[]>("lemo.tasks", async function () {

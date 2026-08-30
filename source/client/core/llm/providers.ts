@@ -60,7 +60,7 @@ export default class LLMProviders {
 
             if (!provider) throw new Error(`Server returned an unknown LLM Provider "${record.provider}"`)
 
-            return provider.model(record.id)
+            return provider.model(record.id, record.reasoning)
         }))
     }
 

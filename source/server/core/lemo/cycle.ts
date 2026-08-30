@@ -7,6 +7,7 @@ import type {
 } from "../llm/model"
 import type LemoDatabase from "./database"
 import { maximumOperationPage } from "./database"
+import { cycleContextBudgets } from "./context"
 import type Memory from "./memory"
 import type Operation from "./operation"
 import { assertRunning, waitForRun, type TaskRun } from "./executions"
@@ -33,9 +34,14 @@ export default class Cycle {
         })
 
         try {
+            const budgets = await cycleContextBudgets(model)
             const history = await cycleHistory(database, run.task)
-            const transcript = await cycleTranscript(database, run.task)
-            const request = modelRequest(transcript, await memory.context(history), tools)
+            const transcript = await cycleTranscript(database, run.task, budgets.transcript)
+            const request = modelRequest(
+                transcript,
+                await memory.context(history, budgets.perceptualField),
+                tools
+            )
 
             let output = ""
             const toolCalls: LLMToolCall[] = []
@@ -162,7 +168,7 @@ function modelRequest(
     })
 }
 
-async function cycleTranscript(database: LemoDatabase, task: string) {
+async function cycleTranscript(database: LemoDatabase, task: string, maximumTokens: number) {
 
     const available = await database.transcriptOperations(task, maximumTranscriptOperations)
     const transcript: Operation[] = []
@@ -175,7 +181,7 @@ async function cycleTranscript(database: LemoDatabase, task: string) {
             maximumTranscriptBlockTokens
         ) + transcriptOperationOverhead
 
-        if (tokens + addition > maximumTranscriptTokens && transcript.length) break
+        if (tokens + addition > maximumTokens && transcript.length) break
 
         transcript.unshift(operation)
         tokens += addition
@@ -217,7 +223,6 @@ async function cycleHistory(database: LemoDatabase, task: string) {
 }
 
 const maximumTranscriptOperations = 512
-const maximumTranscriptTokens = 12_000
 const transcriptOperationOverhead = 48
 const maximumTranscriptBlockTokens = 2_048
 const taskCycleOperationLimit = 1_024

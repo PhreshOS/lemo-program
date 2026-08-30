@@ -25,6 +25,7 @@ export default function Tasks({ application, models: modelResource }: Properties
     const [input, setInput] = useState("")
     const [modelSearch, setModelSearch] = useState("")
     const [selectedModel, setSelectedModel] = useState("")
+    const [selectedReasoning, setSelectedReasoning] = useState<string | null>(null)
     const [selectedTask, setSelectedTask] = useState("")
     const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -53,6 +54,18 @@ export default function Tasks({ application, models: modelResource }: Properties
     const available = useMemo(() => new Map(models.map(model => [modelKey(model), model])), [models])
 
     const model = available.get(selectedModel) ?? models[0] ?? null
+
+    const reasoningLevels = usePromise(
+        () => model ? model.reasoningLevels() : Promise.resolve(null),
+        [model]
+    )
+
+    const reasoningMutation = usePromise(async function (target: LLMModel, level: string | null) {
+
+        await target.setReasoning(level)
+
+        return true
+    })
 
     const matchingModels = useMemo(function () {
 
@@ -96,6 +109,12 @@ export default function Tasks({ application, models: modelResource }: Properties
         if (model && selectedModel !== modelKey(model)) setSelectedModel(modelKey(model))
 
     }, [model, selectedModel])
+
+    useEffect(function () {
+
+        setSelectedReasoning(model?.reasoning ?? null)
+
+    }, [model, model?.reasoning])
 
     useEffect(function () {
 
@@ -149,6 +168,20 @@ export default function Tasks({ application, models: modelResource }: Properties
 
         event.currentTarget.form?.requestSubmit()
     }
+
+    async function changeReasoning(level: string | null) {
+
+        if (!model || reasoningMutation.isPending) return
+
+        const previous = model.reasoning
+
+        setSelectedReasoning(level)
+
+        if (!await reasoningMutation.safeExecute(model, level)) setSelectedReasoning(previous)
+    }
+
+    const showsReasoning = reasoningLevels.isPending
+        || reasoningLevels.solve !== undefined && reasoningLevels.solve !== null
 
     return <section className="tasks" aria-label="Lemo Tasks">
         <aside className="task-sidebar" aria-label="Tasks">
@@ -224,7 +257,7 @@ export default function Tasks({ application, models: modelResource }: Properties
                 />
 
                 <div className="composer-bar">
-                    <div className="model-selector-wrapper">
+                    <div className={`model-selector-wrapper${showsReasoning ? " has-reasoning" : ""}`}>
                         <input
                             aria-label="Search LLM Models"
                             className="model-search"
@@ -255,6 +288,28 @@ export default function Tasks({ application, models: modelResource }: Properties
                                 {candidate.provider.name} · {candidate.id}
                             </option>)}
                         </select>
+
+                        {showsReasoning && <select
+                            aria-label="Reasoning level"
+                            className="reasoning-select"
+                            value={selectedReasoning ?? ""}
+                            disabled={reasoningLevels.isPending || reasoningMutation.isPending || !reasoningLevels.solve}
+                            title="Reasoning level"
+                            onChange={event => void changeReasoning(event.target.value || null)}
+                        >
+                            {reasoningLevels.isPending
+                                ? <option value="">Loading reasoning…</option>
+                                : <>
+                                    <option value="">
+                                        {reasoningLevels.solve?.default
+                                            ? `Default · ${reasoningLevels.solve.default}`
+                                            : "Default reasoning"}
+                                    </option>
+                                    {reasoningLevels.solve?.levels.map(level => (
+                                        <option key={level} value={level}>{level}</option>
+                                    ))}
+                                </>}
+                        </select>}
                     </div>
 
                     <span className="composer-hint">
@@ -277,6 +332,10 @@ export default function Tasks({ application, models: modelResource }: Properties
 
                 {creation.exception && <p className="composer-error" role="alert">
                     {message(creation.exception.current)}
+                </p>}
+
+                {(reasoningLevels.exception || reasoningMutation.exception) && <p className="composer-error" role="alert">
+                    {message(reasoningMutation.exception?.current ?? reasoningLevels.exception?.current)}
                 </p>}
             </form>
         </div>

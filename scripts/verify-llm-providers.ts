@@ -155,14 +155,23 @@ const provider = new OllamaCloudProvider({ apiKey: "secret" }, true, async funct
         const body = JSON.parse(String(init?.body)) as { model: string }
 
         return body.model === "gpt-oss:latest"
-            ? Response.json({ capabilities: ["thinking"], details: { family: "gptoss", families: ["gptoss"] } })
-            : Response.json({ capabilities: ["thinking"], details: { family: "qwen3", families: ["qwen3"] } })
+            ? Response.json({
+                capabilities: ["thinking"],
+                details: { family: "gptoss", families: ["gptoss"] },
+                model_info: { "gptoss.context_length": 131_072 }
+            })
+            : Response.json({
+                capabilities: ["thinking"],
+                details: { family: "qwen3", families: ["qwen3"] },
+                model_info: { "qwen3.context_length": 32_768 }
+            })
     }
 
     assert.equal(init?.body, JSON.stringify({
-        model: "qwen3:latest",
+        model: "gpt-oss:latest",
         messages: [{ role: "user", content: "Hello" }],
         tools: [{ type: "function", function: tool }],
+        think: "high",
         stream: true
     }))
 
@@ -193,17 +202,30 @@ assert.equal(models[0]?.provider, provider)
 
 assert.equal((await provider.models())[0], models[0])
 
-assert.equal(await models[0]?.reasoning(), null)
+assert.equal(await models[0]?.contextWindow(), 32_768)
 
-assert.equal(await models[0]?.reasoning(), null)
+assert.equal(await models[0]?.reasoningLevels(), null)
 
-assert.deepEqual(await models[1]?.reasoning(), {
+assert.equal(await models[0]?.reasoningLevels(), null)
+
+assert.deepEqual(await models[1]?.reasoningLevels(), {
     levels: ["low", "medium", "high"],
     default: null,
     required: true
 })
 
-assert.deepEqual(await models[1]?.reasoning(), {
+assert.equal(await models[1]?.contextWindow(), 131_072)
+
+assert.equal(models[1]?.reasoning, null)
+
+await assert.rejects(models[0]!.setReasoning("high"), /no selectable reasoning levels/)
+await assert.rejects(models[1]!.setReasoning("extreme"), /does not support reasoning level/)
+
+await models[1]!.setReasoning("high")
+
+assert.equal(models[1]?.reasoning, "high")
+
+assert.deepEqual(await models[1]?.reasoningLevels(), {
     levels: ["low", "medium", "high"],
     default: null,
     required: true
@@ -212,7 +234,7 @@ assert.deepEqual(await models[1]?.reasoning(), {
 const chunks: string[] = []
 const calls: unknown[] = []
 
-for await (const chunk of models[0]!.generate({
+for await (const chunk of models[1]!.generate({
     messages: [{ role: "user", content: "Hello" }],
     tools: [tool]
 })) {
@@ -224,6 +246,10 @@ for await (const chunk of models[0]!.generate({
 assert.deepEqual(chunks, ["Hello", " world"])
 
 assert.deepEqual(calls, [{ id: "call-time", name: "time", input: {} }])
+
+await models[1]!.setReasoning(null)
+
+assert.equal(models[1]?.reasoning, null)
 
 assert.deepEqual(requests, [
     "https://ollama.com/api/tags",

@@ -21,10 +21,12 @@ const provider = new OpenCodeProvider(true, async function (input, init) {
                 models: {
                     "big-pickle": {
                         cost: { input: 0, output: 0 },
+                        limit: { context: 131_072, output: 16_384 },
                         reasoning_options: [{ type: "effort", values: [null, "low", "high"] }]
                     },
                     "muse-free": {
                         cost: { input: 0, output: 0 },
+                        limit: { context: 0, output: 32_000 },
                         provider: { npm: "@ai-sdk/openai" },
                         reasoning_options: [{ type: "effort", values: ["low", "medium", "high"] }]
                     },
@@ -47,6 +49,7 @@ const provider = new OpenCodeProvider(true, async function (input, init) {
             model: "big-pickle",
             messages: [{ role: "user", content: "Hello" }],
             tools: [{ type: "function", function: tool }],
+            reasoning_effort: "high",
             stream: true
         })
 
@@ -67,6 +70,7 @@ const provider = new OpenCodeProvider(true, async function (input, init) {
     assert.deepEqual(JSON.parse(String(init?.body)), {
         model: "muse-free",
         input: [{ role: "user", content: "Hello" }],
+        reasoning: { effort: "low" },
         stream: true
     })
 
@@ -84,17 +88,30 @@ assert.deepEqual(models.map(model => model.id), ["big-pickle", "muse-free"])
 
 assert.equal((await provider.models())[0], models[0])
 
-assert.deepEqual(await models[0]!.reasoning(), {
+assert.equal(await models[0]!.contextWindow(), 131_072)
+assert.equal(await models[1]!.contextWindow(), null)
+
+assert.deepEqual(await models[0]!.reasoningLevels(), {
     levels: ["none", "low", "high"],
     default: null,
     required: false
 })
 
-assert.deepEqual(await models[1]!.reasoning(), {
+assert.deepEqual(await models[1]!.reasoningLevels(), {
     levels: ["low", "medium", "high"],
     default: null,
     required: true
 })
+
+assert.equal(models[0]!.reasoning, null)
+
+await assert.rejects(models[0]!.setReasoning("medium"), /does not support reasoning level/)
+
+await models[0]!.setReasoning("high")
+await models[1]!.setReasoning("low")
+
+assert.equal(models[0]!.reasoning, "high")
+assert.equal(models[1]!.reasoning, "low")
 
 const chatEvents = []
 

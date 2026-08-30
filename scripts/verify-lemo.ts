@@ -5,6 +5,7 @@ import LemoDatabase, {
     maximumContextMessages,
     memoryReinforcementHalfLife
 } from "../source/server/core/lemo/database"
+import { cycleContextBudgets } from "../source/server/core/lemo/context"
 import Lemo from "../source/server/core/lemo/lemo"
 import Memory from "../source/server/core/lemo/memory"
 import { estimatedTokens } from "../source/server/core/lemo/token-budget"
@@ -24,6 +25,22 @@ import toolsTool from "../source/server/core/lemo/runtime/tools/tools/tools"
 import windows from "../source/server/core/lemo/runtime/tools/windows/windows"
 import toolInput from "../source/server/core/lemo/runtime/tool-input"
 import waitEvent from "../source/server/core/lemo/runtime/wait-event"
+
+assert.deepEqual(await cycleContextBudgets({
+    async contextWindow() { return null }
+}), { perceptualField: 50_000, transcript: 12_000 })
+
+const expandedContextBudgets = await cycleContextBudgets({
+    async contextWindow() { return 124_000 }
+})
+
+assert.deepEqual(expandedContextBudgets, { perceptualField: 100_000, transcript: 24_000 })
+assert(Object.isFrozen(expandedContextBudgets))
+
+await assert.rejects(
+    cycleContextBudgets({ async contextWindow() { return 1 } }),
+    /invalid context window/
+)
 
 assert.match(windows.docs, /Geometry numbers are absolute pixels/i)
 assert.match(JSON.stringify(windows.definition.parameters), /Absolute pixels as a number/i)
@@ -290,7 +307,10 @@ const provider: LLMProvider = {
 model = {
     id: "test-model",
     provider,
-    async reasoning() { return null },
+    reasoning: null,
+    async contextWindow() { return null },
+    async reasoningLevels() { return null },
+    async setReasoning() {},
     async *generate(request) {
 
         const input = request.messages.findLast(message => message.role === "user")?.content

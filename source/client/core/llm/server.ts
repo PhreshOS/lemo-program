@@ -3,7 +3,7 @@ import type {
     LLMGenerationEvent,
     LLMGenerationRequest,
     LLMModelRecord,
-    LLMReasoning
+    LLMReasoningLevels
 } from "@server/core/llm/model"
 import type { LLMProviderState } from "@server/core/llm/provider"
 import type { LLMModelSource } from "./model"
@@ -22,11 +22,19 @@ export function llmServerSources(server: Server): Readonly<{
     return Object.freeze({
         providers: providerSource(server),
         models: {
-            models: () => server.ask<readonly LLMModelRecord[]>("llm-models"),
-            reasoning: async (provider, model) => reasoning(await server.ask<unknown>(
-                "llm-model.reasoning",
+            models: async () => modelRecords(await server.ask<unknown>("llm-models")),
+            contextWindow: async (provider, model) => contextWindow(await server.ask<unknown>(
+                "llm-model.context-window",
                 { provider, model }
             )),
+            reasoningLevels: async (provider, model) => reasoningLevels(await server.ask<unknown>(
+                "llm-model.reasoning-levels",
+                { provider, model }
+            )),
+            setReasoning: async (provider, model, reasoning) => {
+
+                await server.ask("llm-model.set-reasoning", { provider, model, reasoning })
+            },
             async *generate(provider, model, request) {
 
                 yield* stream(
@@ -39,7 +47,35 @@ export function llmServerSources(server: Server): Readonly<{
     })
 }
 
-function reasoning(value: unknown): LLMReasoning | null {
+function modelRecords(value: unknown): readonly LLMModelRecord[] {
+
+    if (!Array.isArray(value)) throw new Error("The Server returned an invalid LLM Model list")
+
+    return Object.freeze(value.map(model => {
+
+        if (!record(model) || typeof model.provider !== "string" || !model.provider.trim()
+            || typeof model.id !== "string" || !model.id.trim()
+            || model.reasoning !== null && (typeof model.reasoning !== "string" || !model.reasoning.trim())) {
+
+            throw new Error("The Server returned an invalid LLM Model")
+        }
+
+        return Object.freeze({ provider: model.provider, id: model.id, reasoning: model.reasoning })
+    }))
+}
+
+function contextWindow(value: unknown): number | null {
+
+    if (value === null) return null
+
+    if (!Number.isSafeInteger(value) || (value as number) < 1) {
+        throw new Error("The Server returned an invalid LLM context window")
+    }
+
+    return value as number
+}
+
+function reasoningLevels(value: unknown): LLMReasoningLevels | null {
 
     if (value === null) return null
 

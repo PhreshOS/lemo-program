@@ -6,9 +6,10 @@ import type {
     LLMMessage,
     LLMModelExecution,
     LLMModelRequest,
-    LLMReasoning,
+    LLMReasoningLevels,
     LLMToolCall
 } from "../../model"
+import { compatibleReasoning, sameReasoningLevels } from "../../reasoning"
 import OpenCodeModel, { type OpenCodeProtocol } from "./model"
 
 const catalog = "https://models.opencode.ai/api.json"
@@ -29,7 +30,8 @@ export default class OpenCodeProvider implements LLMProvider {
     private readonly retainedModels = new Map<string, Readonly<{
         model: OpenCodeModel
         protocol: OpenCodeProtocol
-        reasoning: LLMReasoning | null
+        contextWindow: number | null
+        reasoning: LLMReasoningLevels | null
     }>>()
     private loaded: Readonly<{ expires: number; models: readonly OpenCodeModel[] }> | null = null
     private loading: Promise<readonly OpenCodeModel[]> | null = null
@@ -79,27 +81,35 @@ export default class OpenCodeProvider implements LLMProvider {
 
             const model = modelIdentity(identity)
 
-            return [this.model(model, protocol, modelReasoning(model, value))]
+            return [this.model(model, protocol, modelContextWindow(model, value), modelReasoning(model, value))]
         })
 
         return Object.freeze(models)
     }
 
-    private model(identity: string, protocol: OpenCodeProtocol, reasoning: LLMReasoning | null) {
+    private model(
+        identity: string,
+        protocol: OpenCodeProtocol,
+        contextWindow: number | null,
+        reasoning: LLMReasoningLevels | null
+    ) {
 
         const retained = this.retainedModels.get(identity)
 
-        if (retained?.protocol === protocol && sameReasoning(retained.reasoning, reasoning)) return retained.model
+        if (retained?.protocol === protocol && retained.contextWindow === contextWindow
+            && sameReasoningLevels(retained.reasoning, reasoning)) return retained.model
 
         const model = new OpenCodeModel(
             this,
             identity,
             protocol,
+            contextWindow,
             reasoning,
-            (request, execution) => this.generate(identity, protocol, request, execution)
+            compatibleReasoning(retained?.model.reasoning ?? null, reasoning),
+            (request, level, execution) => this.generate(identity, protocol, request, level, execution)
         )
 
-        this.retainedModels.set(identity, Object.freeze({ model, protocol, reasoning }))
+        this.retainedModels.set(identity, Object.freeze({ model, protocol, contextWindow, reasoning }))
 
         return model
     }
@@ -108,15 +118,21 @@ export default class OpenCodeProvider implements LLMProvider {
         model: string,
         protocol: OpenCodeProtocol,
         request: LLMModelRequest,
+        reasoning: string | null,
         execution?: LLMModelExecution
     ) {
 
         return protocol === "responses"
-            ? this.generateResponses(model, request, execution)
-            : this.generateChat(model, request, execution)
+            ? this.generateResponses(model, request, reasoning, execution)
+            : this.generateChat(model, request, reasoning, execution)
     }
 
-    private async *generateChat(model: string, request: LLMModelRequest, execution?: LLMModelExecution) {
+    private async *generateChat(
+        model: string,
+        request: LLMModelRequest,
+        reasoning: string | null,
+        execution?: LLMModelExecution
+    ) {
 
         const response = await this.fetch("/chat/completions", {
             method: "POST",
@@ -127,6 +143,7 @@ export default class OpenCodeProvider implements LLMProvider {
                 ...(request.tools.length && {
                     tools: request.tools.map(tool => ({ type: "function", function: tool }))
                 }),
+                ...(reasoning !== null && { reasoning_effort: reasoning }),
                 stream: true
             })
         })
@@ -163,7 +180,12 @@ export default class OpenCodeProvider implements LLMProvider {
         for (const call of calls.values()) yield { type: "tool-call" as const, call: completeToolCall(call, model) }
     }
 
-    private async *generateResponses(model: string, request: LLMModelRequest, execution?: LLMModelExecution) {
+    private async *generateResponses(
+        model: string,
+        request: LLMModelRequest,
+        reasoning: string | null,
+        execution?: LLMModelExecution
+    ) {
 
         const response = await this.fetch("/responses", {
             method: "POST",
@@ -174,6 +196,7 @@ export default class OpenCodeProvider implements LLMProvider {
                 ...(request.tools.length && {
                     tools: request.tools.map(tool => ({ type: "function", ...tool }))
                 }),
+                ...(reasoning !== null && { reasoning: { effort: reasoning } }),
                 stream: true
             })
         })
@@ -302,7 +325,24 @@ function freeProtocol(value: unknown): OpenCodeProtocol | null {
     return null
 }
 
-function modelReasoning(model: string, value: unknown): LLMReasoning | null {
+function modelContextWindow(model: string, value: unknown): number | null {
+
+    if (!record(value) || !record(value.limit)) {
+        throw new Error(`OpenCode returned invalid limits for Model "${model}"`)
+    }
+
+    const context = value.limit.context
+
+    if (context === 0) return null
+
+    if (!Number.isSafeInteger(context) || (context as number) < 1) {
+        throw new Error(`OpenCode returned an invalid context window for Model "${model}"`)
+    }
+
+    return context as number
+}
+
+function modelReasoning(model: string, value: unknown): LLMReasoningLevels | null {
 
     if (!record(value)) throw new Error(`OpenCode returned invalid metadata for Model "${model}"`)
 
@@ -335,16 +375,6 @@ function modelReasoning(model: string, value: unknown): LLMReasoning | null {
         default: null,
         required: !levels.includes("none")
     })
-}
-
-function sameReasoning(left: LLMReasoning | null, right: LLMReasoning | null) {
-
-    if (left === null || right === null) return left === right
-
-    return left.default === right.default
-        && left.required === right.required
-        && left.levels.length === right.levels.length
-        && left.levels.every((level, index) => level === right.levels[index])
 }
 
 function chatMessage(message: LLMMessage) {

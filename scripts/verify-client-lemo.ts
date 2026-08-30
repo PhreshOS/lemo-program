@@ -71,7 +71,10 @@ const provider: LLMProvider = {
 model = {
     id: "model",
     provider,
-    async reasoning() { return null },
+    reasoning: null,
+    async contextWindow() { return null },
+    async reasoningLevels() { return null },
+    async setReasoning() {},
     async *generate() {}
 }
 

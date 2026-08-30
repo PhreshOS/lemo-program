@@ -1,10 +1,17 @@
 import { OpenRouter } from "@openrouter/sdk"
-import type { ChatMessages, ChatStreamChunk, ChatStreamToolCall, Model } from "@openrouter/sdk/models"
+import type {
+    ChatMessages,
+    ChatRequestReasoningEffort,
+    ChatStreamChunk,
+    ChatStreamToolCall,
+    Model
+} from "@openrouter/sdk/models"
 import type { ProgramStore } from "@phreshos/core"
 import type LLMProvider from "../../provider"
 import type { LLMProviderHandle, LLMProviderRegistration } from "../../provider"
 import { llmProviderActiveKey, llmProviderActiveSchema } from "../../provider"
-import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMReasoning, LLMToolCall } from "../../model"
+import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMReasoningLevels, LLMToolCall } from "../../model"
+import { compatibleReasoning, sameReasoningLevels } from "../../reasoning"
 import openRouterConfiguration from "./configuration"
 import type { OpenRouterConfiguration } from "./configuration"
 import OpenRouterModel from "./model"
@@ -23,7 +30,8 @@ export default class OpenRouterProvider implements LLMProvider {
 
     private readonly retainedModels = new Map<string, Readonly<{
         model: OpenRouterModel
-        reasoning: LLMReasoning | null
+        contextWindow: number | null
+        reasoning: LLMReasoningLevels | null
     }>>()
     private loaded: Readonly<{ expires: number; models: readonly OpenRouterModel[] }> | null = null
     private loading: Promise<readonly OpenRouterModel[]> | null = null
@@ -74,32 +82,44 @@ export default class OpenRouterProvider implements LLMProvider {
 
             const identity = modelIdentity(value.id)
 
-            return this.model(identity, modelReasoning(identity, value))
+            return this.model(identity, modelContextWindow(identity, value), modelReasoning(identity, value))
         }))
     }
 
-    private model(identity: string, reasoning: LLMReasoning | null) {
+    private model(identity: string, contextWindow: number | null, reasoning: LLMReasoningLevels | null) {
 
         const retained = this.retainedModels.get(identity)
 
-        if (retained && sameReasoning(retained.reasoning, reasoning)) return retained.model
+        if (retained?.contextWindow === contextWindow
+            && sameReasoningLevels(retained.reasoning, reasoning)) return retained.model
 
-        const model = new OpenRouterModel(this, identity, reasoning, (request, execution) => (
-            this.generate(identity, request, execution)
-        ))
+        const model = new OpenRouterModel(
+            this,
+            identity,
+            contextWindow,
+            reasoning,
+            compatibleReasoning(retained?.model.reasoning ?? null, reasoning),
+            (request, level, execution) => this.generate(identity, request, level, execution)
+        )
 
-        this.retainedModels.set(identity, Object.freeze({ model, reasoning }))
+        this.retainedModels.set(identity, Object.freeze({ model, contextWindow, reasoning }))
 
         return model
     }
 
-    private async *generate(model: string, request: LLMModelRequest, execution?: LLMModelExecution) {
+    private async *generate(
+        model: string,
+        request: LLMModelRequest,
+        reasoning: string | null,
+        execution?: LLMModelExecution
+    ) {
 
         const response = await this.client.chat.send({
             chatRequest: {
                 model,
                 messages: request.messages.map(openRouterMessage),
                 provider: { requireParameters: true },
+                ...(reasoning !== null && { reasoningEffort: openRouterReasoning(reasoning) }),
                 stream: true,
                 ...(request.tools.length && {
                     tools: request.tools.map(tool => ({
@@ -281,7 +301,25 @@ function modelIdentity(value: string) {
     return identity
 }
 
-function modelReasoning(model: string, value: Model): LLMReasoning | null {
+function openRouterReasoning(level: string) {
+
+    return level as ChatRequestReasoningEffort
+}
+
+function modelContextWindow(model: string, value: Model): number | null {
+
+    const context = value.contextLength
+
+    if (context === null) return null
+
+    if (!Number.isSafeInteger(context) || context < 1) {
+        throw new Error(`OpenRouter returned an invalid context window for Model "${model}"`)
+    }
+
+    return context
+}
+
+function modelReasoning(model: string, value: Model): LLMReasoningLevels | null {
 
     const reasoning = value.reasoning
     if (!reasoning || reasoning.supportedEfforts === undefined) return null
@@ -315,16 +353,6 @@ function modelReasoning(model: string, value: Model): LLMReasoning | null {
         default: defaultLevel,
         required: reasoning.mandatory
     })
-}
-
-function sameReasoning(left: LLMReasoning | null, right: LLMReasoning | null) {
-
-    if (left === null || right === null) return left === right
-
-    return left.default === right.default
-        && left.required === right.required
-        && left.levels.length === right.levels.length
-        && left.levels.every((level, index) => level === right.levels[index])
 }
 
 function isStream(value: unknown): value is AsyncIterable<ChatStreamChunk> {

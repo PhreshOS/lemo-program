@@ -101,50 +101,40 @@ verification runner. No existing Application, View boundary, Task, registry,
 test runner, or other Provider file is edited. A Provider with configuration
 may add one owned schema file.
 
-### Model metadata plan
+### Model capabilities and reasoning
 
-LLM Models will retain the operational metadata that is common, or nearly
-common, across Provider catalogs:
+Context capacity, reasoning capability, and reasoning selection belong to each
+retained LLM Model:
 
 ```ts
 interface LLMModel {
     readonly id: string
-    readonly name: string
     readonly provider: LLMProvider
+    readonly reasoning: string | null
 
-    readonly limits: {
-        context: number
-        input?: number
-        output?: number
-    }
-
-    readonly reasoning: {
-        supported: boolean
-        efforts?: readonly string[]
-        defaultEffort?: string
-        defaultEnabled?: boolean
-        mandatory?: boolean
-        supportsTokenBudget?: boolean
-    }
+    contextWindow(): Promise<number | null>
+    reasoningLevels(): Promise<LLMReasoningLevels | null>
+    setReasoning(level: string | null): Promise<void>
 }
 ```
 
-OpenRouter and OpenCode can populate most of this metadata directly from their
-catalogs. Ollama Cloud must inspect a selected Model through `/api/show` to
-obtain its context window; properties that Ollama does not expose remain
-absent rather than being guessed.
+`contextWindow()` returns the Provider-reported maximum context capacity in
+tokens, or `null` when it is unknown. It does not represent the separate output
+limit. OpenRouter and OpenCode obtain it from their model catalogs. Ollama Cloud
+reads it from the same lazily cached `/api/show` metadata used for reasoning.
+Each Cycle divides a known window between the Perceptual Field and native
+transcript using their existing proportions. Unknown windows retain the current
+50,000-token field and 12,000-token transcript defaults.
 
-Every reconstructed Task context will identify both what its active LLM Model
-supports and the reasoning configuration selected for that Task. The active
-and initial `<llm_model>` entries will include the Provider identity, Model
-identity, display name, context limit, optional input and output limits,
-reasoning support, selected effort, and whether reasoning is mandatory.
+`reasoningLevels()` returns exact Provider-authored levels from weakest to
+strongest, their known default, and whether reasoning is required. `reasoning`
+is the currently selected override; `null` means Provider-default behavior.
+`setReasoning()` validates on the authoritative Server Model, and every later
+generation through that Model uses the selection. Reasoning is not Task state.
 
-Catalog metadata that does not help the Task operate—such as pricing,
-architecture, parameter count, release date, and long descriptions—may remain
-on the Provider-owned Model entity but will not be copied into every Cycle's
-context. Model metadata remains Provider-owned and is normalized only where a
-shared semantic contract is genuine.
+OpenRouter and OpenCode obtain levels from their existing catalogs. Ollama
+Cloud lazily inspects a selected Model through `/api/show`. The Agent composer
+shows a reasoning selector only when the chosen Model exposes named levels.
 
 ## Lemo database
 
@@ -213,12 +203,14 @@ holding context in Process or Task memory.
 ## Cycles
 
 A Cycle is an internal, disposable Model operation. It records its start and
-reconstructs a token-bounded native transcript and a 50,000-token XML
-Perceptual Field from the same raw database. Raw streamed `model.event` chunks
-never consume transcript capacity. The Model receives one concise system
-contract, then the Perceptual Field as contextual user data, followed by the
-current Task's native user, assistant, and Tool messages. The current Task's
-chronology therefore has one representation and one authority.
+reconstructs a token-bounded native transcript and XML Perceptual Field from the
+same raw database. Their budgets follow the selected Model's reported context
+window, falling back to 12,000 and 50,000 estimated tokens respectively when it
+is unknown. Raw streamed `model.event` chunks never consume transcript capacity.
+The Model receives one concise system contract, then the Perceptual Field as
+contextual user data, followed by the current Task's native user, assistant, and
+Tool messages. The current Task's chronology therefore has one representation
+and one authority.
 
 The field contains `environment`, current `task` identity, `continuity`,
 `semantic_memory`, `rules`, and `inbox`. `continuity` is a single chronological,

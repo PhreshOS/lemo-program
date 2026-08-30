@@ -1,5 +1,5 @@
 import type { Launch, LaunchClient, ProgramStore } from "@phreshos/core"
-import type { LLMModelRecord, LLMModelRequest, LLMReasoning } from "./llm/model"
+import type { LLMModelRecord, LLMModelRequest, LLMReasoningLevels } from "./llm/model"
 import type { LLMProviderState } from "./llm/provider"
 import LLMProviders from "./llm/providers"
 import Lemo from "./lemo/lemo"
@@ -80,7 +80,8 @@ export default class Application {
 
         return Object.freeze((await this.providers.models()).map(model => Object.freeze({
             provider: model.provider.identity,
-            id: model.id
+            id: model.id,
+            reasoning: model.reasoning
         })))
     }
 
@@ -93,13 +94,31 @@ export default class Application {
         yield* model.generate(request)
     }
 
-    public async modelReasoning(providerIdentity: string, modelIdentity: string): Promise<LLMReasoning | null> {
+    public async modelReasoningLevels(providerIdentity: string, modelIdentity: string): Promise<LLMReasoningLevels | null> {
 
         const model = await this.providers.model(providerIdentity, modelIdentity)
 
         if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
 
-        return await model.reasoning()
+        return await model.reasoningLevels()
+    }
+
+    public async modelContextWindow(providerIdentity: string, modelIdentity: string): Promise<number | null> {
+
+        const model = await this.providers.model(providerIdentity, modelIdentity)
+
+        if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
+
+        return await model.contextWindow()
+    }
+
+    public async setModelReasoning(providerIdentity: string, modelIdentity: string, level: string | null) {
+
+        const model = await this.providers.model(providerIdentity, modelIdentity)
+
+        if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
+
+        await model.setReasoning(level)
     }
 
     public async startupEnabled() {

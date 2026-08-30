@@ -12,21 +12,30 @@ let configured = false
 let active = false
 
 let received: OllamaCloudConfiguration | null = null
+const reasoningChanges: unknown[] = []
 const stateSubscribers = new Set<() => void>()
 
 const providers = new LLMProviders({
+    async contextWindow(provider, model) {
+
+        return provider === "ollama-cloud" && model === "qwen3:latest" ? 131_072 : null
+    },
     async models() {
 
         return active ? [
-            { provider: "opencode", id: "big-pickle" },
-            { provider: "ollama-cloud", id: "qwen3:latest" }
-        ] : [{ provider: "opencode", id: "big-pickle" }]
+            { provider: "opencode", id: "big-pickle", reasoning: null },
+            { provider: "ollama-cloud", id: "qwen3:latest", reasoning: null }
+        ] : [{ provider: "opencode", id: "big-pickle", reasoning: null }]
     },
-    async reasoning(provider, model) {
+    async reasoningLevels(provider, model) {
 
         return provider === "ollama-cloud" && model === "qwen3:latest"
             ? { levels: ["low", "medium", "high"], default: null, required: true }
             : null
+    },
+    async setReasoning(provider, model, reasoning) {
+
+        reasoningChanges.push({ provider, model, reasoning })
     },
     async *generate() {
 
@@ -125,13 +134,31 @@ const models = await ollamaCloud.models()
 
 assert.equal(models[0]?.provider, ollamaCloud)
 
-assert.deepEqual(await models[0]?.reasoning(), {
+assert.deepEqual(await models[0]?.reasoningLevels(), {
     levels: ["low", "medium", "high"],
     default: null,
     required: true
 })
 
+assert.equal(await models[0]?.contextWindow(), 131_072)
+
 assert.equal((await ollamaCloud.models())[0], models[0])
+
+assert.equal(models[0]?.reasoning, null)
+
+await models[0]?.setReasoning("high")
+
+assert.equal(models[0]?.reasoning, "high")
+assert.deepEqual(reasoningChanges, [{ provider: "ollama-cloud", model: "qwen3:latest", reasoning: "high" }])
+
+await models[0]?.setReasoning(null)
+
+assert.equal(models[0]?.reasoning, null)
+assert.deepEqual(reasoningChanges.at(-1), {
+    provider: "ollama-cloud",
+    model: "qwen3:latest",
+    reasoning: null
+})
 
 const chunks: string[] = []
 
@@ -160,14 +187,28 @@ const reasoningAnswers: unknown[] = [
 const modelSource = llmServerSources({
     async ask(event: string, payload: unknown) {
 
-        assert.equal(event, "llm-model.reasoning")
+        if (event === "llm-model.context-window") {
+            assert.deepEqual(payload, { provider: "ollama-cloud", model: "gpt-oss:latest" })
+
+            return 131_072
+        }
+
+        if (event === "llm-model.set-reasoning") {
+            assert.deepEqual(payload, { provider: "ollama-cloud", model: "gpt-oss:latest", reasoning: "high" })
+
+            return
+        }
+
+        assert.equal(event, "llm-model.reasoning-levels")
         assert.deepEqual(payload, { provider: "ollama-cloud", model: "gpt-oss:latest" })
 
         return reasoningAnswers.shift()
     }
 } as unknown as Server).models
-const reasoning = await modelSource.reasoning("ollama-cloud", "gpt-oss:latest")
+const contextWindow = await modelSource.contextWindow("ollama-cloud", "gpt-oss:latest")
+const reasoning = await modelSource.reasoningLevels("ollama-cloud", "gpt-oss:latest")
 
+assert.equal(contextWindow, 131_072)
 assert.deepEqual(reasoning, {
     levels: ["low", "medium", "high"],
     default: "medium",
@@ -176,7 +217,32 @@ assert.deepEqual(reasoning, {
 assert(Object.isFrozen(reasoning))
 assert(Object.isFrozen(reasoning?.levels))
 
+await modelSource.setReasoning("ollama-cloud", "gpt-oss:latest", "high")
+
 await assert.rejects(
-    modelSource.reasoning("ollama-cloud", "gpt-oss:latest"),
+    modelSource.reasoningLevels("ollama-cloud", "gpt-oss:latest"),
     /reasoning default outside its levels/
 )
+
+const invalidContextWindow = llmServerSources({
+    async ask() { return 0 }
+} as unknown as Server).models
+
+await assert.rejects(
+    invalidContextWindow.contextWindow("ollama-cloud", "gpt-oss:latest"),
+    /invalid LLM context window/
+)
+
+const modelRecords = llmServerSources({
+    async ask(event: string) {
+
+        assert.equal(event, "llm-models")
+
+        return [{ provider: "openrouter", id: "openai/gpt-test", reasoning: "high" }]
+    }
+} as unknown as Server).models
+const records = await modelRecords.models()
+
+assert.deepEqual(records, [{ provider: "openrouter", id: "openai/gpt-test", reasoning: "high" }])
+assert(Object.isFrozen(records))
+assert(Object.isFrozen(records[0]))

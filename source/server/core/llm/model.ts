@@ -8,15 +8,24 @@ export default interface LLMModel {
     /** LLM Provider that owns and supports this Model. */
     readonly provider: LLMProvider
 
+    /** Currently selected reasoning override, or `null` for Provider defaults. */
+    readonly reasoning: string | null
+
+    /** Returns this Model's maximum context window in tokens, or `null` when unknown. */
+    contextWindow(): Promise<number | null>
+
     /** Returns this Model's selectable reasoning levels, or `null` when it exposes none. */
-    reasoning(): Promise<LLMReasoning | null>
+    reasoningLevels(): Promise<LLMReasoningLevels | null>
+
+    /** Selects one exposed reasoning level, or clears the override with `null`. */
+    setReasoning(level: string | null): Promise<void>
 
     /** Generates structured events from one complete, ordered Model request. */
     generate(request: LLMModelRequest, execution?: LLMModelExecution): AsyncGenerator<LLMModelEvent, void, unknown>
 }
 
 /** Provider-authored selectable reasoning levels for one exact Model. */
-export type LLMReasoning = Readonly<{
+export type LLMReasoningLevels = Readonly<{
     /** Exact accepted values, ordered from weakest to strongest. */
     levels: readonly string[]
 
@@ -74,6 +83,7 @@ export type LLMModelEvent = Readonly<{
 export type LLMModelRecord = Readonly<{
     provider: string
     id: string
+    reasoning: string | null
 }>
 
 /** Requests streamed generation from one initialized LLM Model. */

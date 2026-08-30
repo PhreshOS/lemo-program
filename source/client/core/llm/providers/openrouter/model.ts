@@ -1,20 +1,49 @@
-import type { LLMModelEvent, LLMModelRequest, LLMReasoning } from "@server/core/llm/model"
+import type { LLMModelEvent, LLMModelRequest, LLMReasoningLevels } from "@server/core/llm/model"
 import type LLMModel from "../../model"
+import ModelReasoning from "../../reasoning"
 import type OpenRouterProvider from "./provider"
 
 /** One local OpenRouter LLM Model handle. */
 export default class OpenRouterModel implements LLMModel {
 
+    private readonly reasoningState: ModelReasoning
+
     public constructor(
         public readonly provider: OpenRouterProvider,
         public readonly id: string,
-        private readonly loadReasoning: () => Promise<LLMReasoning | null>,
+        reasoning: string | null,
+        private readonly loadContextWindow: () => Promise<number | null>,
+        private readonly loadReasoning: () => Promise<LLMReasoningLevels | null>,
+        changeReasoning: (level: string | null) => Promise<void>,
         private readonly generateEvents: (request: LLMModelRequest) => AsyncGenerator<LLMModelEvent, void, unknown>
-    ) {}
+    ) {
 
-    public reasoning() {
+        this.reasoningState = new ModelReasoning(reasoning, changeReasoning)
+    }
+
+    public get reasoning() {
+
+        return this.reasoningState.level
+    }
+
+    public contextWindow() {
+
+        return this.loadContextWindow()
+    }
+
+    public reasoningLevels() {
 
         return this.loadReasoning()
+    }
+
+    public setReasoning(level: string | null) {
+
+        return this.reasoningState.set(level)
+    }
+
+    public synchronizeReasoning(level: string | null) {
+
+        this.reasoningState.synchronize(level)
     }
 
     public generate(request: LLMModelRequest) {

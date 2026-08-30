@@ -60,6 +60,10 @@ export const modelReference = z.object({
     model: identity
 }).strict()
 
+export const modelReasoning = modelReference.extend({
+    reasoning: z.string().refine(level => level.trim().length > 0).nullable()
+}).strict()
+
 export const taskCreation = z.object({
     input: identity,
     provider: identity,

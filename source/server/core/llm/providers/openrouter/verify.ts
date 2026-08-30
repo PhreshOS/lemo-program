@@ -16,6 +16,7 @@ const client = {
                 result: {
                     data: [{
                         id: "anthropic/claude-test",
+                        contextLength: 200_000,
                         reasoning: {
                             supportedEfforts: ["max", "high", "low"],
                             defaultEffort: "high",
@@ -23,6 +24,7 @@ const client = {
                         }
                     }, {
                         id: "openai/gpt-test",
+                        contextLength: 128_000,
                         reasoning: {
                             supportedEfforts: null,
                             defaultEffort: "medium",
@@ -30,6 +32,7 @@ const client = {
                         }
                     }, {
                         id: "qwen/qwen-test",
+                        contextLength: null,
                         reasoning: {
                             mandatory: false,
                             supportsMaxTokens: true
@@ -57,17 +60,28 @@ assert.equal(models.length, 3)
 assert.equal(models[0]?.id, "anthropic/claude-test")
 assert.equal(models[0]?.provider, provider)
 assert.equal((await provider.models())[0], models[0])
-assert.deepEqual(await models[0]?.reasoning(), {
+assert.equal(await models[0]?.contextWindow(), 200_000)
+assert.equal(await models[1]?.contextWindow(), 128_000)
+assert.equal(await models[2]?.contextWindow(), null)
+assert.deepEqual(await models[0]?.reasoningLevels(), {
     levels: ["low", "high", "max"],
     default: "high",
     required: true
 })
-assert.deepEqual(await models[1]?.reasoning(), {
+assert.deepEqual(await models[1]?.reasoningLevels(), {
     levels: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
     default: "medium",
     required: false
 })
-assert.equal(await models[2]?.reasoning(), null)
+assert.equal(await models[2]?.reasoningLevels(), null)
+
+assert.equal(models[0]?.reasoning, null)
+
+await assert.rejects(models[0]!.setReasoning("medium"), /does not support reasoning level/)
+
+await models[0]!.setReasoning("high")
+
+assert.equal(models[0]?.reasoning, "high")
 assert.deepEqual(modelRequests, [{
     limit: 1_000,
     outputModalities: "text",
@@ -97,6 +111,7 @@ assert.deepEqual(generationRequests, [{
             model: "anthropic/claude-test",
             messages: [{ role: "user", content: "Hello" }],
             provider: { requireParameters: true },
+            reasoningEffort: "high",
             stream: true,
             tools: [{
                 type: "function",

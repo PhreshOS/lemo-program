@@ -12,7 +12,7 @@ export default interface LLMProvider {
     activate(): Promise<void>
     deactivate(): Promise<void>
     models(): Promise<readonly LLMModel[]>
-    model(identity: string): LLMModel
+    model(identity: string, reasoning?: string | null): LLMModel
 }
 
 /** Generic boundary operations used by every concrete Client LLM Provider. */

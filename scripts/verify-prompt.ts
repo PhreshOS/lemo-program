@@ -26,7 +26,10 @@ const provider: LLMProvider = {
 model = {
     id: "test",
     provider,
-    async reasoning() { return null },
+    reasoning: null,
+    async contextWindow() { return null },
+    async reasoningLevels() { return null },
+    async setReasoning() {},
     async *generate(request) {
 
         cycle++
@@ -154,7 +157,10 @@ let pausedCycle = 0
 const pausedModel: LLMModel = {
     id: "paused",
     provider,
-    async reasoning() { return null },
+    reasoning: null,
+    async contextWindow() { return null },
+    async reasoningLevels() { return null },
+    async setReasoning() {},
     async *generate() {
 
         pausedCycle++
@@ -222,7 +228,10 @@ const approvalProvider: LLMProvider = {
 approvalModel = {
     id: "approval-test",
     provider: approvalProvider,
-    async reasoning() { return null },
+    reasoning: null,
+    async contextWindow() { return null },
+    async reasoningLevels() { return null },
+    async setReasoning() {},
     async *generate(request) {
 
         approvalCycle++

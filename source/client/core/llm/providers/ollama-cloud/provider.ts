@@ -58,10 +58,10 @@ export default class OllamaCloudProvider implements LLMProvider {
 
         return Object.freeze((await this.modelsSource.models())
             .filter(record => record.provider === this.identity)
-            .map(record => this.model(record.id)))
+            .map(record => this.model(record.id, record.reasoning)))
     }
 
-    public model(identity: string) {
+    public model(identity: string, reasoning?: string | null) {
 
         let model = this.retainedModels.get(identity)
 
@@ -70,12 +70,17 @@ export default class OllamaCloudProvider implements LLMProvider {
             model = new OllamaCloudModel(
                 this,
                 identity,
-                () => this.modelsSource.reasoning(this.identity, identity),
+                reasoning ?? null,
+                () => this.modelsSource.contextWindow(this.identity, identity),
+                () => this.modelsSource.reasoningLevels(this.identity, identity),
+                level => this.modelsSource.setReasoning(this.identity, identity, level),
                 request => this.modelsSource.generate(this.identity, identity, request)
             )
 
             this.retainedModels.set(identity, model)
         }
+
+        if (reasoning !== undefined) model.synchronizeReasoning(reasoning)
 
         return model
     }

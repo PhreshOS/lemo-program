@@ -72,9 +72,9 @@ export default class Memory {
     }
 
     /** Rebuilds one Task's disposable model context entirely from durable operations. */
-    public context(operations: readonly Operation[]): Promise<string> {
+    public context(operations: readonly Operation[], budget?: number): Promise<string> {
 
-        return this.builder.build(operations)
+        return this.builder.build(operations, budget)
     }
 
     /** Lazily reconstructs one Task as a source-labelled event history. */

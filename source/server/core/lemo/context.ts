@@ -10,6 +10,7 @@ import type {
     TaskMessage,
     TaskSummary
 } from "./database"
+import type LLMModel from "../llm/model"
 import type Operation from "./operation"
 import { taskStatus, type TaskStatus } from "./task"
 import { estimatedTokens, tokenSlice } from "./token-budget"
@@ -18,11 +19,17 @@ export const defaultMemoryBudget = 8_000
 export const minimumMemoryBudget = 256
 export const maximumMemoryBudget = 16_000
 
-const perceptualFieldTokens = 50_000
-const continuityTokens = 35_000
-const semanticInformationTokens = 6_000
-const rulesTokens = 4_000
-const inboxTokens = 3_000
+const defaultPerceptualFieldTokens = 50_000
+const defaultTranscriptTokens = 12_000
+const defaultContinuityTokens = 35_000
+const defaultSemanticInformationTokens = 6_000
+const defaultRulesTokens = 4_000
+const defaultInboxTokens = 3_000
+const defaultCycleContextTokens = defaultPerceptualFieldTokens + defaultTranscriptTokens
+const defaultCycleContextBudgets = Object.freeze({
+    perceptualField: defaultPerceptualFieldTokens,
+    transcript: defaultTranscriptTokens
+})
 const maximumBlockTokens = 1_024
 const maximumNearbyTasks = 8
 const maximumContinuityTasks = 3
@@ -101,18 +108,49 @@ export type OperationBlockPage = Readonly<{
     totalTokens: number
 }>
 
+export type CycleContextBudgets = Readonly<{
+    perceptualField: number
+    transcript: number
+}>
+
+/** Divides one known Model window using Lemo's existing context proportions. */
+export async function cycleContextBudgets(model: Pick<LLMModel, "contextWindow">): Promise<CycleContextBudgets> {
+
+    const contextWindow = await model.contextWindow()
+
+    if (contextWindow === null) return defaultCycleContextBudgets
+
+    if (!Number.isSafeInteger(contextWindow) || contextWindow < 2) {
+        throw new Error("An LLM Model returned an invalid context window")
+    }
+
+    const perceptualField = Math.max(1, Math.floor(
+        contextWindow * defaultPerceptualFieldTokens / defaultCycleContextTokens
+    ))
+
+    return Object.freeze({
+        perceptualField,
+        transcript: Math.max(1, contextWindow - perceptualField)
+    })
+}
+
 /** Owns every disposable projection from Lemo's raw operation history. */
 export default class Context {
 
     public constructor(private readonly database: LemoDatabase) {}
 
     /** Rebuilds the disposable Perceptual Field for one Model cycle. */
-    public async build(operations: readonly Operation[]): Promise<string> {
+    public async build(
+        operations: readonly Operation[],
+        perceptualFieldBudget = defaultPerceptualFieldTokens
+    ): Promise<string> {
 
         const task = operations.find(operation => operation.task)?.task
         const now = Date.now()
 
         if (!task) throw new Error("A Perceptual Field requires a Task identity")
+
+        const budgets = perceptualFieldBudgets(perceptualFieldBudget)
 
         const self = taskState(operations)
         const [nearby, messages] = await Promise.all([
@@ -125,13 +163,13 @@ export default class Context {
         const semantic = retrieve(history, {
             query: self.objective,
             focus,
-            budget: semanticInformationTokens
+            budget: budgets.semanticInformation
         }, "semantic", activations)
         const semanticOperations = new Set(semantic.map(result => result.operation))
         const rules = retrieve(history, {
             query: self.objective,
             focus,
-            budget: rulesTokens
+            budget: budgets.rules
         }, "rules", activations).filter(result => !semanticOperations.has(result.operation))
         const recorded = await this.record([...semantic, ...rules], {
             task,
@@ -148,7 +186,8 @@ export default class Context {
             nearby,
             recorded.filter(result => semanticIds.has(result.operation)),
             recorded.filter(result => !semanticIds.has(result.operation)),
-            messages
+            messages,
+            budgets
         )
     }
 
@@ -530,19 +569,48 @@ function perceptualField(
     nearby: readonly TaskState[],
     semantic: readonly MemoryResult[],
     rules: readonly MemoryResult[],
-    inbox: readonly TaskMessage[]
+    inbox: readonly TaskMessage[],
+    budgets: PerceptualFieldBudgets
 ) {
 
     return [
-        `<perceptual_field generatedAt="${timestamp(Date.now())}" budget="${perceptualFieldTokens}" unit="estimated-tokens">`,
+        `<perceptual_field generatedAt="${timestamp(Date.now())}" budget="${budgets.total}" unit="estimated-tokens">`,
         "  <environment runtime=\"PhreshOS\" authority=\"server\" />",
         taskIdentityXml(self),
-        continuityXml(nearby, continuityTokens),
-        memoryXml("semantic_memory", semantic, semanticInformationTokens),
-        memoryXml("rules", rules, rulesTokens),
-        inboxSection(inbox, inboxTokens),
+        continuityXml(nearby, budgets.continuity),
+        memoryXml("semantic_memory", semantic, budgets.semanticInformation),
+        memoryXml("rules", rules, budgets.rules),
+        inboxSection(inbox, budgets.inbox),
         "</perceptual_field>"
     ].join("\n")
+}
+
+type PerceptualFieldBudgets = Readonly<{
+    total: number
+    continuity: number
+    semanticInformation: number
+    rules: number
+    inbox: number
+}>
+
+function perceptualFieldBudgets(total: number): PerceptualFieldBudgets {
+
+    if (!Number.isSafeInteger(total) || total < 1) {
+        throw new Error("A Perceptual Field requires a positive token budget")
+    }
+
+    return Object.freeze({
+        total,
+        continuity: proportionalBudget(total, defaultContinuityTokens),
+        semanticInformation: proportionalBudget(total, defaultSemanticInformationTokens),
+        rules: proportionalBudget(total, defaultRulesTokens),
+        inbox: proportionalBudget(total, defaultInboxTokens)
+    })
+}
+
+function proportionalBudget(total: number, defaultBudget: number) {
+
+    return Math.max(1, Math.floor(total * defaultBudget / defaultPerceptualFieldTokens))
 }
 
 function taskIdentityXml(state: TaskState) {
