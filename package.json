@@ -1,7 +1,7 @@
 {
     "name": "lemo-program",
     "private": true,
-    "version": "0.1.15",
+    "version": "0.1.16",
     "description": "The official PhreshOS agent Program.",
     "type": "module",
     "packageManager": "bun@1.3.14",
@@ -30,10 +30,10 @@
     ],
     "dependencies": {
         "@openrouter/sdk": "^1.2.70",
-        "@phreshos/client": "^0.1.25",
-        "@phreshos/core": "^0.1.25",
-        "@phreshos/react": "^0.1.13",
-        "@phreshos/server": "^0.1.26",
+        "@phreshos/client": "^0.1.26",
+        "@phreshos/core": "^0.1.26",
+        "@phreshos/react": "^0.1.14",
+        "@phreshos/server": "^0.1.27",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "react-markdown": "^10.1.0",
@@ -43,7 +43,7 @@
     },
     "devDependencies": {
         "@babel/core": "^7.29.7",
-        "@phreshos/cli": "^0.1.37",
+        "@phreshos/cli": "^0.1.39",
         "@rolldown/plugin-babel": "^0.2.3",
         "@types/node": "^26.2.0",
         "@types/react": "^19.2.18",
