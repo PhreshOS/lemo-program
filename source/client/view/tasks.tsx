@@ -177,8 +177,7 @@ export default function Tasks({ application, models: modelResource }: Properties
         if (!await reasoningMutation.safeExecute(model, level)) setSelectedReasoning(previous)
     }
 
-    const showsReasoning = reasoningLevels.isPending
-        || reasoningLevels.solve !== undefined && reasoningLevels.solve !== null
+    const reasoning = reasoningLevels.solve ?? null
 
     return <section className="tasks" aria-label="Lemo Tasks">
         <aside className="task-sidebar" aria-label="Tasks">
@@ -251,7 +250,7 @@ export default function Tasks({ application, models: modelResource }: Properties
                 />
 
                 <div className="composer-bar">
-                    <div className={`model-selector-wrapper${showsReasoning ? " has-reasoning" : ""}`}>
+                    <div className={`model-selector-wrapper${reasoning ? " has-reasoning" : ""}`}>
                         <input
                             aria-label="Search LLM Models"
                             className="model-search"
@@ -283,26 +282,20 @@ export default function Tasks({ application, models: modelResource }: Properties
                             </option>)}
                         </select>
 
-                        {showsReasoning && <select
+                        {reasoning && <select
                             aria-label="Reasoning level"
                             className="reasoning-select"
                             value={selectedReasoning ?? ""}
-                            disabled={reasoningLevels.isPending || reasoningMutation.isPending || !reasoningLevels.solve}
+                            disabled={reasoningMutation.isPending}
                             title="Reasoning level"
                             onChange={event => void changeReasoning(event.target.value || null)}
                         >
-                            {reasoningLevels.isPending
-                                ? <option value="">Loading reasoning…</option>
-                                : <>
-                                    <option value="">
-                                        {reasoningLevels.solve?.default
-                                            ? `Default · ${reasoningLevels.solve.default}`
-                                            : "Default reasoning"}
-                                    </option>
-                                    {reasoningLevels.solve?.levels.map(level => (
-                                        <option key={level} value={level}>{level}</option>
-                                    ))}
-                                </>}
+                            <option value="">
+                                {reasoning.default ? `Default · ${reasoning.default}` : "Default reasoning"}
+                            </option>
+                            {reasoning.levels.map(level => (
+                                <option key={level} value={level}>{level}</option>
+                            ))}
                         </select>}
                     </div>
 
