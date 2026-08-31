@@ -83,7 +83,7 @@ export default class OllamaCloudProvider implements LLMProvider {
         }
 
         if (!record(value.details) || typeof value.details.family !== "string"
-            || value.details.families !== undefined && (!Array.isArray(value.details.families)
+            || value.details.families != null && (!Array.isArray(value.details.families)
                 || !value.details.families.every(family => typeof family === "string"))) {
 
             throw new Error(`Ollama Cloud returned invalid details for Model "${model}"`)

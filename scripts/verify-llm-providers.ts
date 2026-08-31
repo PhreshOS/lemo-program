@@ -102,7 +102,7 @@ const provider = new OllamaCloudProvider({ apiKey: "secret" }, true, async funct
     if (String(input).endsWith("/api/tags")) {
 
         return Response.json({ models: [
-            { model: "qwen3:latest" },
+            { model: "glm-5.3" },
             { model: "gpt-oss:latest" }
         ] })
     }
@@ -119,8 +119,8 @@ const provider = new OllamaCloudProvider({ apiKey: "secret" }, true, async funct
             })
             : Response.json({
                 capabilities: ["thinking"],
-                details: { family: "qwen3", families: ["qwen3"] },
-                model_info: { "qwen3.context_length": 32_768 }
+                details: { family: "glm_dsa_moe", families: null },
+                model_info: { "glm_dsa_moe.context_length": 1_048_576 }
             })
     }
 
@@ -153,13 +153,13 @@ const models = await provider.models()
 
 assert.equal(models.length, 2)
 
-assert.equal(models[0]?.id, "qwen3:latest")
+assert.equal(models[0]?.id, "glm-5.3")
 
 assert.equal(models[0]?.provider, provider)
 
 assert.equal((await provider.models())[0], models[0])
 
-assert.equal(await models[0]?.contextWindow(), 32_768)
+assert.equal(await models[0]?.contextWindow(), 1_048_576)
 
 assert.equal(await models[0]?.reasoningLevels(), null)
 
