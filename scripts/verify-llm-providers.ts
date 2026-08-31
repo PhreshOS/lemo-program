@@ -161,9 +161,17 @@ assert.equal((await provider.models())[0], models[0])
 
 assert.equal(await models[0]?.contextWindow(), 1_048_576)
 
-assert.equal(await models[0]?.reasoningLevels(), null)
+assert.deepEqual(await models[0]?.reasoningLevels(), {
+    levels: ["low", "high", "max"],
+    default: "max",
+    required: true
+})
 
-assert.equal(await models[0]?.reasoningLevels(), null)
+assert.deepEqual(await models[0]?.reasoningLevels(), {
+    levels: ["low", "high", "max"],
+    default: "max",
+    required: true
+})
 
 assert.deepEqual(await models[1]?.reasoningLevels(), {
     levels: ["low", "medium", "high"],
@@ -175,8 +183,12 @@ assert.equal(await models[1]?.contextWindow(), 131_072)
 
 assert.equal(models[1]?.reasoning, null)
 
-await assert.rejects(models[0]!.setReasoning("high"), /no selectable reasoning levels/)
+await assert.rejects(models[0]!.setReasoning("medium"), /does not support reasoning level/)
 await assert.rejects(models[1]!.setReasoning("extreme"), /does not support reasoning level/)
+
+await models[0]!.setReasoning("high")
+
+assert.equal(models[0]?.reasoning, "high")
 
 await models[1]!.setReasoning("high")
 

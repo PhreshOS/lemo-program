@@ -96,7 +96,7 @@ export default class OllamaCloudProvider implements LLMProvider {
             return Object.freeze({ contextWindow, reasoning: null })
         }
 
-        const reasoning = families.includes("gptoss") ? gptOssReasoning : null
+        const reasoning = modelReasoning(model, families)
 
         return Object.freeze({ contextWindow, reasoning })
     }
@@ -260,6 +260,11 @@ const gptOssReasoning: LLMReasoningLevels = Object.freeze({
     default: null,
     required: true
 })
+const glm53Reasoning: LLMReasoningLevels = Object.freeze({
+    levels: Object.freeze(["low", "high", "max"]),
+    default: "max",
+    required: true
+})
 
 export const registration: LLMProviderRegistration = Object.freeze({
     identity: OllamaCloudProvider.identity,
@@ -328,6 +333,14 @@ function modelContextWindow(model: string, value: Record<string, unknown>, famil
     }
 
     return context as number
+}
+
+function modelReasoning(model: string, families: readonly string[]): LLMReasoningLevels | null {
+    if (families.includes("gptoss")) return gptOssReasoning
+
+    const name = model.split(":", 1)[0]
+
+    return name === "glm-5.3" || name === "glm-5.3-flash" ? glm53Reasoning : null
 }
 
 function modelIdentity(value: string) {

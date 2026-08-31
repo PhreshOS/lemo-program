@@ -133,8 +133,10 @@ is the currently selected override; `null` means Provider-default behavior.
 generation through that Model uses the selection. Reasoning is not Task state.
 
 OpenRouter and OpenCode obtain levels from their existing catalogs. Ollama
-Cloud lazily inspects a selected Model through `/api/show`. The Agent composer
-shows a reasoning selector only when the chosen Model exposes named levels.
+Cloud lazily inspects a selected Model through `/api/show`, then applies its
+provider definitions for model-specific controls such as GPT-OSS and GLM 5.3.
+The Agent composer shows a reasoning selector only when the chosen Model
+exposes named levels.
 
 ## Lemo database
 
