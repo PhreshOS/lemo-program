@@ -128,9 +128,11 @@ async function snapshot(process: SystemProcessEntity) {
 
     const program = await process.program()
 
-    const [server, client] = await Promise.all([
+    const [server, client, serverService, clientService] = await Promise.all([
         process.server.exists(),
-        process.client.exists()
+        process.client.exists(),
+        process.server.isService(),
+        process.client.isService()
     ])
 
     return Object.freeze({
@@ -138,8 +140,8 @@ async function snapshot(process: SystemProcessEntity) {
         name: process.name,
         program: program.identity,
         startedAt: process.startedAt.toISOString(),
-        server: Object.freeze({ declared: program.server !== null, running: server }),
-        client: Object.freeze({ declared: program.client !== null, running: client })
+        server: Object.freeze({ declared: program.server !== null, running: server, service: serverService }),
+        client: Object.freeze({ declared: program.client !== null, running: client, service: clientService })
     })
 }
 

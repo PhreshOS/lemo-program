@@ -76,8 +76,10 @@ const endpoints = defineTool({
 
         const target = process[request.endpoint]
 
-        if (request.action === "start") await target.start()
-        else await target.stop()
+        if (request.action === "start") {
+            if (request.endpoint === "server") await process.server.start(request.launch)
+            else await process.client.start(request.launch)
+        } else await target.stop()
 
         const result = await snapshot(process, request.endpoint)
 
@@ -150,14 +152,18 @@ async function snapshot(process: SystemProcessEntity, endpoint: "server" | "clie
 
     const declaration = program[endpoint]
 
-    const running = await process[endpoint].exists()
+    const [running, service] = await Promise.all([
+        process[endpoint].exists(),
+        process[endpoint].isService()
+    ])
 
     return Object.freeze({
         process: process.identity,
         program: program.identity,
         endpoint,
         declared: declaration !== null,
-        running
+        running,
+        service
     })
 }
 
