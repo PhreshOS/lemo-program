@@ -1,4 +1,4 @@
-import { system, type SystemProcessEntity } from "@phreshos/server"
+import { system, type Process } from "@phreshos/server"
 import defineTool from "../../define-tool"
 import systemTool from "../../system-tool"
 import type { ToolContext } from "../../tool"
@@ -124,7 +124,7 @@ async function requiredProcess(identityOrName: string, programIdentity?: string)
     return process
 }
 
-async function snapshot(process: SystemProcessEntity) {
+async function snapshot(process: Process) {
 
     const program = await process.program()
 
@@ -164,13 +164,13 @@ async function remember(
 async function processEventPayload(
     event: "create" | "exit",
     value: unknown,
-    scoped: SystemProcessEntity | null
+    scoped: Process | null
 ) {
 
-    if (event === "create") return snapshot(value as SystemProcessEntity)
+    if (event === "create") return snapshot(value as Process)
 
     const payload = value as {
-        process?: SystemProcessEntity
+        process?: Process
         status: "exited" | "signaled"
         code: number | null
         signal: string | null
