@@ -121,11 +121,11 @@ function registryPayload(event: "create" | "forget" | "install" | "uninstall", v
 
     if (event === "uninstall") {
 
-        const payload = value as { program: SystemProgramEntity, everythingRemoved: boolean }
+        const payload = value as { program: SystemProgramEntity, everything: boolean }
 
         return Object.freeze({
             program: eventProgram(payload.program),
-            everythingRemoved: payload.everythingRemoved
+            everything: payload.everything
         })
     }
 

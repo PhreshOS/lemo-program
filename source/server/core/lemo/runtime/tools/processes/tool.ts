@@ -160,23 +160,12 @@ async function remember(
 }
 
 async function processEventPayload(
-    event: "endpointStart" | "endpointStop" | "create" | "exit",
+    event: "create" | "exit",
     value: unknown,
     scoped: SystemProcessEntity | null
 ) {
 
     if (event === "create") return snapshot(value as SystemProcessEntity)
-
-    if (event === "endpointStart" || event === "endpointStop") {
-
-        const endpoint = value as SystemProcessEntity["server"] | SystemProcessEntity["client"]
-        const process = await endpoint.process()
-
-        return Object.freeze({
-            process: process.identity,
-            endpoint: endpoint === process.server ? "server" : "client"
-        })
-    }
 
     const payload = value as {
         process?: SystemProcessEntity

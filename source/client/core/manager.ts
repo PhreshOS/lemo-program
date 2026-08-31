@@ -113,10 +113,7 @@ export default class Manager {
         this.processLifecycle?.()
         this.process = process
 
-        const stopEndpoint = process.subscribe("endpointStop", endpoint => {
-
-            if (endpoint === process.server) this.exitManager()
-        })
+        const stopEndpoint = process.server.lifecycle.subscribe("stop", () => this.exitManager())
         const stopExit = process.subscribe("exit", () => this.exitManager())
 
         this.processLifecycle = () => {

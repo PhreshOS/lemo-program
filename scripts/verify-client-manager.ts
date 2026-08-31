@@ -10,8 +10,17 @@ let restored = 0
 let managerExits = 0
 const startupEvents = channel()
 const processSubscribers = new Map<string, Set<(value: unknown) => void>>()
+const serverLifecycleSubscribers = new Map<string, Set<(value: unknown) => void>>()
 
 const server = {
+    lifecycle: {
+        subscribe(event: string, subscriber: (value: unknown) => void) {
+            const subscribers = serverLifecycleSubscribers.get(event) ?? new Set()
+            subscribers.add(subscriber)
+            serverLifecycleSubscribers.set(event, subscribers)
+            return () => subscribers.delete(subscriber)
+        }
+    },
     events() {
 
         return startupEvents
@@ -95,7 +104,7 @@ assert.equal(ready, 1)
 assert.equal(restored, 1)
 assert.equal(raised, 1)
 
-publishProcess("endpointStop", process.server)
+publishServerLifecycle("stop")
 publishProcess("exit", { status: "exited", code: 0, signal: null })
 await settled()
 
@@ -106,6 +115,11 @@ manager.stop()
 function publishProcess(event: string, value: unknown) {
 
     for (const subscriber of processSubscribers.get(event) ?? []) subscriber(value)
+}
+
+function publishServerLifecycle(event: string) {
+
+    for (const subscriber of serverLifecycleSubscribers.get(event) ?? []) subscriber(undefined)
 }
 
 function channel() {
