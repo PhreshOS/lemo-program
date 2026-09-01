@@ -1,7 +1,7 @@
-import type { Process, Program, Server } from "@phreshos/client"
+import type { Process, Program } from "@phreshos/client"
 import LLMProviders from "./llm/providers"
 import { llmServerSources } from "./llm/server"
-import serverEvents from "./server-events"
+import serverEvents, { lemoServer, type LemoServer } from "./server-events"
 
 const fixedLaunch = (program: Program) => Object.freeze({
     name: program.identity,
@@ -91,9 +91,9 @@ export default class Manager {
         this.startupChannel = null
     }
 
-    private async server(): Promise<Server> {
+    private async server(): Promise<LemoServer> {
 
-        return (await this.ensureProcess()).server
+        return lemoServer((await this.ensureProcess()).server)
     }
 
     private async ensureProcess() {

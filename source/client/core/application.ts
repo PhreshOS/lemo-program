@@ -4,7 +4,7 @@ import { llmServerSources } from "./llm/server"
 import Lemo, { type LemoSource } from "./lemo/lemo"
 import type LLMModel from "./llm/model"
 import { taskSnapshot, type TaskControl } from "./lemo/task"
-import serverEvents from "./server-events"
+import serverEvents, { lemoServer, type LemoServer } from "./server-events"
 
 export default class Application {
 
@@ -13,10 +13,11 @@ export default class Application {
 
     public constructor(server: Server) {
 
-        const sources = llmServerSources(server)
+        const source = lemoServer(server)
+        const sources = llmServerSources(source)
 
         this.llmProviders = new LLMProviders(sources.models, sources.providers)
-        this.lemo = new Lemo(serverLemoSource(server))
+        this.lemo = new Lemo(serverLemoSource(source))
     }
 
     public start() {
@@ -32,7 +33,7 @@ export default class Application {
 
 }
 
-function serverLemoSource(server: Server): LemoSource {
+function serverLemoSource(server: LemoServer): LemoSource {
 
     return {
         async observe() {
@@ -71,7 +72,7 @@ function serverLemoSource(server: Server): LemoSource {
     }
 }
 
-function taskControl(server: Server, task: string): TaskControl {
+function taskControl(server: LemoServer, task: string): TaskControl {
 
     return Object.freeze({
         pause: () => controlTask(server, "lemo.task.pause", task),
@@ -90,7 +91,7 @@ function taskControl(server: Server, task: string): TaskControl {
     })
 }
 
-async function controlTask(server: Server, operation: string, task: string) {
+async function controlTask(server: LemoServer, operation: string, task: string) {
 
     await server.ask(operation, { task })
 }

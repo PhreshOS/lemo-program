@@ -1,4 +1,3 @@
-import type { Server } from "@phreshos/client"
 import type {
     LLMGenerationEvent,
     LLMGenerationRequest,
@@ -8,13 +7,13 @@ import type {
 import type { LLMProviderState } from "@server/core/llm/provider"
 import type { LLMModelSource } from "./model"
 import type { LLMProviderSource } from "./provider"
-import serverEvents from "../server-events"
+import serverEvents, { type LemoServer } from "../server-events"
 
 const generationTimeout = 5 * 60 * 1000
 const eventQueueCapacity = 256
 
 /** Adapts one concrete Server handle to Client Core's generic LLM contracts. */
-export function llmServerSources(server: Server): Readonly<{
+export function llmServerSources(server: LemoServer): Readonly<{
     models: LLMModelSource
     providers: LLMProviderSource
 }> {
@@ -99,7 +98,7 @@ function reasoningLevels(value: unknown): LLMReasoningLevels | null {
     })
 }
 
-function providerSource(server: Server): LLMProviderSource {
+function providerSource(server: LemoServer): LLMProviderSource {
 
     const states = new Map<string, LLMProviderState>()
     const subscribers = new Set<() => void>()
@@ -249,7 +248,7 @@ function providerState(value: unknown): LLMProviderState {
     return Object.freeze({ configured: value.configured, active: value.active })
 }
 
-async function *stream<Request>(server: Server, operation: string, request: (generation: string) => Request) {
+async function *stream<Request>(server: LemoServer, operation: string, request: (generation: string) => Request) {
 
     const generation = crypto.randomUUID()
     const controller = new AbortController()

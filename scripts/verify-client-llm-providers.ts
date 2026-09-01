@@ -3,6 +3,7 @@ import type { Server } from "@phreshos/client"
 import type { OllamaCloudConfiguration } from "../source/server/core/llm/providers/ollama-cloud/configuration"
 import LLMProviders from "../source/client/core/llm/providers"
 import { llmServerSources } from "../source/client/core/llm/server"
+import { lemoServer } from "../source/client/core/server-events"
 import OllamaCloudProvider from "../source/client/core/llm/providers/ollama-cloud/provider"
 import OpenCodeProvider from "../source/client/core/llm/providers/opencode/provider"
 import OpenRouterProvider from "../source/client/core/llm/providers/openrouter/provider"
@@ -184,7 +185,7 @@ const reasoningAnswers: unknown[] = [
     { levels: ["low", "medium", "high"], default: "medium", required: true },
     { levels: ["low"], default: "high", required: true }
 ]
-const modelSource = llmServerSources({
+const modelSource = llmServerSources(lemoServer({
     async ask(event: string, payload: unknown) {
 
         if (event === "llm-model.context-window") {
@@ -204,7 +205,7 @@ const modelSource = llmServerSources({
 
         return reasoningAnswers.shift()
     }
-} as unknown as Server).models
+} as unknown as Server)).models
 const contextWindow = await modelSource.contextWindow("ollama-cloud", "gpt-oss:latest")
 const reasoning = await modelSource.reasoningLevels("ollama-cloud", "gpt-oss:latest")
 
@@ -224,23 +225,23 @@ await assert.rejects(
     /reasoning default outside its levels/
 )
 
-const invalidContextWindow = llmServerSources({
+const invalidContextWindow = llmServerSources(lemoServer({
     async ask() { return 0 }
-} as unknown as Server).models
+} as unknown as Server)).models
 
 await assert.rejects(
     invalidContextWindow.contextWindow("ollama-cloud", "gpt-oss:latest"),
     /invalid LLM context window/
 )
 
-const modelRecords = llmServerSources({
+const modelRecords = llmServerSources(lemoServer({
     async ask(event: string) {
 
         assert.equal(event, "llm-models")
 
         return [{ provider: "openrouter", id: "openai/gpt-test", reasoning: "high" }]
     }
-} as unknown as Server).models
+} as unknown as Server)).models
 const records = await modelRecords.models()
 
 assert.deepEqual(records, [{ provider: "openrouter", id: "openai/gpt-test", reasoning: "high" }])
