@@ -23,7 +23,6 @@ export default defineConfig({
         title: "Lemo",
         size: { width: 600, height: 500 },
         development: {
-            url: "http://localhost:5250/",
             startCommand: "vite --config vite.client.ts"
         }
     }
