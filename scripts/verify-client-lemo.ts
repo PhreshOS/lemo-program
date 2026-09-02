@@ -19,7 +19,7 @@ const initial: TaskSnapshot = {
         task: "task-one",
         parent: null,
         kind: "task.input",
-        payload: { input: "Hello", model: { provider: "test", id: "model" } },
+        payload: { input: "Hello", model: { provider: "test", id: "model", contextWindow: 1_000 } },
         createdAt: 1
     }]
 }
@@ -155,6 +155,7 @@ assert.deepEqual(usageEvent.usage, {
     input: { tokens: 100, cachedTokens: 50 },
     output: { tokens: 20, reasoningTokens: 5 }
 })
+assert.equal(usageEvent.contextWindow, 1_000)
 
 assert.notEqual(task.operations(), initialOperations)
 

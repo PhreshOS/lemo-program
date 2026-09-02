@@ -44,11 +44,17 @@ export default class Task {
         if (!request.input.trim()) throw new Error("A Task requires input")
 
         const id = crypto.randomUUID()
+        const contextWindow = await request.model.contextWindow()
+
+        if (contextWindow !== null && (!Number.isSafeInteger(contextWindow) || contextWindow < 2)) {
+            throw new Error("An LLM Model returned an invalid context window")
+        }
 
         await database.createTask(id, {
             model: {
                 provider: request.model.provider.identity,
-                id: request.model.id
+                id: request.model.id,
+                contextWindow
             },
             source,
             ...(request.command ? { command: request.command } : {}),

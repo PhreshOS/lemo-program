@@ -658,7 +658,7 @@ for (const [input, task] of [["first", firstTask], ["second", secondTask]] as co
 const recordedInput = operations.find(operation => operation.task_id === firstTask.id)
 
 assert.deepEqual(JSON.parse(String(recordedInput?.payload)), {
-    model: { provider: "test", id: "test-model" },
+    model: { provider: "test", id: "test-model", contextWindow: null },
     source: { type: "user" },
     input: "first"
 })

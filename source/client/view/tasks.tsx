@@ -434,7 +434,11 @@ function TaskView({ task, snapshot }: Readonly<{
                     <MarkdownMessage content={event.content} />
                 </div>
                 : event.type === "usage"
-                    ? <CycleUsage key={event.key} usage={event.usage} />
+                    ? <CycleUsage
+                        key={event.key}
+                        usage={event.usage}
+                        contextWindow={event.contextWindow}
+                    />
                 : event.type === "tool"
                     ? <ToolView key={event.key} tool={event.tool} />
                     : <div className="assistant-message failure-message" key={event.key}>
@@ -456,15 +460,18 @@ function TaskView({ task, snapshot }: Readonly<{
     </article>
 }
 
-function CycleUsage({ usage }: Readonly<{
+function CycleUsage({ usage, contextWindow }: Readonly<{
     usage: Extract<ReturnType<Task["timeline"]>[number], { type: "usage" }>["usage"]
+    contextWindow: number | null
 }>) {
 
+    const contextTokens = usage.input.tokens + usage.output.tokens
     const values = [
         `${formatNumber(usage.input.tokens)} input`,
         ...(usage.input.cachedTokens === undefined ? [] : [`${formatNumber(usage.input.cachedTokens)} cached`]),
         `${formatNumber(usage.output.tokens)} output`,
-        ...(usage.output.reasoningTokens === undefined ? [] : [`${formatNumber(usage.output.reasoningTokens)} reasoning`])
+        ...(usage.output.reasoningTokens === undefined ? [] : [`${formatNumber(usage.output.reasoningTokens)} reasoning`]),
+        ...(contextWindow === null ? [] : [`${Math.round(contextTokens / contextWindow * 100)}% context`])
     ]
 
     return <small className="cycle-usage">{values.join(" · ")}</small>

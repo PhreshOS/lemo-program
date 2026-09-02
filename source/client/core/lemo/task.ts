@@ -19,6 +19,7 @@ export type TaskTimelineEvent = Readonly<{
     type: "usage"
     key: string
     usage: LLMModelUsage
+    contextWindow: number | null
 }>
 
 export type TaskControl = Readonly<{
@@ -193,6 +194,7 @@ export default class Task {
 
         const timeline: TaskTimelineEvent[] = []
         const tools = new Set<string>()
+        const contextWindow = taskContextWindow(this.history)
         let cycleHasText = false
 
         for (const operation of this.history) {
@@ -230,7 +232,12 @@ export default class Task {
             }
 
             if (operation.kind === "cycle.completed" && payload?.usage !== undefined && payload.usage !== null) {
-                timeline.push({ type: "usage", key: operation.id, usage: modelUsage(payload.usage) })
+                timeline.push({
+                    type: "usage",
+                    key: operation.id,
+                    usage: modelUsage(payload.usage),
+                    contextWindow
+                })
             }
 
             if (operation.kind === "task.failed") {
@@ -371,6 +378,20 @@ function text(value: unknown) {
 function rawText(value: unknown) {
 
     return typeof value === "string" ? value : ""
+}
+
+function taskContextWindow(operations: readonly Operation[]) {
+
+    const input = operations.find(operation => operation.kind === "task.input")
+    const payload = input?.payload
+
+    if (!record(payload) || !record(payload.model)) return null
+
+    const contextWindow = payload.model.contextWindow
+
+    return typeof contextWindow === "number" && Number.isSafeInteger(contextWindow) && contextWindow >= 2
+        ? contextWindow
+        : null
 }
 
 function record(value: unknown): value is Record<string, unknown> {
