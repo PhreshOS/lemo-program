@@ -433,6 +433,8 @@ function TaskView({ task, snapshot }: Readonly<{
                     </div>
                     <MarkdownMessage content={event.content} />
                 </div>
+                : event.type === "usage"
+                    ? <CycleUsage key={event.key} usage={event.usage} />
                 : event.type === "tool"
                     ? <ToolView key={event.key} tool={event.tool} />
                     : <div className="assistant-message failure-message" key={event.key}>
@@ -452,6 +454,25 @@ function TaskView({ task, snapshot }: Readonly<{
 
         {snapshot.error && <p role="alert" className="task-error-alert">{snapshot.error.message}</p>}
     </article>
+}
+
+function CycleUsage({ usage }: Readonly<{
+    usage: Extract<ReturnType<Task["timeline"]>[number], { type: "usage" }>["usage"]
+}>) {
+
+    const values = [
+        `${formatNumber(usage.input.tokens)} input`,
+        ...(usage.input.cachedTokens === undefined ? [] : [`${formatNumber(usage.input.cachedTokens)} cached`]),
+        `${formatNumber(usage.output.tokens)} output`,
+        ...(usage.output.reasoningTokens === undefined ? [] : [`${formatNumber(usage.output.reasoningTokens)} reasoning`])
+    ]
+
+    return <small className="cycle-usage">{values.join(" · ")}</small>
+}
+
+function formatNumber(value: number) {
+
+    return new Intl.NumberFormat().format(value)
 }
 
 function TaskControls({ task, status }: Readonly<{ task: Task; status: Task["status"] }>) {

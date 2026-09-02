@@ -1,7 +1,7 @@
 import type LLMModel from "../../model"
 import ModelReasoning from "../../reasoning"
 import type OllamaCloudProvider from "./provider"
-import type { LLMModelEvent, LLMModelRequest, LLMReasoningLevels } from "@server/core/llm/model"
+import type { LLMModelEvent, LLMModelRequest, LLMModelUsage, LLMReasoningLevels } from "@server/core/llm/model"
 
 /** One local Ollama Cloud Model handle. */
 export default class OllamaCloudModel implements LLMModel {
@@ -15,7 +15,7 @@ export default class OllamaCloudModel implements LLMModel {
         private readonly loadContextWindow: () => Promise<number | null>,
         private readonly loadReasoning: () => Promise<LLMReasoningLevels | null>,
         changeReasoning: (level: string | null) => Promise<void>,
-        private readonly generateEvents: (request: LLMModelRequest) => AsyncGenerator<LLMModelEvent, void, unknown>
+        private readonly generateEvents: (request: LLMModelRequest) => AsyncGenerator<LLMModelEvent, LLMModelUsage | null, unknown>
     ) {
 
         this.reasoningState = new ModelReasoning(reasoning, changeReasoning)

@@ -10,7 +10,8 @@ import type { ProgramStore } from "@phreshos/core"
 import type LLMProvider from "../../provider"
 import type { LLMProviderHandle, LLMProviderRegistration } from "../../provider"
 import { llmProviderActiveKey, llmProviderActiveSchema } from "../../provider"
-import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMReasoningLevels, LLMToolCall } from "../../model"
+import { modelUsage } from "../../model"
+import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMModelUsage, LLMReasoningLevels, LLMToolCall } from "../../model"
 import { compatibleReasoning, sameReasoningLevels } from "../../reasoning"
 import openRouterConfiguration from "./configuration"
 import type { OpenRouterConfiguration } from "./configuration"
@@ -137,9 +138,23 @@ export default class OpenRouterProvider implements LLMProvider {
         if (!isStream(response)) throw new Error(`OpenRouter Model "${model}" returned no generation stream`)
 
         const calls = new Map<number, MutableToolCall>()
+        let usage: LLMModelUsage | null = null
 
         for await (const chunk of response) {
             if (chunk.error) throw new Error(chunk.error.message)
+
+            if (chunk.usage) {
+                usage = modelUsage({
+                    input: {
+                        tokens: chunk.usage.promptTokens,
+                        cachedTokens: chunk.usage.promptTokensDetails?.cachedTokens
+                    },
+                    output: {
+                        tokens: chunk.usage.completionTokens,
+                        reasoningTokens: chunk.usage.completionTokensDetails?.reasoningTokens
+                    }
+                })
+            }
 
             for (const choice of chunk.choices) {
                 if (choice.delta.content) yield { type: "text" as const, content: choice.delta.content }
@@ -149,6 +164,8 @@ export default class OpenRouterProvider implements LLMProvider {
         }
 
         for (const call of calls.values()) yield { type: "tool-call" as const, call: completeToolCall(call, model) }
+
+        return usage
     }
 }
 

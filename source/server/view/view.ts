@@ -160,12 +160,22 @@ export default async function view() {
 
         const request = generationRequest.parse(payload)
 
-        for await (const event of application.generate(request.provider, request.model, request.request)) {
+        const generation = application.generate(request.provider, request.model, request.request)
+        let usage = null
 
-            context.publish<LLMGenerationEvent>(request.generation, event)
+        while (true) {
+
+            const event = await generation.next()
+
+            if (event.done) {
+                usage = event.value
+                break
+            }
+
+            context.publish<LLMGenerationEvent>(request.generation, event.value)
         }
 
-        context.publish<LLMGenerationEvent>(request.generation, { type: "complete" })
+        context.publish<LLMGenerationEvent>(request.generation, { type: "complete", usage })
     })
 
     // Start the representation only after its Server API is complete.

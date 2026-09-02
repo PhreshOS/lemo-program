@@ -43,6 +43,8 @@ const providers = new LLMProviders({
         yield { type: "text" as const, content: "Hello" }
 
         yield { type: "text" as const, content: " world" }
+
+        return null
     }
 }, {
     async open() {},

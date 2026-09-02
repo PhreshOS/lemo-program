@@ -144,7 +144,10 @@ const provider = new OllamaCloudProvider({ apiKey: "secret" }, true, async funct
                     type: "function",
                     function: { name: "time", arguments: {} }
                 }]
-            }
+            },
+            done: true,
+            prompt_eval_count: 90,
+            eval_count: 14
         })
     ].join("\n"))
 })
@@ -200,21 +203,33 @@ assert.deepEqual(await models[1]?.reasoningLevels(), {
     required: true
 })
 
-const chunks: string[] = []
-const calls: unknown[] = []
-
-for await (const chunk of models[1]!.generate({
+const generation = models[1]!.generate({
     messages: [{ role: "user", content: "Hello" }],
     tools: [tool]
-})) {
+})
+const chunks: string[] = []
+const calls: unknown[] = []
+let usage = null
 
-    if (chunk.type === "text") chunks.push(chunk.content)
-    else calls.push(chunk.call)
+while (true) {
+    const chunk = await generation.next()
+
+    if (chunk.done) {
+        usage = chunk.value
+        break
+    }
+
+    if (chunk.value.type === "text") chunks.push(chunk.value.content)
+    else calls.push(chunk.value.call)
 }
 
 assert.deepEqual(chunks, ["Hello", " world"])
 
 assert.deepEqual(calls, [{ id: "call-time", name: "time", input: {} }])
+assert.deepEqual(usage, {
+    input: { tokens: 90 },
+    output: { tokens: 14 }
+})
 
 await models[1]!.setReasoning(null)
 

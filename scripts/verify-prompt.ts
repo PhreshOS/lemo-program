@@ -39,7 +39,7 @@ model = {
                 call: { id: "load-prompt", name: "tools", input: { names: ["prompt"] } }
             }
 
-            return
+            return null
         }
 
         if (cycle === 2) {
@@ -59,7 +59,7 @@ model = {
                 }
             }
 
-            return
+            return null
         }
 
         if (cycle === 3) {
@@ -84,7 +84,7 @@ model = {
                 }
             }
 
-            return
+            return null
         }
 
         const result = request.messages.findLast(message => message.role === "tool" && message.name === "prompt")
@@ -96,6 +96,8 @@ model = {
         })
 
         yield { type: "text" as const, content: "Thank you, Zohayr." }
+
+        return null
     }
 }
 
@@ -151,7 +153,7 @@ const pausedModel: LLMModel = {
                 call: { id: "load-paused-prompt", name: "tools", input: { names: ["prompt"] } }
             }
 
-            return
+            return null
         }
 
         yield {
@@ -166,6 +168,8 @@ const pausedModel: LLMModel = {
                 }
             }
         }
+
+        return null
     }
 }
 
@@ -216,7 +220,7 @@ approvalModel = {
                 call: { id: "load-approval-tools", name: "tools", input: { names: ["time", "files"] } }
             }
 
-            return
+            return null
         }
 
         if (approvalCycle === 2) {
@@ -234,7 +238,7 @@ approvalModel = {
                 }
             }
 
-            return
+            return null
         }
 
         if (approvalCycle === 3) {
@@ -252,11 +256,13 @@ approvalModel = {
                 }
             }
 
-            return
+            return null
         }
 
         await assert.rejects(access(approvalTarget), /ENOENT/)
         yield { type: "text" as const, content: "Approval flow complete." }
+
+        return null
     }
 }
 

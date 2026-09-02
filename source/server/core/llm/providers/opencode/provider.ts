@@ -6,9 +6,11 @@ import type {
     LLMMessage,
     LLMModelExecution,
     LLMModelRequest,
+    LLMModelUsage,
     LLMReasoningLevels,
     LLMToolCall
 } from "../../model"
+import { modelUsage } from "../../model"
 import { compatibleReasoning, sameReasoningLevels } from "../../reasoning"
 import OpenCodeModel, { type OpenCodeProtocol } from "./model"
 
@@ -144,13 +146,15 @@ export default class OpenCodeProvider implements LLMProvider {
                     tools: request.tools.map(tool => ({ type: "function", function: tool }))
                 }),
                 ...(reasoning !== null && { reasoning_effort: reasoning }),
-                stream: true
+                stream: true,
+                stream_options: { include_usage: true }
             })
         })
 
         if (!response.body) throw new Error("OpenCode returned no generation stream")
 
         const calls = new Map<number, MutableToolCall>()
+        let usage: LLMModelUsage | null = null
 
         for await (const data of serverSentEvents(response.body)) {
 
@@ -160,7 +164,11 @@ export default class OpenCodeProvider implements LLMProvider {
 
             throwEventError(value)
 
-            if (!record(value) || !Array.isArray(value.choices)) continue
+            if (!record(value)) continue
+
+            usage = openAIUsage(value.usage) ?? usage
+
+            if (!Array.isArray(value.choices)) continue
 
             for (const choice of value.choices) {
 
@@ -178,6 +186,8 @@ export default class OpenCodeProvider implements LLMProvider {
         }
 
         for (const call of calls.values()) yield { type: "tool-call" as const, call: completeToolCall(call, model) }
+
+        return usage
     }
 
     private async *generateResponses(
@@ -203,6 +213,8 @@ export default class OpenCodeProvider implements LLMProvider {
 
         if (!response.body) throw new Error("OpenCode returned no generation stream")
 
+        let usage: LLMModelUsage | null = null
+
         for await (const data of serverSentEvents(response.body)) {
 
             if (data === "[DONE]") break
@@ -222,7 +234,13 @@ export default class OpenCodeProvider implements LLMProvider {
 
                 yield { type: "tool-call" as const, call: responseToolCall(value.item, model) }
             }
+
+            if (value.type === "response.completed" && record(value.response)) {
+                usage = responsesUsage(value.response.usage) ?? usage
+            }
         }
+
+        return usage
     }
 
     private async fetch(path: string, init: RequestInit) {
@@ -470,6 +488,44 @@ function responseToolCall(value: Record<string, unknown>, model: string): LLMToo
     })
 }
 
+function openAIUsage(value: unknown): LLMModelUsage | null {
+
+    if (!record(value)) return null
+
+    const inputDetails = object(value.prompt_tokens_details)
+    const outputDetails = object(value.completion_tokens_details)
+
+    return modelUsage({
+        input: {
+            tokens: value.prompt_tokens,
+            cachedTokens: inputDetails?.cached_tokens
+        },
+        output: {
+            tokens: value.completion_tokens,
+            reasoningTokens: outputDetails?.reasoning_tokens
+        }
+    })
+}
+
+function responsesUsage(value: unknown): LLMModelUsage | null {
+
+    if (!record(value)) return null
+
+    const inputDetails = object(value.input_tokens_details)
+    const outputDetails = object(value.output_tokens_details)
+
+    return modelUsage({
+        input: {
+            tokens: value.input_tokens,
+            cachedTokens: inputDetails?.cached_tokens
+        },
+        output: {
+            tokens: value.output_tokens,
+            reasoningTokens: outputDetails?.reasoning_tokens
+        }
+    })
+}
+
 async function *serverSentEvents(stream: ReadableStream<Uint8Array>) {
 
     let data: string[] = []
@@ -574,6 +630,11 @@ function modelIdentity(value: string) {
 function record(value: unknown): value is Record<string, unknown> {
 
     return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function object(value: unknown): Record<string, unknown> | null {
+
+    return record(value) ? value : null
 }
 
 type MutableToolCall = {

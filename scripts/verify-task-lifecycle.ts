@@ -38,6 +38,8 @@ model = {
         if (call === 1) await new Promise<void>(() => {})
 
         yield { type: "text" as const, content: `${input}:continued` }
+
+        return null
     }
 }
 

@@ -20,8 +20,8 @@ export default interface LLMModel {
     /** Selects one exposed reasoning level, or clears the override with `null`. */
     setReasoning(level: string | null): Promise<void>
 
-    /** Generates structured events from one complete, ordered Model request. */
-    generate(request: LLMModelRequest, execution?: LLMModelExecution): AsyncGenerator<LLMModelEvent, void, unknown>
+    /** Generates structured events and returns authoritative usage when available. */
+    generate(request: LLMModelRequest, execution?: LLMModelExecution): AsyncGenerator<LLMModelEvent, LLMModelUsage | null, unknown>
 }
 
 /** Provider-authored selectable reasoning levels for one exact Model. */
@@ -39,6 +39,52 @@ export type LLMReasoningLevels = Readonly<{
 export type LLMModelExecution = Readonly<{
     signal: AbortSignal
 }>
+
+/** Provider-reported token usage for one complete Model generation. */
+export type LLMModelUsage = Readonly<{
+    input: Readonly<{
+        tokens: number
+        cachedTokens?: number
+    }>
+    output: Readonly<{
+        tokens: number
+        reasoningTokens?: number
+    }>
+}>
+
+/** Validates and freezes one provider-neutral Model usage value. */
+export function modelUsage(value: unknown): LLMModelUsage {
+
+    const usage = record(value)
+    const input = record(usage?.input)
+    const output = record(usage?.output)
+
+    if (!usage || !input || !output) throw new Error("Invalid LLM Model usage")
+
+    const inputTokens = tokenCount(input.tokens)
+    const outputTokens = tokenCount(output.tokens)
+    const cachedTokens = optionalTokenCount(input.cachedTokens)
+    const reasoningTokens = optionalTokenCount(output.reasoningTokens)
+
+    if (cachedTokens !== undefined && cachedTokens > inputTokens) {
+        throw new Error("Cached LLM input tokens exceed total input tokens")
+    }
+
+    if (reasoningTokens !== undefined && reasoningTokens > outputTokens) {
+        throw new Error("Reasoning LLM output tokens exceed total output tokens")
+    }
+
+    return Object.freeze({
+        input: Object.freeze({
+            tokens: inputTokens,
+            ...(cachedTokens !== undefined && { cachedTokens })
+        }),
+        output: Object.freeze({
+            tokens: outputTokens,
+            ...(reasoningTokens !== undefined && { reasoningTokens })
+        })
+    })
+}
 
 export type LLMMessage = Readonly<{
     role: "system" | "user"
@@ -97,4 +143,24 @@ export type LLMGenerationRequest = Readonly<{
 /** One streamed generation fact published by Server Core. */
 export type LLMGenerationEvent = LLMModelEvent | Readonly<{
     type: "complete"
+    usage: LLMModelUsage | null
 }>
+
+function tokenCount(value: unknown) {
+
+    if (!Number.isSafeInteger(value) || (value as number) < 0) throw new Error("Invalid LLM token count")
+
+    return value as number
+}
+
+function optionalTokenCount(value: unknown) {
+
+    return value === undefined || value === null ? undefined : tokenCount(value)
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+
+    return typeof value === "object" && value !== null && !Array.isArray(value)
+        ? value as Record<string, unknown>
+        : null
+}

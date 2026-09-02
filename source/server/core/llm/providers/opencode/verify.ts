@@ -50,7 +50,8 @@ const provider = new OpenCodeProvider(true, async function (input, init) {
             messages: [{ role: "user", content: "Hello" }],
             tools: [{ type: "function", function: tool }],
             reasoning_effort: "high",
-            stream: true
+            stream: true,
+            stream_options: { include_usage: true }
         })
 
         return new Response([
@@ -59,6 +60,8 @@ const provider = new OpenCodeProvider(true, async function (input, init) {
             'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-time","function":{"name":"ti","arguments":"{\\""}}]}}]}',
             "",
             'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"me","arguments":"zone\\":\\"UTC\\"}"}}]}}]}',
+            "",
+            'data: {"choices":[],"usage":{"prompt_tokens":70,"completion_tokens":12,"prompt_tokens_details":{"cached_tokens":50},"completion_tokens_details":{"reasoning_tokens":4}}}',
             "",
             "data: [DONE]",
             ""
@@ -78,6 +81,8 @@ const provider = new OpenCodeProvider(true, async function (input, init) {
         'data: {"type":"response.output_text.delta","delta":"Hi"}',
         "",
         'data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"call-docs","name":"docs","arguments":"{\\"tool\\":\\"time\\"}"}}',
+        "",
+        'data: {"type":"response.completed","response":{"usage":{"input_tokens":40,"output_tokens":8,"input_tokens_details":{"cached_tokens":20},"output_tokens_details":{"reasoning_tokens":3}}}}',
         ""
     ].join("\n"))
 })
@@ -113,32 +118,49 @@ await models[1]!.setReasoning("low")
 assert.equal(models[0]!.reasoning, "high")
 assert.equal(models[1]!.reasoning, "low")
 
-const chatEvents = []
-
-for await (const event of models[0]!.generate({
+const chatGeneration = await generated(models[0]!.generate({
     messages: [{ role: "user", content: "Hello" }],
     tools: [tool]
-})) chatEvents.push(event)
+}))
 
-assert.deepEqual(chatEvents, [
+assert.deepEqual(chatGeneration.events, [
     { type: "text", content: "Hello" },
     { type: "tool-call", call: { id: "call-time", name: "time", input: { zone: "UTC" } } }
 ])
+assert.deepEqual(chatGeneration.usage, {
+    input: { tokens: 70, cachedTokens: 50 },
+    output: { tokens: 12, reasoningTokens: 4 }
+})
 
-const responseEvents = []
-
-for await (const event of models[1]!.generate({
+const responseGeneration = await generated(models[1]!.generate({
     messages: [{ role: "user", content: "Hello" }],
     tools: []
-})) responseEvents.push(event)
+}))
 
-assert.deepEqual(responseEvents, [
+assert.deepEqual(responseGeneration.events, [
     { type: "text", content: "Hi" },
     { type: "tool-call", call: { id: "call-docs", name: "docs", input: { tool: "time" } } }
 ])
+assert.deepEqual(responseGeneration.usage, {
+    input: { tokens: 40, cachedTokens: 20 },
+    output: { tokens: 8, reasoningTokens: 3 }
+})
 
 assert.deepEqual(requests, [
     "https://models.opencode.ai/api.json",
     "https://opencode.ai/zen/v1/chat/completions",
     "https://opencode.ai/zen/v1/responses"
 ])
+
+async function generated<Value, Result>(events: AsyncGenerator<Value, Result, unknown>) {
+
+    const values: Value[] = []
+
+    while (true) {
+        const next = await events.next()
+
+        if (next.done) return { events: values, usage: next.value }
+
+        values.push(next.value)
+    }
+}

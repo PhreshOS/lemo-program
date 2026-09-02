@@ -286,6 +286,10 @@ const second = deferred()
 const cycles = new Map<string, number>()
 const snapshots = new Map<string, string[]>()
 const observationPath = `${process.cwd()}/package.json`
+const measuredUsage = Object.freeze({
+    input: Object.freeze({ tokens: 1_200, cachedTokens: 800 }),
+    output: Object.freeze({ tokens: 120, reasoningTokens: 40 })
+})
 
 let model!: LLMModel
 
@@ -344,7 +348,7 @@ model = {
                     call: { id: "load-files", name: "tools", input: { names: ["files"] } }
                 }
 
-                return
+                return measuredUsage
             }
 
             if (cycle === 2 || cycle === 3) {
@@ -357,7 +361,7 @@ model = {
                     }
                 }
 
-                return
+                return measuredUsage
             }
 
             const result = request.messages.filter(message => (
@@ -369,7 +373,7 @@ model = {
 
             yield { type: "text" as const, content: "observation-loop:stopped" }
 
-            return
+            return measuredUsage
         }
 
         if (input === "recall first") {
@@ -383,7 +387,7 @@ model = {
                     call: { id: "recall-memory", name: "memory", input: { query: "first", budget: 1_000 } }
                 }
 
-                return
+                return measuredUsage
             }
 
             const memoryResult = request.messages.find(message => message.role === "tool" && message.name === "memory")
@@ -403,7 +407,7 @@ model = {
 
             yield { type: "text" as const, content: "memory:complete" }
 
-            return
+            return measuredUsage
         }
 
         if (input === "produce unique task failure") {
@@ -419,7 +423,7 @@ model = {
 
             yield { type: "text" as const, content: "task-failure:recalled" }
 
-            return
+            return measuredUsage
         }
 
         if (input === "produce missing capability failure") {
@@ -431,12 +435,12 @@ model = {
                     call: { id: "missing-capability-call", name: "missing-capability", input: {} }
                 }
 
-                return
+                return measuredUsage
             }
 
             yield { type: "text" as const, content: "tool-failure:produced" }
 
-            return
+            return measuredUsage
         }
 
         if (input === "inspect missing capability failure") {
@@ -448,7 +452,7 @@ model = {
 
             yield { type: "text" as const, content: "tool-failure:recalled" }
 
-            return
+            return measuredUsage
         }
 
         if (input === "delegated child") {
@@ -458,7 +462,7 @@ model = {
 
             yield { type: "text" as const, content: "delegated child:complete" }
 
-            return
+            return measuredUsage
         }
 
         if (input === "delegate work") {
@@ -470,7 +474,7 @@ model = {
                     call: { id: "load-tasks", name: "tools", input: { names: ["tasks"] } }
                 }
 
-                return
+                return measuredUsage
             }
 
             if (cycle === 2) {
@@ -483,7 +487,7 @@ model = {
                     } }
                 }
 
-                return
+                return measuredUsage
             }
 
             const results = request.messages.filter(message => (
@@ -507,14 +511,14 @@ model = {
                     } }
                 }
 
-                return
+                return measuredUsage
             }
 
             assert.equal(JSON.parse(results.at(-1)!.content).output.event, "completed")
 
             yield { type: "text" as const, content: "delegate work:complete" }
 
-            return
+            return measuredUsage
         }
 
         if (cycle === 1) {
@@ -534,7 +538,7 @@ model = {
                 }
             }
 
-            return
+            return measuredUsage
         }
 
         if (cycle === 2) {
@@ -563,12 +567,14 @@ model = {
                 call: { id: `${input}-time-b`, name: "time", input: {} }
             }
 
-            return
+            return measuredUsage
         }
 
         assert.equal(request.messages.filter(message => message.role === "tool" && message.name === "time").length, 2)
 
         yield { type: "text" as const, content: `${input}:complete` }
+
+        return measuredUsage
     }
 }
 
@@ -629,6 +635,10 @@ for (const task of [firstTask, secondTask]) {
     ])
 
     assert.equal(related[0]?.parent_id, null)
+
+    for (const operation of related.filter(operation => operation.kind === "cycle.completed")) {
+        assert.deepEqual(JSON.parse(String(operation.payload)).usage, measuredUsage)
+    }
 
     for (let index = 1; index < related.length; index++) {
 

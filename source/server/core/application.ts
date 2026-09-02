@@ -78,7 +78,7 @@ export default class Application {
 
         if (!model) throw new Error(`Unknown LLM Model "${providerIdentity}/${modelIdentity}"`)
 
-        yield* model.generate(request)
+        return yield* model.generate(request)
     }
 
     public async modelReasoningLevels(providerIdentity: string, modelIdentity: string): Promise<LLMReasoningLevels | null> {

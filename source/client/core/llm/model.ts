@@ -1,5 +1,5 @@
 import type LLMProvider from "./provider"
-import type { LLMModelEvent, LLMModelRecord, LLMModelRequest, LLMReasoningLevels } from "@server/core/llm/model"
+import type { LLMModelEvent, LLMModelRecord, LLMModelRequest, LLMModelUsage, LLMReasoningLevels } from "@server/core/llm/model"
 
 /** One local handle to an authoritative LLM Model. */
 export default interface LLMModel {
@@ -10,7 +10,7 @@ export default interface LLMModel {
     contextWindow(): Promise<number | null>
     reasoningLevels(): Promise<LLMReasoningLevels | null>
     setReasoning(level: string | null): Promise<void>
-    generate(request: LLMModelRequest): AsyncGenerator<LLMModelEvent, void, unknown>
+    generate(request: LLMModelRequest): AsyncGenerator<LLMModelEvent, LLMModelUsage | null, unknown>
 }
 
 /** Authoritative Model operations shared by every local LLM Provider handle. */
@@ -19,5 +19,5 @@ export interface LLMModelSource {
     contextWindow(provider: string, model: string): Promise<number | null>
     reasoningLevels(provider: string, model: string): Promise<LLMReasoningLevels | null>
     setReasoning(provider: string, model: string, level: string | null): Promise<void>
-    generate(provider: string, model: string, request: LLMModelRequest): AsyncGenerator<LLMModelEvent, void, unknown>
+    generate(provider: string, model: string, request: LLMModelRequest): AsyncGenerator<LLMModelEvent, LLMModelUsage | null, unknown>
 }

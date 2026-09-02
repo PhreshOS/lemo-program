@@ -6,7 +6,8 @@ import type { OllamaModelMetadata } from "./model"
 import type LLMProvider from "../../provider"
 import type { LLMProviderHandle, LLMProviderRegistration } from "../../provider"
 import { llmProviderActiveKey, llmProviderActiveSchema } from "../../provider"
-import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMReasoningLevels, LLMToolCall } from "../../model"
+import { modelUsage } from "../../model"
+import type { LLMMessage, LLMModelExecution, LLMModelRequest, LLMModelUsage, LLMReasoningLevels, LLMToolCall } from "../../model"
 
 const host = "https://ollama.com"
 
@@ -122,6 +123,8 @@ export default class OllamaCloudProvider implements LLMProvider {
 
         if (!response.body) throw new Error("Ollama Cloud returned no generation stream")
 
+        let usage: LLMModelUsage | null = null
+
         for await (const line of lines(response.body)) {
 
             if (!line.trim()) continue
@@ -131,6 +134,8 @@ export default class OllamaCloudProvider implements LLMProvider {
             if (!record(value)) throw new Error("Ollama Cloud returned an invalid generation event")
 
             if (typeof value.error === "string") throw new Error(value.error)
+
+            if (value.done === true) usage = ollamaUsage(value)
 
             if (!record(value.message)) throw new Error(`Ollama Cloud Model "${model}" returned no message`)
 
@@ -156,6 +161,8 @@ export default class OllamaCloudProvider implements LLMProvider {
                 }
             }
         }
+
+        return usage
     }
 
     private async fetch(path: string, init: RequestInit = {}) {
@@ -392,6 +399,16 @@ function toolCall(value: unknown, model: string): LLMToolCall {
         id: typeof value.id === "string" && value.id ? value.id : crypto.randomUUID(),
         name,
         input: value.function.arguments
+    })
+}
+
+function ollamaUsage(value: Record<string, unknown>): LLMModelUsage | null {
+
+    if (value.prompt_eval_count === undefined && value.eval_count === undefined) return null
+
+    return modelUsage({
+        input: { tokens: value.prompt_eval_count },
+        output: { tokens: value.eval_count }
     })
 }
 

@@ -1,6 +1,7 @@
 import type Operation from "@server/core/lemo/operation"
 import type { OperationPage } from "@server/core/lemo/database"
 import type { TaskSnapshot, TaskStatus } from "@server/core/lemo/task"
+import { modelUsage, type LLMModelUsage } from "@server/core/llm/model"
 import { taskOperation } from "./operation"
 import Tool, { type ToolControl } from "./tool"
 
@@ -14,6 +15,10 @@ export type TaskTimelineEvent = Readonly<{
     type: "tool"
     key: string
     tool: Tool
+}> | Readonly<{
+    type: "usage"
+    key: string
+    usage: LLMModelUsage
 }>
 
 export type TaskControl = Readonly<{
@@ -222,6 +227,10 @@ export default class Task {
                 const content = rawText(payload?.content)
 
                 if (content) timeline.push({ type: "output", key: operation.id, content })
+            }
+
+            if (operation.kind === "cycle.completed" && payload?.usage !== undefined && payload.usage !== null) {
+                timeline.push({ type: "usage", key: operation.id, usage: modelUsage(payload.usage) })
             }
 
             if (operation.kind === "task.failed") {

@@ -1,5 +1,5 @@
 import type LLMModel from "../../model"
-import type { LLMModelEvent, LLMModelExecution, LLMModelRequest, LLMReasoningLevels } from "../../model"
+import type { LLMModelEvent, LLMModelExecution, LLMModelRequest, LLMModelUsage, LLMReasoningLevels } from "../../model"
 import ModelReasoning from "../../reasoning"
 import type OpenRouterProvider from "./provider"
 
@@ -18,7 +18,7 @@ export default class OpenRouterModel implements LLMModel {
             request: LLMModelRequest,
             reasoning: string | null,
             execution?: LLMModelExecution
-        ) => AsyncGenerator<LLMModelEvent, void, unknown>
+        ) => AsyncGenerator<LLMModelEvent, LLMModelUsage | null, unknown>
     ) {
 
         this.reasoningState = new ModelReasoning(async () => this.reasoningDescription, reasoning)

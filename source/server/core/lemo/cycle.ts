@@ -2,6 +2,7 @@ import type LLMModel from "../llm/model"
 import type {
     LLMMessage,
     LLMModelRequest,
+    LLMModelUsage,
     LLMToolCall,
     LLMToolDefinition
 } from "../llm/model"
@@ -45,6 +46,7 @@ export default class Cycle {
 
             let output = ""
             const toolCalls: LLMToolCall[] = []
+            let usage: LLMModelUsage | null = null
 
             const events = model.generate(request, { signal: run.signal })
             const iterator = events[Symbol.asyncIterator]()
@@ -54,7 +56,10 @@ export default class Cycle {
 
                     const next = await waitForRun(iterator.next(), run.signal)
 
-                    if (next.done) break
+                    if (next.done) {
+                        usage = next.value
+                        break
+                    }
 
                     const event = next.value
 
@@ -69,7 +74,7 @@ export default class Cycle {
 
                 if (run.signal.aborted) {
 
-                    const closing = iterator.return?.()
+                    const closing = iterator.return?.(null)
 
                     void closing?.catch(() => {})
                 }
@@ -84,10 +89,11 @@ export default class Cycle {
             await run.append("cycle.completed", {
                 run: run.id,
                 cycle: started.id,
-                message: message.id
+                message: message.id,
+                usage
             })
 
-            return Object.freeze({ output, toolCalls: Object.freeze(toolCalls) })
+            return Object.freeze({ output, toolCalls: Object.freeze(toolCalls), usage })
         } catch (cause) {
 
             if (run.signal.aborted) throw cause
@@ -308,4 +314,5 @@ function record(value: unknown) {
 export type CycleResult = Readonly<{
     output: string
     toolCalls: readonly LLMToolCall[]
+    usage: LLMModelUsage | null
 }>

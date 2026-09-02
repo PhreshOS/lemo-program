@@ -77,7 +77,7 @@ model = {
     async contextWindow() { return null },
     async reasoningLevels() { return null },
     async setReasoning() {},
-    async *generate() {}
+    async *generate() { return null }
 }
 
 const lemo = new Lemo(source)
@@ -114,30 +114,53 @@ events.push({
 
 events.push({
     sequence: 4,
-    id: "complete",
+    id: "cycle-complete",
     task: task.id,
     parent: "spaced-text",
+    kind: "cycle.completed",
+    payload: {
+        usage: {
+            input: { tokens: 100, cachedTokens: 50 },
+            output: { tokens: 20, reasoningTokens: 5 }
+        }
+    },
+    createdAt: 4
+})
+
+events.push({
+    sequence: 5,
+    id: "complete",
+    task: task.id,
+    parent: "cycle-complete",
     kind: "task.completed",
     payload: { output: "Hi there" },
-    createdAt: 4
+    createdAt: 5
 })
 
 await settled()
 
 assert.equal(task.status, "completed")
 
-assert.equal(task.operations().length, 4)
+assert.equal(task.operations().length, 5)
 
 const outputEvent = task.timeline().find(event => event.type === "output")
 
 assert(outputEvent?.type === "output")
 assert.equal(outputEvent.content, "Hi there")
 
+const usageEvent = task.timeline().find(event => event.type === "usage")
+
+assert(usageEvent?.type === "usage")
+assert.deepEqual(usageEvent.usage, {
+    input: { tokens: 100, cachedTokens: 50 },
+    output: { tokens: 20, reasoningTokens: 5 }
+})
+
 assert.notEqual(task.operations(), initialOperations)
 
 assert.equal(task.operations(), task.operations())
 
-assert.equal(changes, 3)
+assert.equal(changes, 4)
 
 const restored = new Lemo({
     ...source,
@@ -354,7 +377,5 @@ function snapshot(id: string, status: TaskSnapshot["status"], createdAt: number)
 
 async function settled() {
 
-    await Promise.resolve()
-
-    await Promise.resolve()
+    await new Promise<void>(resolve => setImmediate(resolve))
 }

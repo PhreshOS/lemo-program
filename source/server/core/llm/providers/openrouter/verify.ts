@@ -93,22 +93,24 @@ assert.deepEqual(modelRequests, [{
     supportedParameters: "tools"
 }])
 
-const events: unknown[] = []
-
-for await (const event of models[0]!.generate({
+const generation = await generated(models[0]!.generate({
     messages: [{ role: "user", content: "Hello" }],
     tools: [{
         name: "time",
         description: "Return time",
         parameters: { type: "object", properties: {} }
     }]
-})) events.push(event)
+}))
 
-assert.deepEqual(events, [
+assert.deepEqual(generation.events, [
     { type: "text", content: "Hello" },
     { type: "text", content: " world" },
     { type: "tool-call", call: { id: "call-time", name: "time", input: {} } }
 ])
+assert.deepEqual(generation.usage, {
+    input: { tokens: 120, cachedTokens: 80 },
+    output: { tokens: 25, reasoningTokens: 10 }
+})
 
 assert.deepEqual(generationRequests, [{
     request: {
@@ -176,5 +178,28 @@ async function *stream() {
                 }]
             }
         }]
+    }
+    yield {
+        choices: [],
+        usage: {
+            promptTokens: 120,
+            completionTokens: 25,
+            totalTokens: 145,
+            promptTokensDetails: { cachedTokens: 80 },
+            completionTokensDetails: { reasoningTokens: 10 }
+        }
+    }
+}
+
+async function generated<Value, Result>(events: AsyncGenerator<Value, Result, unknown>) {
+
+    const values: Value[] = []
+
+    while (true) {
+        const next = await events.next()
+
+        if (next.done) return { events: values, usage: next.value }
+
+        values.push(next.value)
     }
 }

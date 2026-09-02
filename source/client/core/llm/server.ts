@@ -4,6 +4,7 @@ import type {
     LLMModelRecord,
     LLMReasoningLevels
 } from "@server/core/llm/model"
+import { modelUsage } from "@server/core/llm/model"
 import type { LLMProviderState } from "@server/core/llm/provider"
 import type { LLMModelSource } from "./model"
 import type { LLMProviderSource } from "./provider"
@@ -36,7 +37,7 @@ export function llmServerSources(server: LemoServer): Readonly<{
             },
             async *generate(provider, model, request) {
 
-                yield* stream(
+                return yield* stream(
                     server,
                     "llm-generate",
                     generation => ({ generation, provider, model, request } satisfies LLMGenerationRequest)
@@ -292,7 +293,7 @@ async function *stream<Request>(server: LemoServer, operation: string, request: 
 
                 if (failure) throw failure
 
-                return
+                return event.usage
             }
         }
     } finally {
@@ -328,7 +329,10 @@ function generationEvent(value: unknown): LLMGenerationEvent {
         return { type: "tool-call", call: { id, name, input: value.call.input } }
     }
 
-    return { type: "complete" }
+    return {
+        type: "complete",
+        usage: value.usage === null ? null : modelUsage(value.usage)
+    }
 }
 
 function record(value: unknown): value is Record<string, unknown> {
