@@ -1,4 +1,4 @@
-import { system, type SystemProgramEntity } from "@phreshos/server"
+import { system, type Program } from "@phreshos/server"
 import defineTool from "../../define-tool"
 import systemTool from "../../system-tool"
 import waitEvent from "../../wait-event"
@@ -79,7 +79,7 @@ const programs = defineTool({
 
 export default programs
 
-async function summary(program: SystemProgramEntity, knownInstalled?: boolean) {
+async function summary(program: Program, knownInstalled?: boolean) {
 
     return Object.freeze({
         identity: program.identity,
@@ -93,7 +93,7 @@ async function summary(program: SystemProgramEntity, knownInstalled?: boolean) {
     })
 }
 
-async function details(program: SystemProgramEntity, installed: boolean) {
+async function details(program: Program, installed: boolean) {
 
     return Object.freeze({
         ...await summary(program, installed),
@@ -110,7 +110,7 @@ async function details(program: SystemProgramEntity, installed: boolean) {
     })
 }
 
-function declaration(endpoint: SystemProgramEntity["server"] | SystemProgramEntity["client"]) {
+function declaration(endpoint: Program["server"] | Program["client"]) {
 
     return endpoint
         ? Object.freeze({ start: endpoint.start })
@@ -121,7 +121,7 @@ function registryPayload(event: "create" | "forget" | "install" | "uninstall", v
 
     if (event === "uninstall") {
 
-        const payload = value as { program: SystemProgramEntity, everything: boolean }
+        const payload = value as { program: Program, everything: boolean }
 
         return Object.freeze({
             program: eventProgram(payload.program),
@@ -129,10 +129,10 @@ function registryPayload(event: "create" | "forget" | "install" | "uninstall", v
         })
     }
 
-    return eventProgram(value as SystemProgramEntity)
+    return eventProgram(value as Program)
 }
 
-function eventProgram(program: SystemProgramEntity) {
+function eventProgram(program: Program) {
 
     return Object.freeze({
         identity: program.identity,

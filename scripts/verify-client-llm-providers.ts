@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import type { Server } from "@phreshos/client"
+import type { ServerEndpoint } from "@phreshos/client"
 import type { OllamaCloudConfiguration } from "../source/server/core/llm/providers/ollama-cloud/configuration"
 import LLMProviders from "../source/client/core/llm/providers"
 import { llmServerSources } from "../source/client/core/llm/server"
@@ -207,7 +207,7 @@ const modelSource = llmServerSources(lemoServer({
 
         return reasoningAnswers.shift()
     }
-} as unknown as Server)).models
+} as unknown as ServerEndpoint)).models
 const contextWindow = await modelSource.contextWindow("ollama-cloud", "gpt-oss:latest")
 const reasoning = await modelSource.reasoningLevels("ollama-cloud", "gpt-oss:latest")
 
@@ -229,7 +229,7 @@ await assert.rejects(
 
 const invalidContextWindow = llmServerSources(lemoServer({
     async ask() { return 0 }
-} as unknown as Server)).models
+} as unknown as ServerEndpoint)).models
 
 await assert.rejects(
     invalidContextWindow.contextWindow("ollama-cloud", "gpt-oss:latest"),
@@ -243,7 +243,7 @@ const modelRecords = llmServerSources(lemoServer({
 
         return [{ provider: "openrouter", id: "openai/gpt-test", reasoning: "high" }]
     }
-} as unknown as Server)).models
+} as unknown as ServerEndpoint)).models
 const records = await modelRecords.models()
 
 assert.deepEqual(records, [{ provider: "openrouter", id: "openai/gpt-test", reasoning: "high" }])

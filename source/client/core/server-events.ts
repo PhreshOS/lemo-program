@@ -1,4 +1,4 @@
-import type { Server } from "@phreshos/client"
+import type { ServerEndpoint } from "@phreshos/client"
 
 export type LemoServerEvents = {
     "lemo.operation": unknown
@@ -6,17 +6,17 @@ export type LemoServerEvents = {
     "manager.startup.changed": unknown
 }
 
-export type LemoServer = Server<LemoServerEvents, unknown>
+export type LemoServer = ServerEndpoint<LemoServerEvents, unknown>
 
 type LemoEvent = keyof LemoServerEvents | (string & {})
 
-/** Applies Lemo's publication contract to one concrete Server handle. */
-export function lemoServer(server: Server): LemoServer {
+/** Applies Lemo's publication contract to one concrete Server Endpoint handle. */
+export function lemoServer(server: ServerEndpoint): LemoServer {
 
     return server as unknown as LemoServer
 }
 
-/** Opens a bounded Server event stream before any accompanying snapshot request. */
+/** Opens a bounded Server Endpoint event stream before any accompanying snapshot request. */
 export default function serverEvents(server: LemoServer, event: LemoEvent, capacity = 256) {
 
     const controller = new AbortController()

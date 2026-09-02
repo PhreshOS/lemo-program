@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import type { Process, Program, Server } from "@phreshos/client"
+import type { Process, Program, ServerEndpoint } from "@phreshos/client"
 import Manager from "../source/client/core/manager"
 
 const launches: unknown[] = []
@@ -39,7 +39,7 @@ const server = {
             })
         }
     }
-} as unknown as Server
+} as unknown as ServerEndpoint
 
 const process = {
     server,

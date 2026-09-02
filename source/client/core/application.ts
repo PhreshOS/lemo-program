@@ -1,4 +1,4 @@
-import type { Server } from "@phreshos/client"
+import type { ServerEndpoint } from "@phreshos/client"
 import LLMProviders from "./llm/providers"
 import { llmServerSources } from "./llm/server"
 import Lemo, { type LemoSource } from "./lemo/lemo"
@@ -11,7 +11,7 @@ export default class Application {
     public readonly llmProviders: LLMProviders
     public readonly lemo: Lemo
 
-    public constructor(server: Server) {
+    public constructor(server: ServerEndpoint) {
 
         const source = lemoServer(server)
         const sources = llmServerSources(source)
