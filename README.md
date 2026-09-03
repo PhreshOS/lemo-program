@@ -1,47 +1,31 @@
 # Lemo
 
-The official PhreshOS agent Program.
+The PhreshOS agent Program.
 
-Lemo operates through the same Program, Process, Endpoint, Service, and System
-contracts available to other PhreshOS Programs.
+[Programs](https://docs.phreshos.com/runtime/programs) ·
+[Communication](https://docs.phreshos.com/runtime/communication) ·
+[Permissions](https://docs.phreshos.com/system/security) ·
+[Source](https://github.com/PhreshOS/lemo-program)
 
-## Model
+## Role
 
-The Server owns Lemo's authoritative database, Tasks, Model execution, Memory,
-and Tools. The Client retains a live projection of that state and renders Tasks
-and each Tool through its dedicated View.
+Lemo's Server owns its Tasks, Cycles, Model execution, Memory, Tools, providers,
+and authoritative database. Its Client retains a live projection and resolves
+each Tool contract to a dedicated View when one exists.
 
-```text
-Lemo
-├── Tasks
-│   └── Cycles
-│       ├── Model
-│       ├── Perceptual Field
-│       └── Tool calls
-├── Memory
-└── LLM Providers
-```
+Lemo uses the same Program, Process, Endpoint, Service, Context, and System
+contracts as every other Program. Its Tools consume public capabilities; Lemo
+does not define System operations or contracts for other Programs.
 
-A Task is a durable entity. Its input, Model events, Tool calls and results,
-status, and relationships are recorded as one ordered history. A Cycle is one
-disposable Model operation reconstructed from that history. Generated context
-is not a second source of state.
-
-Tools are ordinary discoverable contracts. Runtime validates their input,
-executes independent calls concurrently, records their results, and starts
-another Cycle when required. Client rendering resolves each known Tool to its
-own View and falls back to the general Tool contract only when no dedicated View
-exists.
-
-## Models
+## Models and Tools
 
 Lemo supports OpenCode Zen, Ollama Cloud, and OpenRouter through independent LLM
-Provider implementations. Providers own discovery, configuration, transport,
-and Model construction. Models own their context-window and reasoning
-capabilities.
+Provider implementations. Providers own discovery and transport; Models own
+their context-window and reasoning capabilities.
 
-Provider credentials and configuration remain authoritative Server state and do
-not enter Task context or Client projections.
+A Task is durable ordered history. A Cycle is one disposable Model operation
+reconstructed from that history. Tools are discoverable contracts whose input,
+state, and result are validated, executed, recorded, and projected to Clients.
 
 ## Installation
 
@@ -57,7 +41,7 @@ bun run verify
 bun run dev
 ```
 
-Build, attach the production definition, or package a release with:
+Build, run the production definition, or package a release with:
 
 ```sh
 bun run build
@@ -65,14 +49,21 @@ bun run start
 bun run pack
 ```
 
-`verify` checks the Provider, Task, Tool, Memory, Client projection, and
-production artifact contracts.
+`verify` checks Provider, Task, Tool, Memory, Client projection, and production
+artifact contracts.
 
-## Repository boundary
+## Related repositories
 
-This repository owns Lemo's agent domain and its Client representation. The
-System remains the authority for PhreshOS state reached by Lemo's Tools; Lemo
-uses the public System contracts rather than private integration.
+- [PhreshOS System](https://github.com/PhreshOS/system) owns the runtime and host
+  capabilities used by Tools.
+- [`@phreshos/core`](https://github.com/PhreshOS/core) owns the shared domains
+  through which Lemo reaches the System and other Programs.
+- [Flambo](https://github.com/PhreshOS/flambo-program) provides browser
+  capabilities through its public Service.
+- [Terminal](https://github.com/PhreshOS/terminal-program) provides host PTY
+  sessions through its Program boundary.
+
+## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the repository workflow and
 [SECURITY.md](SECURITY.md) for private vulnerability reporting.
