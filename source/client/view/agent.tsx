@@ -8,20 +8,22 @@ import Tasks from "./tasks"
 import useProviderRevision from "./use-provider-revision"
 
 export default function AgentRoute() {
+    const readiness = usePromise(() => context.server.waitReady())
+
+    if (readiness.isPending) return <StartupState title="Starting Lemo Agent…" />
+
+    if (readiness.exception) return <StartupState
+        title="Lemo Agent could not start"
+        error={readiness.exception.current}
+        retry={() => void readiness.safeExecute()}
+    />
 
     return <ContextProvider
-        process={readyProcess}
+        context={context}
         fallback={<StartupState title="Starting Lemo Agent…" />}
     >
         <Agent />
     </ContextProvider>
-}
-
-async function readyProcess() {
-
-    await context.server.waitReady()
-
-    return context.process()
 }
 
 function Agent() {

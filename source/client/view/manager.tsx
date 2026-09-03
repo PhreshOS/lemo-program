@@ -11,8 +11,7 @@ import useProviderRevision from "./use-provider-revision"
 export default function ManagerRoute() {
 
     return <ContextProvider
-        process={() => context.process()}
-        program={() => context.program()}
+        context={context}
         fallback={<StartupState title="Opening Lemo Manager…" />}
     >
         <ManagerLoader />
