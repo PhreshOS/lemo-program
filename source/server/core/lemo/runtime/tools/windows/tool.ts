@@ -1,15 +1,40 @@
 import { system, type Process, type Window } from "@phreshos/server"
+import { z } from "zod"
 import defineTool from "../../define-tool"
-import systemTool from "../../system-tool"
 import waitEvent from "../../wait-event"
+import docs from "./docs.md?raw"
 
-const contract = systemTool("window")
+const identity = z.string().trim().min(1)
+const coordinates = { process: identity, program: identity.optional() }
+const value = z.union([z.number(), z.string().trim().min(1)])
+    .describe("Absolute pixels as a number, or a workspace-relative expression such as 50% or 1/2.")
+const position = z.object({ x: value, y: value }).strict()
+const size = z.object({ width: value, height: value }).strict()
+const timeout = z.number().int().positive().optional()
+
+const input = z.discriminatedUnion("action", [
+    z.object({ action: z.literal("inspect"), ...coordinates }).strict(),
+    z.object({ action: z.literal("move"), ...coordinates, position }).strict(),
+    z.object({ action: z.literal("resize"), ...coordinates, size }).strict(),
+    z.object({ action: z.literal("setGeometry"), ...coordinates, position, size }).strict(),
+    z.object({ action: z.literal("minimize"), ...coordinates, minimized: z.boolean().optional() }).strict(),
+    z.object({ action: z.literal("changeTitle"), ...coordinates, title: z.string() }).strict(),
+    z.object({ action: z.literal("raise"), ...coordinates }).strict(),
+    z.object({
+        action: z.literal("wait"),
+        ...coordinates,
+        event: z.enum(["move", "resize", "geometry", "minimize", "changeTitle", "front"]),
+        timeout
+    }).strict()
+])
 
 /** Reads and controls the authoritative Window of one live Client Endpoint. */
 const windows = defineTool({
     order: 9,
-    ...contract,
+    docs,
+    input,
     name: "windows",
+    description: "Inspect and control the authoritative Window of a live Client Endpoint.",
     async execute(request, context) {
 
         const process = await requiredProcess(request.process, request.program)

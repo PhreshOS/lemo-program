@@ -1,16 +1,65 @@
 import { system, type Process } from "@phreshos/server"
+import { z } from "zod"
 import defineTool from "../../define-tool"
-import systemTool from "../../system-tool"
 import type { ToolContext } from "../../tool"
 import waitEvent from "../../wait-event"
+import docs from "./docs.md?raw"
 
-const contract = systemTool("process")
+const identity = z.string().trim().min(1)
+const value = z.union([z.number(), z.string().trim().min(1)])
+    .describe("Absolute pixels as a number, or a workspace-relative expression such as 50% or 1/2.")
+const position = z.object({ x: value, y: value }).strict()
+const size = z.object({ width: value, height: value }).strict()
+const serverLaunch = z.object({ service: z.boolean().optional() }).strict()
+const clientLaunch = z.object({
+    service: z.boolean().optional(),
+    title: z.string().optional(),
+    size: size.optional(),
+    position: position.optional(),
+    layer: z.enum(["window", "under", "over"]).optional(),
+    location: z.string().optional(),
+    minimize: z.boolean().optional()
+}).strict()
+const launch = z.object({
+    name: identity.optional(),
+    server: z.union([z.boolean(), serverLaunch]).optional(),
+    client: z.union([z.boolean(), clientLaunch]).optional(),
+    options: z.record(z.string(), z.string()).optional()
+}).strict()
+const namedLaunch = launch.extend({ name: identity })
+
+const input = z.discriminatedUnion("action", [
+    z.object({
+        action: z.literal("list"),
+        program: identity.optional(),
+        search: identity.optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+        offset: z.number().int().nonnegative().optional()
+    }).strict(),
+    z.object({ action: z.literal("inspect"), process: identity, program: identity.optional() }).strict(),
+    z.object({ action: z.literal("exit"), process: identity, program: identity.optional() }).strict(),
+    z.object({ action: z.literal("create"), program: identity, launch: launch.optional() }).strict(),
+    z.object({ action: z.literal("findOrCreate"), program: identity, launch: namedLaunch }).strict(),
+    z.object({
+        action: z.literal("wait"),
+        event: z.enum(["create", "exit"]),
+        process: identity.optional(),
+        program: identity.optional(),
+        timeout: z.number().int().positive().optional()
+    }).strict()
+]).superRefine((request, context) => {
+    if (request.action !== "wait" || !request.process || request.event !== "create") return
+
+    context.addIssue({ code: "custom", message: "An individual Process does not emit create" })
+})
 
 /** Reads and controls live Processes through their authoritative Program owners. */
 const processes = defineTool({
     order: 6,
-    ...contract,
+    docs,
+    input,
     name: "processes",
+    description: "Discover and control live executions of PhreshOS Programs.",
     async execute(request, context) {
 
         if (request.action === "wait") {
@@ -49,14 +98,15 @@ const processes = defineTool({
                 !query || [process.identity, process.name]
                     .some(value => value?.toLocaleLowerCase().includes(query))
             ))
+            const offset = request.offset ?? 0
             const selected = matching
                 .sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime())
-                .slice(0, request.limit ?? 30)
+                .slice(offset, offset + (request.limit ?? 30))
 
             return Object.freeze({
                 data: Object.freeze(await Promise.all(selected.map(snapshot))),
                 total: matching.length,
-                truncated: matching.length > selected.length
+                truncated: offset + selected.length < matching.length
             })
         }
 

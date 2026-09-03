@@ -1,15 +1,72 @@
 import { system, type Process } from "@phreshos/server"
+import { z } from "zod"
 import defineTool from "../../define-tool"
-import systemTool from "../../system-tool"
 import waitEvent from "../../wait-event"
+import docs from "./docs.md?raw"
 
-const contract = systemTool("endpoint")
+const identity = z.string().trim().min(1)
+const coordinates = { process: identity, program: identity.optional() }
+const endpoint = z.enum(["server", "client"])
+const timeout = z.number().int().positive().optional()
+const payload = z.union([
+    z.record(z.string(), z.unknown()),
+    z.array(z.unknown()),
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null()
+])
+const serverLaunch = z.object({ service: z.boolean().optional() }).strict()
+const value = z.union([z.number(), z.string().trim().min(1)])
+    .describe("Absolute pixels as a number, or a workspace-relative expression such as 50% or 1/2.")
+const clientLaunch = z.object({
+    service: z.boolean().optional(),
+    title: z.string().optional(),
+    size: z.object({ width: value, height: value }).strict().optional(),
+    position: z.object({ x: value, y: value }).strict().optional(),
+    layer: z.enum(["window", "under", "over"]).optional(),
+    location: z.string().optional(),
+    minimize: z.boolean().optional()
+}).strict()
+
+const input = z.union([
+    z.object({ action: z.literal("inspect"), ...coordinates, endpoint }).strict(),
+    z.object({ action: z.literal("start"), ...coordinates, endpoint: z.literal("server"), launch: serverLaunch.optional() }).strict(),
+    z.object({ action: z.literal("start"), ...coordinates, endpoint: z.literal("client"), launch: clientLaunch.optional() }).strict(),
+    z.object({ action: z.literal("stop"), ...coordinates, endpoint }).strict(),
+    z.object({ action: z.literal("waitReady"), ...coordinates, endpoint: z.literal("server"), timeout }).strict(),
+    z.object({
+        action: z.literal("waitLifecycle"),
+        ...coordinates,
+        endpoint,
+        event: z.enum(["start", "stop"]),
+        timeout
+    }).strict(),
+    z.object({
+        action: z.literal("ask"),
+        ...coordinates,
+        endpoint: z.literal("server"),
+        event: identity,
+        payload: payload.optional(),
+        timeout
+    }).strict(),
+    z.object({
+        action: z.literal("publish"),
+        ...coordinates,
+        endpoint,
+        event: identity,
+        payload: payload.optional()
+    }).strict(),
+    z.object({ action: z.literal("wait"), ...coordinates, endpoint, event: identity, timeout }).strict()
+])
 
 /** Reads and controls individual Process Endpoints. */
 const endpoints = defineTool({
     order: 8,
-    ...contract,
+    docs,
+    input,
     name: "endpoints",
+    description: "Inspect, control, and communicate with Server and Client Endpoints of live Processes.",
     async execute(request, context) {
 
         const process = await requiredProcess(request.process, request.program)
@@ -68,6 +125,23 @@ const endpoints = defineTool({
             await process.server.waitReady(request.timeout)
 
             return snapshot(process, "server")
+        }
+
+        if (request.action === "waitLifecycle") {
+
+            await requireEndpoint(process, request.endpoint)
+
+            return Object.freeze({
+                process: process.identity,
+                endpoint: request.endpoint,
+                event: request.event,
+                payload: await waitEvent(
+                    process[request.endpoint].lifecycle,
+                    request.event,
+                    context.invocation.signal,
+                    request.timeout
+                )
+            })
         }
 
         if (request.action === "inspect") return snapshot(process, request.endpoint)
