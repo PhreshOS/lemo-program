@@ -48,6 +48,8 @@ assert.deepEqual(unconfigured.llmProviderState("opencode"), { configured: true, 
 
 assert.deepEqual(unconfigured.llmProviderState("openrouter"), { configured: false, active: true })
 
+assert.deepEqual(unconfigured.llmProviderState("nvidia"), { configured: false, active: true })
+
 assert.equal(await store.get("opencode:active"), true)
 
 assert.equal(await store.get("openrouter:active"), true)

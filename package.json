@@ -11,7 +11,9 @@
         "dev": "phresh dev",
         "start": "phresh start",
         "pack": "phresh pack",
-        "verify": "node --run check && node --run build && vite-node scripts/verify-llm-providers.ts && vite-node scripts/verify-client-llm-providers.ts && vite-node scripts/verify-client-manager.ts && vite-node scripts/verify-client-lemo.ts && vite-node scripts/verify-lemo.ts && vite-node scripts/verify-files.ts && vite-node scripts/verify-prompt.ts && vite-node scripts/verify-task-lifecycle.ts && vite-node scripts/verify-system-tools.ts && vite-node scripts/verify-build.ts"
+        "verify:nvidia:live": "vite-node scripts/verify-nvidia-live.ts",
+        "verify:web:live": "vite-node scripts/verify-web-live.ts",
+        "verify": "node --run check && node --run build && vite-node scripts/verify-llm-providers.ts && vite-node scripts/verify-client-llm-providers.ts && vite-node scripts/verify-client-manager.ts && vite-node scripts/verify-client-lemo.ts && vite-node scripts/verify-lemo.ts && vite-node scripts/verify-files.ts && vite-node scripts/verify-web.ts && vite-node scripts/verify-prompt.ts && vite-node scripts/verify-task-lifecycle.ts && vite-node scripts/verify-system-tools.ts && vite-node scripts/verify-build.ts"
     },
     "author": "Zohayr SLILEH",
     "license": "MIT",
@@ -29,11 +31,13 @@
         "agent"
     ],
     "dependencies": {
+        "@modelcontextprotocol/sdk": "^1.30.0",
         "@openrouter/sdk": "^1.2.70",
         "@phreshos/client": "^0.1.37",
         "@phreshos/core": "^0.1.41",
         "@phreshos/react": "^0.1.20",
         "@phreshos/server": "^0.1.41",
+        "openai": "^7.13.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
         "react-markdown": "^10.1.0",

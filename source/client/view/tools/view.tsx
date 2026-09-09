@@ -13,6 +13,7 @@ import TasksView from "./tasks"
 import TimeView from "./time"
 import ToolsView from "./tools"
 import UnknownView from "./unknown"
+import WebView from "./web"
 import WindowsView from "./windows"
 
 const views: Readonly<Record<string, ComponentType<ToolViewProperties>>> = Object.freeze({
@@ -27,6 +28,7 @@ const views: Readonly<Record<string, ComponentType<ToolViewProperties>>> = Objec
     tasks: TasksView,
     time: TimeView,
     tools: ToolsView,
+    web: WebView,
     windows: WindowsView
 })
 

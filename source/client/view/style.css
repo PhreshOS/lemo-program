@@ -1178,7 +1178,8 @@ p {
     color: var(--status-error);
 }
 
-.provider-settings > header {
+.provider-settings > header,
+.provider-settings > .provider-heading {
     display: flex;
     align-items: start;
     justify-content: space-between;
@@ -1200,7 +1201,8 @@ p {
     font-weight: 700;
 }
 
-.provider-settings header p {
+.provider-settings header p,
+.provider-settings .provider-heading p {
     color: var(--fg-muted);
     font-size: 12px;
 }

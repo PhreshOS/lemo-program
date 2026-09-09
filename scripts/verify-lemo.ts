@@ -23,6 +23,7 @@ import tasks from "../source/server/core/lemo/runtime/tools/tasks/tool"
 import timeTool from "../source/server/core/lemo/runtime/tools/time/tool"
 import toolsTool from "../source/server/core/lemo/runtime/tools/tools/tool"
 import windows from "../source/server/core/lemo/runtime/tools/windows/tool"
+import web from "../source/server/core/lemo/runtime/tools/web/tool"
 import toolInput from "../source/server/core/lemo/runtime/tool-input"
 import waitEvent from "../source/server/core/lemo/runtime/wait-event"
 
@@ -64,6 +65,7 @@ for (const tool of [
     shellTool,
     endpoints,
     windows,
+    web,
     files
 ]) {
     const branches = schemaBranches(tool.definition.parameters)

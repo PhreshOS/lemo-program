@@ -19,7 +19,7 @@ does not define System operations or contracts for other Programs.
 
 ## Models and Tools
 
-Lemo supports OpenCode Zen, Ollama Cloud, and OpenRouter through independent LLM
+Lemo supports OpenCode Zen, Ollama Cloud, OpenRouter, and NVIDIA through independent LLM
 Provider implementations. Providers own discovery and transport; Models own
 their context-window and reasoning capabilities.
 

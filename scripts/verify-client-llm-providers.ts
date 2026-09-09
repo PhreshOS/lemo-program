@@ -7,6 +7,7 @@ import { lemoServer } from "../source/client/core/server-events"
 import OllamaCloudProvider from "../source/client/core/llm/providers/ollama-cloud/provider"
 import OpenCodeProvider from "../source/client/core/llm/providers/opencode/provider"
 import OpenRouterProvider from "../source/client/core/llm/providers/openrouter/provider"
+import NvidiaProvider from "../source/client/core/llm/providers/nvidia/provider"
 
 let configured = false
 
@@ -93,7 +94,7 @@ const providers = new LLMProviders({
     }
 })
 
-assert.equal(providers.all().length, 3)
+assert.equal(providers.all().length, 4)
 
 let revisions = 0
 
@@ -102,10 +103,16 @@ providers.subscribe(() => revisions++)
 const ollamaCloud = providers.get("ollama-cloud")
 const openCode = providers.get("opencode")
 const openRouter = providers.get("openrouter")
+const nvidia = providers.get("nvidia")
 
 assert.ok(ollamaCloud instanceof OllamaCloudProvider)
 assert.ok(openCode instanceof OpenCodeProvider)
 assert.ok(openRouter instanceof OpenRouterProvider)
+assert.ok(nvidia instanceof NvidiaProvider)
+assert.equal(nvidia.name, "NVIDIA")
+assert.equal(await nvidia.configured(), false)
+assert.equal(nvidia.model("vendor/model"), nvidia.model("vendor/model"))
+assert.equal(nvidia.model("vendor/model").provider, nvidia)
 
 assert.equal(await ollamaCloud.configured(), false)
 
