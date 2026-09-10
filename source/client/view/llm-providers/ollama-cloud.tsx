@@ -1,4 +1,5 @@
-import type LLMModel from "@client/core/llm/model"
+import { Button, Input, Surface } from "@phreshos/react-ui"
+import { modelsLabel } from "./models-label"
 import type OllamaCloudProvider from "@client/core/llm/providers/ollama-cloud/provider"
 import { default as OllamaCloudProviderClass } from "@client/core/llm/providers/ollama-cloud/provider"
 import type { LLMProviderState } from "@server/core/llm/provider"
@@ -57,48 +58,49 @@ export default function OllamaCloudConfiguration({ providers, models }: LLMProvi
         if (result) setApiKey("")
     }
 
-    return <section className="provider-settings">
-        <header>
+    return <Surface className="provider-settings">
+        <div className="provider-heading">
             <div>
                 <h2>{provider.name}</h2>
-                <p>{providerStatus(resource, providerModelCount(models, provider.identity))}</p>
+                <p>{providerStatus(resource, modelsLabel(models, provider.identity))}</p>
             </div>
 
             {configuration?.configured && <div className="actions">
                 {configuration.active
-                    ? <button
+                    ? <Button size="small"
                         type="button"
                         disabled={pending}
-                        onClick={() => void mutation.safeExecute({ action: "deactivate" })}
-                    >Deactivate</button>
-                    : <button
+                        onPress={() => void mutation.safeExecute({ action: "deactivate" })}
+                    >Deactivate</Button>
+                    : <Button size="small"
                         type="button"
                         disabled={pending}
-                        onClick={() => void mutation.safeExecute({ action: "activate" })}
-                    >Activate</button>}
-                <button
+                        onPress={() => void mutation.safeExecute({ action: "activate" })}
+                    >Activate</Button>}
+                <Button size="small"
                     type="button"
                     disabled={pending}
-                    onClick={() => void mutation.safeExecute({ action: "remove" })}
-                >Remove</button>
+                    onPress={() => void mutation.safeExecute({ action: "remove" })}
+                    color="danger"
+                >Remove</Button>
             </div>}
-        </header>
+        </div>
 
         <form onSubmit={configure}>
-            <label htmlFor="ollama-cloud-api-key">API key</label>
             <div className="configuration-row">
-                <input
+                <Input
+                    label="API key"
                     id="ollama-cloud-api-key"
                     type="password"
                     value={apiKey}
                     placeholder={configuration?.configured ? "••••••••••••••••" : "Paste your API key"}
                     disabled={pending}
                     autoComplete="off"
-                    onChange={event => setApiKey(event.target.value)}
+                    onChange={setApiKey}
                 />
-                <button type="submit" disabled={pending || !apiKey.trim()}>
+                <Button size="small" type="submit" disabled={pending || !apiKey.trim()}>
                     {configuration?.configured ? "Replace" : "Configure"}
-                </button>
+                </Button>
             </div>
         </form>
 
@@ -106,12 +108,12 @@ export default function OllamaCloudConfiguration({ providers, models }: LLMProvi
 
         {failure !== undefined && <div className="resource-error" role="alert">
             <p>{message(failure)}</p>
-            <button type="button" disabled={pending} onClick={() => void resource.safeExecute()}>Retry</button>
+            <Button size="small" type="button" disabled={pending} onPress={() => void resource.safeExecute()}>Retry</Button>
         </div>}
-    </section>
+    </Surface>
 }
 
-function providerStatus(resource: PromiseWithDependencies<LLMProviderState>, models: number) {
+function providerStatus(resource: PromiseWithDependencies<LLMProviderState>, models: string) {
 
     if (resource.isPending) return "Loading configuration…"
 
@@ -123,7 +125,7 @@ function providerStatus(resource: PromiseWithDependencies<LLMProviderState>, mod
 
     if (!configuration.active) return "Inactive"
 
-    return `Active · ${models} Models`
+    return `Active · ${models}`
 }
 
 function message(value: unknown) {
@@ -137,8 +139,3 @@ type Mutation = Readonly<{
 }> | Readonly<{
     action: "activate" | "deactivate" | "remove"
 }>
-
-function providerModelCount(resource: PromiseWithDependencies<readonly LLMModel[]>, provider: string) {
-
-    return resource.solve?.filter(model => model.provider.identity === provider).length ?? 0
-}

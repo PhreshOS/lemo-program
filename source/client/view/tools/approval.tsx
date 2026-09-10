@@ -1,3 +1,4 @@
+import { Button, Surface } from "@phreshos/react-ui"
 import type Tool from "@client/core/lemo/tool"
 import type { ToolSnapshot } from "@client/core/lemo/tool"
 import { useState } from "react"
@@ -25,30 +26,30 @@ export default function ApprovalView({ tool, snapshot }: Readonly<{
 
     if (!approval) return null
 
-    return <section className="client-prompt prompt-approval" aria-label={approval.request.title}>
-        <header>
+    return <Surface className="client-prompt prompt-approval" aria-label={approval.request.title}>
+        <div className="prompt-heading">
             <div>
                 <strong>{approval.request.title}</strong>
                 <span>{snapshot.isResponding ? "Sending…" : "Approval required"}</span>
             </div>
-        </header>
+        </div>
 
         <p>{approval.request.content}</p>
 
         <div className="prompt-approval-actions">
-            <button
-                className="quiet danger"
+            <Button size="small"
+                color="danger"
                 type="button"
                 disabled={snapshot.isResponding}
-                onClick={() => respond("deny")}
-            >Reject</button>
-            <button
+                onPress={() => respond("deny")}
+            >Reject</Button>
+            <Button size="small"
                 type="button"
                 disabled={snapshot.isResponding}
-                onClick={() => respond("approve")}
-            >Approve</button>
+                onPress={() => respond("approve")}
+            >Approve</Button>
         </div>
 
         {(error || snapshot.validationError) && <small role="alert">{error || snapshot.validationError}</small>}
-    </section>
+    </Surface>
 }

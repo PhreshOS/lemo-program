@@ -1,3 +1,4 @@
+import { Button, Input, Select, Surface, Textarea } from "@phreshos/react-ui"
 import type Application from "@client/core/application"
 import type Task from "@client/core/lemo/task"
 import type LLMModel from "@client/core/llm/model"
@@ -16,6 +17,7 @@ import {
 import Markdown, { type Components } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import ToolView from "./tools/view"
+import icon from "../../../icon.png"
 
 const maximumVisibleModels = 100
 
@@ -157,13 +159,13 @@ export default function Tasks({ application, models: modelResource }: Properties
         setInput(current => current || question)
     }
 
-    function keyboard(event: KeyboardEvent<HTMLTextAreaElement>) {
+    function keyboard(event: KeyboardEvent) {
 
         if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return
 
         event.preventDefault()
 
-        event.currentTarget.form?.requestSubmit()
+        textareaRef.current?.form?.requestSubmit()
     }
 
     async function changeReasoning(level: string | null) {
@@ -179,26 +181,26 @@ export default function Tasks({ application, models: modelResource }: Properties
 
     const reasoning = reasoningLevels.solve ?? null
 
-    return <section className="tasks" aria-label="Lemo Tasks">
-        <aside className="task-sidebar" aria-label="Tasks">
-            <header className="task-sidebar-header">
+    return <div className="tasks" aria-label="Lemo Tasks">
+        <Surface className="task-sidebar" aria-label="Tasks">
+            <div className="task-sidebar-header">
                 <div className="task-sidebar-title">
                     <strong>Tasks</strong>
                     <span className="task-count">{taskResource.isPending ? "…" : tasks.length}</span>
                 </div>
 
-                <button
+                <Button size="small"
                     className="new-task-button"
                     type="button"
-                    title="Start a new Task"
-                    onClick={startNewTask}
+                    aria-label="Start a new Task"
+                    onPress={startNewTask}
                 >
                     <span className="new-task-plus">+</span>
                     <span>New</span>
-                </button>
-            </header>
+                </Button>
+            </div>
 
-            <nav className="task-navigation">
+            <div className="task-navigation" role="navigation" aria-label="Tasks">
                 {taskResource.solve && activeTasks.map(task => <TaskLink
                     key={task.id}
                     task={task}
@@ -216,8 +218,8 @@ export default function Tasks({ application, models: modelResource }: Properties
                     selected={task.id === selectedTask}
                     select={() => setSelectedTask(task.id)}
                 />)}
-            </nav>
-        </aside>
+            </div>
+        </Surface>
 
         <div className="task-workspace">
             {!currentTask && <div className="task-list welcome-workspace" aria-live="polite">
@@ -239,82 +241,76 @@ export default function Tasks({ application, models: modelResource }: Properties
             {currentTask && <TaskHistory task={currentTask} />}
 
             <form className="composer" onSubmit={submit}>
-                <textarea
+                <Textarea
                     ref={textareaRef}
                     aria-label="Task input"
                     rows={1}
                     placeholder={model ? "Message Lemo or ask to run a task…" : "Configure an active LLM Provider first."}
                     value={input}
-                    onChange={event => setInput(event.target.value)}
+                    onChange={setInput}
                     onKeyDown={keyboard}
                 />
 
                 <div className="composer-bar">
                     <div className={`model-selector-wrapper${reasoning ? " has-reasoning" : ""}`}>
-                        <input
+                        <Input
+                            size="small"
                             aria-label="Search LLM Models"
                             className="model-search"
                             type="search"
                             placeholder={models.length ? `Search ${models.length} Models` : "Search Models"}
                             value={modelSearch}
                             disabled={modelResource.isPending || !models.length}
-                            onChange={event => setModelSearch(event.target.value)}
+                            onChange={setModelSearch}
                         />
 
-                        <select
+                        <Select
+                            size="small"
                             aria-label="LLM Model"
                             className="model-select"
-                            value={model ? modelKey(model) : ""}
+                            value={model ? modelKey(model) : null}
+                            placeholder={modelResource.isPending ? "Loading LLM Models…" : modelResource.exception ? "LLM Models unavailable" : "No LLM Models"}
                             disabled={modelResource.isPending || !models.length}
-                            title={modelSearch.trim()
+                            description={modelSearch.trim()
                                 ? `${matchingModels.length} matching LLM Models`
-                                : `${models.length} available LLM Models`}
-                            onChange={event => {
-                                setSelectedModel(event.target.value)
+                                : undefined}
+                            onChange={value => {
+                                setSelectedModel(value ?? "")
                                 setModelSearch("")
                             }}
-                        >
-                            {modelResource.isPending && <option value="">Loading LLM Models…</option>}
-                            {modelResource.exception && <option value="">LLM Models unavailable</option>}
-                            {modelResource.solve && !models.length && <option value="">No LLM Models</option>}
-                            {visibleModels.map(candidate => <option key={modelKey(candidate)} value={modelKey(candidate)}>
-                                {candidate.provider.name} · {candidate.id}
-                            </option>)}
-                        </select>
+                            options={visibleModels.map(candidate => ({ value: modelKey(candidate), label: `${candidate.provider.name} · ${candidate.id}` }))}
+                        />
 
-                        {reasoning && <select
+                        {reasoning && <Select
+                            size="small"
                             aria-label="Reasoning level"
                             className="reasoning-select"
                             value={selectedReasoning ?? ""}
                             disabled={reasoningMutation.isPending}
-                            title="Reasoning level"
-                            onChange={event => void changeReasoning(event.target.value || null)}
-                        >
-                            <option value="">
-                                {reasoning.default ? `Default · ${reasoning.default}` : "Default reasoning"}
-                            </option>
-                            {reasoning.levels.map(level => (
-                                <option key={level} value={level}>{level}</option>
-                            ))}
-                        </select>}
+                            onChange={value => void changeReasoning(value || null)}
+                            options={[
+                                { value: "", label: reasoning.default ? `Default · ${reasoning.default}` : "Default reasoning" },
+                                ...reasoning.levels.map(level => ({ value: level, label: level }))
+                            ]}
+                        />}
                     </div>
 
                     <span className="composer-hint">
                         <kbd>Enter ↵</kbd> send · <kbd>Shift + Enter</kbd> new line
                     </span>
 
-                    <button
-                        className="primary send-button"
+                    <Button size="small"
+                        color="primary"
                         type="submit"
                         disabled={!input.trim() || !model || !taskResource.solve || creation.isPending}
                     >
                         {creation.isPending ? "Starting…" : "Send"}
-                    </button>
+                    </Button>
                 </div>
 
                 {modelResource.exception && <div className="composer-error resource-error" role="alert">
                     <span>{message(modelResource.exception.current)}</span>
-                    <button type="button" onClick={() => void modelResource.safeExecute()}>Retry Models</button>
+                    <Button size="small" type="button" onPress={() => void modelResource.safeExecute()}>Retry Models</Button>
                 </div>}
 
                 {creation.exception && <p className="composer-error" role="alert">
@@ -326,7 +322,7 @@ export default function Tasks({ application, models: modelResource }: Properties
                 </p>}
             </form>
         </div>
-    </section>
+    </div>
 }
 
 function TaskLink({ task, selected, select }: Readonly<{
@@ -337,23 +333,25 @@ function TaskLink({ task, selected, select }: Readonly<{
 
     const snapshot = useTask(task)
 
-    return <button
+    return <Button size="small"
         className="task-link"
+        color={selected ? "primary" : undefined}
+        style={{ height: "auto", width: "100%", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", justifyItems: "stretch", paddingBlock: "var(--spacing)", textAlign: "start" }}
         data-status={snapshot.status}
         aria-current={selected ? "page" : undefined}
         type="button"
-        onClick={select}
+        onPress={select}
     >
-        <div className="task-link-content">
+        <span className="task-link-content">
             <span className="task-link-title">{taskQuestion(snapshot.operations)}</span>
-            <div className="task-link-meta">
+            <span className="task-link-meta">
                 <span className={`status-badge status-${snapshot.status}`}>
                     <i className="status-badge-dot" />
                     {statusLabel(snapshot.status)}
                 </span>
-            </div>
-        </div>
-    </button>
+            </span>
+        </span>
+    </Button>
 }
 
 function TaskHistory({ task }: Readonly<{ task: Task }>) {
@@ -405,30 +403,30 @@ function TaskView({ task, snapshot }: Readonly<{
     const events = task.timeline()
     const earlier = usePromise(() => task.loadEarlierOperations())
 
-    return <article className="task" data-status={snapshot.status}>
+    return <div className="task" data-status={snapshot.status}>
         <TaskControls task={task} status={snapshot.status} />
 
         {task.hasEarlierOperations && <div className="history-pagination">
-            <button
+            <Button size="small"
                 type="button"
                 disabled={earlier.isPending}
-                onClick={() => void earlier.safeExecute()}
+                onPress={() => void earlier.safeExecute()}
             >
                 {earlier.isPending ? "Loading earlier activity…" : "Load earlier activity"}
-            </button>
+            </Button>
             {earlier.exception && <span role="alert">{message(earlier.exception.current)}</span>}
         </div>}
 
         {events.map(event => event.type === "input"
             ? <div className="user-message-container" key={event.key}>
-                <div className="user-message">
+                <Surface className="user-message">
                     <p>{event.content}</p>
-                </div>
+                </Surface>
             </div>
             : event.type === "output"
                 ? <div className="assistant-message" key={event.key}>
                     <div className="assistant-header">
-                        <span className="assistant-avatar">L</span>
+                        <img className="assistant-avatar" src={icon} alt="" />
                         <strong className="event-author">Lemo</strong>
                     </div>
                     <MarkdownMessage content={event.content} />
@@ -457,7 +455,7 @@ function TaskView({ task, snapshot }: Readonly<{
         </div>}
 
         {snapshot.error && <p role="alert" className="task-error-alert">{snapshot.error.message}</p>}
-    </article>
+    </div>
 }
 
 function CycleUsage({ usage, contextWindow }: Readonly<{
@@ -496,7 +494,7 @@ function TaskControls({ task, status }: Readonly<{ task: Task; status: Task["sta
         ?? continuation.exception?.current
         ?? cancellation.exception?.current
 
-    return <header className="task-controls">
+    return <div className="task-controls">
         <div className="task-status-wrapper">
             <span className={`task-status-pill status-${status}`} data-status={status}>
                 <i className="status-dot" />
@@ -505,30 +503,28 @@ function TaskControls({ task, status }: Readonly<{ task: Task; status: Task["sta
         </div>
 
         <div className="task-action-buttons">
-            {status === "running" && <button
-                className="quiet action-button"
+            {status === "running" && <Button size="small"
                 type="button"
                 disabled={pending}
-                onClick={() => void pause.safeExecute()}
-            >{pause.isPending ? "Pausing…" : "⏸ Pause"}</button>}
+                onPress={() => void pause.safeExecute()}
+            >{pause.isPending ? "Pausing…" : "⏸ Pause"}</Button>}
 
-            {status === "paused" && <button
-                className="quiet action-button"
+            {status === "paused" && <Button size="small"
                 type="button"
                 disabled={pending}
-                onClick={() => void continuation.safeExecute()}
-            >{continuation.isPending ? "Continuing…" : "▶ Continue"}</button>}
+                onPress={() => void continuation.safeExecute()}
+            >{continuation.isPending ? "Continuing…" : "▶ Continue"}</Button>}
 
-            {(status === "running" || status === "paused") && <button
-                className="quiet danger action-button"
+            {(status === "running" || status === "paused") && <Button size="small"
+                color="danger"
                 type="button"
                 disabled={pending}
-                onClick={() => void cancellation.safeExecute()}
-            >{cancellation.isPending ? "Cancelling…" : "✕ Cancel"}</button>}
+                onPress={() => void cancellation.safeExecute()}
+            >{cancellation.isPending ? "Cancelling…" : "✕ Cancel"}</Button>}
         </div>
 
         {failure !== undefined && <small role="alert" className="task-controls-error">{message(failure)}</small>}
-    </header>
+    </div>
 }
 
 function ResourceState({ title, error, retry }: Readonly<{
@@ -540,7 +536,7 @@ function ResourceState({ title, error, retry }: Readonly<{
     return <div className="resource-state">
         <strong>{title}</strong>
         {error !== undefined && <small role="alert">{message(error)}</small>}
-        {retry && <button className="quiet" type="button" onClick={retry}>Retry</button>}
+        {retry && <Button size="small"  type="button" onPress={retry}>Retry</Button>}
     </div>
 }
 
@@ -564,22 +560,22 @@ function CodeBlock({ language, content }: Readonly<{ language: string; content: 
         }
     }
 
-    return <div className="code-block-wrapper">
+    return <Surface className="code-block-wrapper">
         <div className="code-block-header">
             <span className="code-language-tag">{language || "code"}</span>
-            <button
+            <Button size="small"
                 type="button"
                 className={`copy-code-btn${copied ? " copied" : ""}`}
-                onClick={copy}
-                title="Copy code"
+                onPress={copy}
+                aria-label="Copy code"
             >
                 {copied ? "Copied ✓" : "Copy"}
-            </button>
+            </Button>
         </div>
         <pre className="code-pre">
             <code>{content}</code>
         </pre>
-    </div>
+    </Surface>
 }
 
 const markdownComponents: Components = {

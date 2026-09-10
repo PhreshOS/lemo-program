@@ -1,4 +1,5 @@
-import type LLMModel from "@client/core/llm/model"
+import { Button, Surface } from "@phreshos/react-ui"
+import { modelsLabel } from "./models-label"
 import type OpenCodeProvider from "@client/core/llm/providers/opencode/provider"
 import { default as OpenCodeProviderClass } from "@client/core/llm/providers/opencode/provider"
 import type { LLMProviderState } from "@server/core/llm/provider"
@@ -30,27 +31,27 @@ export default function OpenCodeConfiguration({ providers, models }: LLMProvider
     const failure = mutation.exception?.current ?? resource.exception?.current
     const pending = mutation.isPending || resource.isPending
 
-    return <section className="provider-settings">
-        <header>
+    return <Surface className="provider-settings">
+        <div className="provider-heading">
             <div>
                 <h2>{provider.name}</h2>
-                <p>{providerStatus(resource, providerModelCount(models, provider.identity))}</p>
+                <p>{providerStatus(resource, modelsLabel(models, provider.identity))}</p>
             </div>
 
             {state && <div className="actions">
                 {state.active
-                    ? <button
+                    ? <Button size="small"
                         type="button"
                         disabled={pending}
-                        onClick={() => void mutation.safeExecute(false)}
-                    >Deactivate</button>
-                    : <button
+                        onPress={() => void mutation.safeExecute(false)}
+                    >Deactivate</Button>
+                    : <Button size="small"
                         type="button"
                         disabled={pending}
-                        onClick={() => void mutation.safeExecute(true)}
-                    >Activate</button>}
+                        onPress={() => void mutation.safeExecute(true)}
+                    >Activate</Button>}
             </div>}
-        </header>
+        </div>
 
         <p>Anonymous public Models. No API key or billing configuration is required.</p>
 
@@ -58,12 +59,12 @@ export default function OpenCodeConfiguration({ providers, models }: LLMProvider
 
         {failure !== undefined && <div className="resource-error" role="alert">
             <p>{message(failure)}</p>
-            <button type="button" disabled={pending} onClick={() => void resource.safeExecute()}>Retry</button>
+            <Button size="small" type="button" disabled={pending} onPress={() => void resource.safeExecute()}>Retry</Button>
         </div>}
-    </section>
+    </Surface>
 }
 
-function providerStatus(resource: PromiseWithDependencies<LLMProviderState>, models: number) {
+function providerStatus(resource: PromiseWithDependencies<LLMProviderState>, models: string) {
 
     if (resource.isPending) return "Loading state…"
 
@@ -71,15 +72,10 @@ function providerStatus(resource: PromiseWithDependencies<LLMProviderState>, mod
 
     if (!resource.solve.active) return "Inactive"
 
-    return `Active · ${models} free Models`
+    return `Active · ${models}`
 }
 
 function message(value: unknown) {
 
     return value instanceof Error ? value.message : String(value)
-}
-
-function providerModelCount(resource: PromiseWithDependencies<readonly LLMModel[]>, provider: string) {
-
-    return resource.solve?.filter(model => model.provider.identity === provider).length ?? 0
 }

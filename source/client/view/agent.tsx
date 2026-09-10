@@ -44,9 +44,5 @@ function Agent() {
 
     }, [application])
 
-    return <main className="shell">
-        <div className="application">
-            <Tasks application={application} models={models} />
-        </div>
-    </main>
+    return <Tasks application={application} models={models} />
 }

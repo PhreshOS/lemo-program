@@ -1,3 +1,4 @@
+import { Button, Surface } from "@phreshos/react-ui"
 import type Tool from "@client/core/lemo/tool"
 import type { ToolSnapshot } from "@client/core/lemo/tool"
 import { interactivePromptRequestSchema } from "@server/core/lemo/runtime/tools/prompt/contract"
@@ -34,20 +35,20 @@ function InteractivePrompt({ tool, snapshot, request }: Readonly<{
         }
     }
 
-    return <section className="client-prompt" aria-label="Lemo needs your response">
-        <header>
+    return <Surface className="client-prompt" aria-label="Lemo needs your response">
+        <div className="prompt-heading">
             <div>
                 <strong>{request.title ?? "Lemo needs your response"}</strong>
                 <span>{snapshot.isResponding ? "Sending…" : "Waiting"}</span>
             </div>
 
-            <button
-                className="quiet danger"
+            <Button size="small"
+                color="danger"
                 type="button"
                 disabled={snapshot.isResponding}
-                onClick={cancel}
-            >Cancel</button>
-        </header>
+                onPress={cancel}
+            >Cancel</Button>
+        </div>
 
         {request.type === "form"
             ? <PromptForm tool={tool} snapshot={snapshot} request={request} report={setError} />
@@ -56,7 +57,7 @@ function InteractivePrompt({ tool, snapshot, request }: Readonly<{
                 : null}
 
         {(error || snapshot.validationError) && <small role="alert">{error || snapshot.validationError}</small>}
-    </section>
+    </Surface>
 }
 
 function message(value: unknown) {

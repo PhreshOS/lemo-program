@@ -1,4 +1,5 @@
-import type LLMModel from "@client/core/llm/model"
+import { Button, Input, Surface } from "@phreshos/react-ui"
+import { modelsLabel } from "./models-label"
 import type NvidiaProvider from "@client/core/llm/providers/nvidia/provider"
 import { default as NvidiaProviderClass } from "@client/core/llm/providers/nvidia/provider"
 import type { LLMProviderState } from "@server/core/llm/provider"
@@ -45,48 +46,49 @@ export default function NvidiaConfiguration({ providers, models }: LLMProviderVi
         if (result) setApiKey("")
     }
 
-    return <div className="provider-settings">
+    return <Surface className="provider-settings">
         <div className="provider-heading">
             <div>
                 <h2>{provider.name}</h2>
-                <p>{providerStatus(resource, providerModelCount(models, provider.identity))}</p>
+                <p>{providerStatus(resource, modelsLabel(models, provider.identity))}</p>
             </div>
 
             {configuration?.configured && <div className="actions">
                 {configuration.active
-                    ? <button
+                    ? <Button size="small"
                         type="button"
                         disabled={pending}
-                        onClick={() => void mutation.safeExecute({ action: "deactivate" })}
-                    >Deactivate</button>
-                    : <button
+                        onPress={() => void mutation.safeExecute({ action: "deactivate" })}
+                    >Deactivate</Button>
+                    : <Button size="small"
                         type="button"
                         disabled={pending}
-                        onClick={() => void mutation.safeExecute({ action: "activate" })}
-                    >Activate</button>}
-                <button
+                        onPress={() => void mutation.safeExecute({ action: "activate" })}
+                    >Activate</Button>}
+                <Button size="small"
                     type="button"
                     disabled={pending}
-                    onClick={() => void mutation.safeExecute({ action: "remove" })}
-                >Remove</button>
+                    onPress={() => void mutation.safeExecute({ action: "remove" })}
+                    color="danger"
+                >Remove</Button>
             </div>}
         </div>
 
         <form onSubmit={configure}>
-            <label htmlFor="nvidia-api-key">API key</label>
             <div className="configuration-row">
-                <input
+                <Input
+                    label="API key"
                     id="nvidia-api-key"
                     type="password"
                     value={apiKey}
                     placeholder={configuration?.configured ? "••••••••••••••••" : "Paste your API key"}
                     disabled={pending}
                     autoComplete="off"
-                    onChange={event => setApiKey(event.target.value)}
+                    onChange={setApiKey}
                 />
-                <button type="submit" disabled={pending || !apiKey.trim()}>
+                <Button size="small" type="submit" disabled={pending || !apiKey.trim()}>
                     {configuration?.configured ? "Replace" : "Configure"}
-                </button>
+                </Button>
             </div>
         </form>
 
@@ -96,12 +98,12 @@ export default function NvidiaConfiguration({ providers, models }: LLMProviderVi
 
         {failure !== undefined && <div className="resource-error" role="alert">
             <p>{message(failure)}</p>
-            <button type="button" disabled={pending} onClick={() => void resource.safeExecute()}>Retry</button>
+            <Button size="small" type="button" disabled={pending} onPress={() => void resource.safeExecute()}>Retry</Button>
         </div>}
-    </div>
+    </Surface>
 }
 
-function providerStatus(resource: PromiseWithDependencies<LLMProviderState>, models: number | "pending" | "unavailable") {
+function providerStatus(resource: PromiseWithDependencies<LLMProviderState>, models: string) {
 
     if (resource.isPending) return "Loading configuration…"
 
@@ -111,10 +113,7 @@ function providerStatus(resource: PromiseWithDependencies<LLMProviderState>, mod
     if (!configuration.configured) return "Not configured"
     if (!configuration.active) return "Inactive"
 
-    if (models === "pending") return "Active · Loading Models…"
-    if (models === "unavailable") return "Active · Models unavailable"
-
-    return `Active · ${models} Models`
+    return `Active · ${models}`
 }
 
 function message(value: unknown) {
@@ -128,12 +127,3 @@ type Mutation = Readonly<{
 }> | Readonly<{
     action: "activate" | "deactivate" | "remove"
 }>
-
-function providerModelCount(resource: PromiseWithDependencies<readonly LLMModel[]>, provider: string) {
-
-    if (resource.isPending) return "pending"
-
-    const models = resource.solve
-
-    return models ? models.filter(model => model.provider.identity === provider).length : "unavailable"
-}

@@ -1,4 +1,6 @@
+import { Button } from "@phreshos/react-ui"
 import { Component, type ReactNode } from "react"
+import icon from "../../../icon.png"
 
 export function StartupState({ title, error, retry }: Readonly<{
     title: string
@@ -6,12 +8,12 @@ export function StartupState({ title, error, retry }: Readonly<{
     retry?: () => void
 }>) {
 
-    return <main className="shell startup-state">
-        <span className="identity-mark">L</span>
+    return <div className="shell startup-state">
+        <img className="identity-mark" src={icon} alt="" />
         <strong>{title}</strong>
         {error !== undefined && <p role="alert">{message(error)}</p>}
-        {retry && <button className="quiet" type="button" onClick={retry}>Retry</button>}
-    </main>
+        {retry && <Button size="small" type="button" onPress={retry}>Retry</Button>}
+    </div>
 }
 
 export class ApplicationBoundary extends Component<BoundaryProperties, BoundaryState> {
@@ -26,7 +28,13 @@ export class ApplicationBoundary extends Component<BoundaryProperties, BoundaryS
     public render() {
 
         if (this.state.error !== null) {
-            return <StartupState title="Lemo could not start" error={this.state.error} retry={this.props.retry} />
+            // This boundary also covers Appearance loading failures, before UI
+            // defaults are available. Keep its recovery control native.
+            return <div className="startup-state" role="alert">
+                <strong>Lemo could not start</strong>
+                <p>{message(this.state.error)}</p>
+                <button type="button" onClick={this.props.retry}>Retry</button>
+            </div>
         }
 
         return this.props.children

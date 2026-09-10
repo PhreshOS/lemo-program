@@ -1,7 +1,7 @@
 import type LLMModel from "@client/core/llm/model"
 import type LLMProviders from "@client/core/llm/providers"
 import type { PromiseWithDependencies } from "@libs/react-promise"
-import { Fragment, type ComponentType } from "react"
+import type { ComponentType } from "react"
 
 export type LLMProviderViewProperties = Readonly<{
     providers: LLMProviders
@@ -19,7 +19,7 @@ const integrations = Object.values(modules)
 /** Renders every View integration owned by a concrete LLM Provider. */
 export default function LLMProviderViews(properties: LLMProviderViewProperties) {
 
-    return integrations.map(integration => <Fragment key={integration.identity}>
-        <integration.default {...properties} />
-    </Fragment>)
+    return <div className="provider-grid">{integrations.map(integration =>
+        <integration.default key={integration.identity} {...properties} />
+    )}</div>
 }

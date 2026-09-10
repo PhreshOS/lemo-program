@@ -1,3 +1,4 @@
+import { Button, Surface, Switch } from "@phreshos/react-ui"
 import Manager from "@client/core/manager"
 import type LLMProviders from "@client/core/llm/providers"
 import usePromise from "@libs/react-promise"
@@ -7,6 +8,7 @@ import { useCallback, useEffect, useSyncExternalStore } from "react"
 import LLMProviderViews from "./llm-providers"
 import { message, StartupState } from "./state"
 import useProviderRevision from "./use-provider-revision"
+import icon from "../../../icon.png"
 
 export default function ManagerRoute() {
 
@@ -74,52 +76,50 @@ function ManagerView({ manager, providers }: Readonly<{
 
     const startupFailure = startup.exception?.current ?? configureStartup.exception?.current
 
-    return <main className="shell manager-shell">
+    return <div className="shell manager-shell">
         <div className="manager-page">
-            <header className="manager-header">
+            <div className="manager-header">
                 <div className="identity">
-                    <span className="identity-mark" title="Lemo Manager">L</span>
+                    <img className="identity-mark" src={icon} alt="" />
                     <div className="identity-text">
                         <div className="identity-title-row"><h1>Lemo Manager</h1></div>
                         <p className="identity-sub">Agent and LLM configuration</p>
                     </div>
                 </div>
 
-                <button
-                    className="primary"
+                <Button size="small"
+                    color="primary"
                     type="button"
                     disabled={launch.isPending}
-                    onClick={() => void launch.safeExecute()}
+                    onPress={() => void launch.safeExecute()}
                 >
                     {launch.isPending ? "Opening…" : "Open Agent"}
-                </button>
-            </header>
+                </Button>
+            </div>
 
             <div className="manager-content">
-                <section className="manager-section startup-setting">
+                <Surface className="manager-section startup-setting">
                     <div>
                         <p className="section-kicker">Lifecycle</p>
                         <h2>Start Lemo automatically</h2>
                         <p>Launch the fixed Lemo Server when PhreshOS starts. The Server opens its own Agent Client.</p>
                     </div>
 
-                    <label className="switch-control">
-                        <input
-                            type="checkbox"
+                    <Switch
+                            label={startup.isPending ? "Loading…" : startup.solve ? "Enabled" : "Disabled"}
+                            aria-label="Start Lemo automatically"
                             checked={startup.solve ?? false}
                             disabled={startup.isPending || configureStartup.isPending}
-                            onChange={event => void configureStartup.safeExecute(event.target.checked)}
-                        />
-                        <span>{startup.isPending ? "Loading…" : startup.solve ? "Enabled" : "Disabled"}</span>
-                    </label>
+                            onChange={enabled => void configureStartup.safeExecute(enabled)}
+                    />
 
                     {startupFailure !== undefined && <div className="resource-error" role="alert">
                         <p>{message(startupFailure)}</p>
-                        <button type="button" onClick={() => void startup.safeExecute()}>Retry</button>
+                        <Button size="small" type="button" onPress={() => void startup.safeExecute()}>Retry</Button>
                     </div>}
-                </section>
+                </Surface>
 
-                <section className="manager-section providers-section">
+                <div className="manager-section providers-section">
                     <div className="manager-section-heading">
                         <div>
                             <p className="section-kicker">Configuration</p>
@@ -131,15 +131,15 @@ function ManagerView({ manager, providers }: Readonly<{
                     </div>
 
                     <LLMProviderViews providers={providers} models={models} />
-                </section>
+                </div>
 
                 {launch.exception && <div className="resource-error" role="alert">
                     <p>{message(launch.exception.current)}</p>
-                    <button type="button" onClick={() => void launch.safeExecute()}>Try again</button>
+                    <Button size="small" type="button" onPress={() => void launch.safeExecute()}>Try again</Button>
                 </div>}
             </div>
         </div>
-    </main>
+    </div>
 }
 
 function useStartupRevision(manager: Manager) {

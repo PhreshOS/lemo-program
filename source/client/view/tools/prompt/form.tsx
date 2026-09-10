@@ -1,3 +1,4 @@
+import { Button, Checkbox, Input, Select, Surface, Textarea } from "@phreshos/react-ui"
 import type {
     PromptField,
     PromptRequest,
@@ -6,7 +7,7 @@ import type {
 import { validatePromptValues } from "@server/core/lemo/runtime/tools/prompt/contract"
 import type Tool from "@client/core/lemo/tool"
 import type { ToolSnapshot } from "@client/core/lemo/tool"
-import { useState, type FormEvent } from "react"
+import { useId, useState, type FormEvent } from "react"
 
 type FormRequest = Extract<PromptRequest, { type: "form" }>
 type Values = Record<string, PromptValue | undefined>
@@ -57,9 +58,9 @@ export default function PromptForm({ tool, snapshot, request, report }: Readonly
             />)}
         </div>
 
-        <button className="primary" type="submit" disabled={snapshot.isResponding}>
+        <Button size="small" color="primary" type="submit" disabled={snapshot.isResponding}>
             {snapshot.isResponding ? "Sending…" : request.submit ?? "Submit"}
-        </button>
+        </Button>
     </form>
 }
 
@@ -70,107 +71,72 @@ function PromptFieldView({ field, value, disabled, change }: Readonly<{
     change(value: PromptValue | undefined): void
 }>) {
 
-    const identity = `prompt-field-${field.key}`
+    const identity = useId()
+    const descriptionId = `${identity}-description`
+    const shared = { label: field.label, description: field.description, disabled, required: field.required }
 
     if (field.type === "boolean" || field.type === "confirmation") {
-        return <label className="prompt-field prompt-check" htmlFor={identity}>
-            <input
-                id={identity}
-                type="checkbox"
-                checked={value === true}
-                required={field.type === "confirmation" && field.required}
-                disabled={disabled}
-                onChange={event => change(event.target.checked)}
-            />
-            <span>
-                <strong>{field.label}</strong>
-                {field.description && <small>{field.description}</small>}
-            </span>
-        </label>
-    }
-
-    return <label className="prompt-field" htmlFor={identity}>
-        <strong>{field.label}</strong>
-        {field.description && <small>{field.description}</small>}
-        <FieldControl
-            identity={identity}
-            field={field}
-            value={value}
-            disabled={disabled}
-            change={change}
+        return <Checkbox {...shared}
+            required={field.type === "confirmation" && field.required}
+            checked={value === true}
+            onChange={change}
         />
-    </label>
-}
-
-function FieldControl({ identity, field, value, disabled, change }: Readonly<{
-    identity: string
-    field: Exclude<PromptField, { type: "boolean" | "confirmation" }>
-    value: PromptValue | undefined
-    disabled: boolean
-    change(value: PromptValue | undefined): void
-}>) {
+    }
 
     if (field.type === "textarea") {
-        return <textarea
-            id={identity}
-            rows={4}
-            value={typeof value === "string" ? value : ""}
-            placeholder={field.placeholder}
-            required={field.required}
-            disabled={disabled}
-            onChange={event => change(event.target.value)}
-        />
-    }
-
-    if (field.type === "number") {
-        return <input
-            id={identity}
-            type="number"
-            value={typeof value === "number" ? value : ""}
-            min={field.minimum}
-            max={field.maximum}
-            step={field.step}
-            required={field.required}
-            disabled={disabled}
-            onChange={event => change(event.target.value === "" ? undefined : event.target.valueAsNumber)}
-        />
+        return <Textarea {...shared} rows={4} value={typeof value === "string" ? value : ""}
+            placeholder={field.placeholder} onChange={change} />
     }
 
     if (field.type === "select") {
-        return <select
-            id={identity}
-            value={typeof value === "string" ? value : ""}
-            required={field.required}
-            disabled={disabled}
-            onChange={event => change(event.target.value || undefined)}
-        >
-            <option value="">Select…</option>
-            {field.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
+        return <Select {...shared} value={typeof value === "string" ? value : null}
+            placeholder="Select…" options={field.options}
+            onChange={value => change(value || undefined)} />
     }
 
-    if (field.type === "multi-select") {
-        return <select
-            id={identity}
-            multiple
-            value={Array.isArray(value) ? value.filter(item => typeof item === "string") : []}
-            required={field.required}
-            disabled={disabled}
-            onChange={event => change([...event.target.selectedOptions].map(option => option.value))}
-        >
-            {field.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
+    if (field.type === "text") {
+        return <Input {...shared} value={typeof value === "string" ? value : ""}
+            placeholder={field.placeholder} onChange={value => change(value || undefined)} />
     }
 
-    return <input
-        id={identity}
-        type={field.type === "date" ? "date" : "text"}
-        value={typeof value === "string" ? value : ""}
-        placeholder={field.type === "text" ? field.placeholder : undefined}
-        required={field.required}
-        disabled={disabled}
-        onChange={event => change(event.target.value || undefined)}
-    />
+    // React UI has no NumberField, DateField or multi-select yet. Keep native
+    // input semantics and validation, with Surface owning their material.
+    return <div className="native-field">
+        <label htmlFor={identity}>{field.label}</label>
+        {field.description && <small id={descriptionId}>{field.description}</small>}
+        <Surface className="native-field-surface">
+            {field.type === "multi-select" ? <select
+                id={identity}
+                aria-describedby={field.description ? descriptionId : undefined}
+                multiple
+                value={Array.isArray(value) ? value.filter(item => typeof item === "string") : []}
+                required={field.required}
+                disabled={disabled}
+                onChange={event => change([...event.target.selectedOptions].map(option => option.value))}
+            >
+                {field.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select> : field.type === "number" ? <input
+                id={identity}
+                aria-describedby={field.description ? descriptionId : undefined}
+                type="number"
+                value={typeof value === "number" ? value : ""}
+                min={field.minimum}
+                max={field.maximum}
+                step={field.step}
+                required={field.required}
+                disabled={disabled}
+                onChange={event => change(event.target.value === "" ? undefined : event.target.valueAsNumber)}
+            /> : <input
+                id={identity}
+                aria-describedby={field.description ? descriptionId : undefined}
+                type="date"
+                value={typeof value === "string" ? value : ""}
+                required={field.required}
+                disabled={disabled}
+                onChange={event => change(event.target.value || undefined)}
+            />}
+        </Surface>
+    </div>
 }
 
 function initialValues(fields: readonly PromptField[]): Values {

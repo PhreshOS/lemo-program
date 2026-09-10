@@ -1,6 +1,7 @@
 import type Tool from "@client/core/lemo/tool"
 import type { ToolSnapshot, ToolStatus } from "@client/core/lemo/tool"
 import type { ReactNode } from "react"
+import { Surface } from "@phreshos/react-ui"
 import ApprovalView from "./approval"
 
 export type ToolViewProperties = Readonly<{ tool: Tool, snapshot: ToolSnapshot }>
@@ -13,7 +14,7 @@ export default function ToolLayout({ tool, snapshot, icon, detail, children }: T
 }>) {
 
     return <div className="runtime-message">
-        <div className="tool-event" data-status={snapshot.status}>
+        <Surface className="tool-event" data-status={snapshot.status}>
             <div className="tool-event-header">
                 <span className="tool-icon">{icon}</span>
                 <code className="tool-name">{tool.name}</code>
@@ -23,7 +24,7 @@ export default function ToolLayout({ tool, snapshot, icon, detail, children }: T
                 </span>
             </div>
             {snapshot.error && <div className="tool-error"><small>{snapshot.error}</small></div>}
-        </div>
+        </Surface>
 
         {children}
         {snapshot.approval && <ApprovalView tool={tool} snapshot={snapshot} />}
