@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import type { Process, Program, ServerEndpoint } from "@phreshos/client"
+import type { Process, Program, ServerEndpoint } from "@phreshos/core"
 import Manager from "../source/client/core/manager"
 
 const launches: unknown[] = []

@@ -1,4 +1,5 @@
-import { system, type Process } from "@phreshos/server"
+import { system } from "@phreshos/server"
+import type { Process } from "@phreshos/core"
 import { z } from "zod"
 import defineTool from "../../define-tool"
 import waitEvent from "../../wait-event"

@@ -1,4 +1,4 @@
-import type { ServerEndpoint } from "@phreshos/client"
+import type { ServerEndpoint } from "@phreshos/core"
 import LLMProviders from "./llm/providers"
 import { llmServerSources } from "./llm/server"
 import Lemo, { type LemoSource } from "./lemo/lemo"

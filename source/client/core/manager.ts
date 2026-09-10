@@ -1,4 +1,4 @@
-import type { Process, Program } from "@phreshos/client"
+import type { Process, Program } from "@phreshos/core"
 import LLMProviders from "./llm/providers"
 import { llmServerSources } from "./llm/server"
 import serverEvents, { lemoServer, type LemoServer } from "./server-events"

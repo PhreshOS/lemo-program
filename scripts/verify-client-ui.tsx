@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { renderToStaticMarkup } from "react-dom/server"
-import { standardAppearance } from "@phreshos/core"
+import { defaultAppearance } from "@phreshos/core"
 import { AppearanceProvider, Select } from "@phreshos/react-ui"
 import Tool from "../source/client/core/lemo/tool"
 import PromptForm from "../source/client/view/tools/prompt/form"
@@ -26,7 +26,7 @@ for (const theme of ["light", "dark"] as const) {
     for (const isResponding of [false, true]) {
         const form = <PromptForm tool={tool} request={request}
             snapshot={{ ...tool.snapshot(), isResponding }} report={assert.fail} />
-        const html = renderToStaticMarkup(<AppearanceProvider appearance={standardAppearance} theme={theme}>
+        const html = renderToStaticMarkup(<AppearanceProvider appearance={defaultAppearance} theme={theme}>
             {form}{form}
         </AppearanceProvider>)
 
@@ -51,7 +51,7 @@ for (const theme of ["light", "dark"] as const) {
     }
 }
 
-const reasoning = renderToStaticMarkup(<AppearanceProvider appearance={standardAppearance} theme="light">
+const reasoning = renderToStaticMarkup(<AppearanceProvider appearance={defaultAppearance} theme="light">
     <Select aria-label="Reasoning level" value="" options={[
         { value: "", label: "Default reasoning" },
         { value: "high", label: "High" }

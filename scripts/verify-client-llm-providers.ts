@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import type { ServerEndpoint } from "@phreshos/client"
+import type { ServerEndpoint } from "@phreshos/core"
 import type { OllamaCloudConfiguration } from "../source/server/core/llm/providers/ollama-cloud/configuration"
 import LLMProviders from "../source/client/core/llm/providers"
 import { llmServerSources } from "../source/client/core/llm/server"

@@ -1,4 +1,4 @@
-import type { ServerEndpoint } from "@phreshos/client"
+import type { ServerEndpoint } from "@phreshos/core"
 
 export type LemoServerEvents = {
     "lemo.operation": unknown
