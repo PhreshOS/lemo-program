@@ -69,7 +69,7 @@ export default function OpenRouterConfiguration({ providers, models }: LLMProvid
                     type="button"
                     disabled={pending}
                     onPress={() => void mutation.safeExecute({ action: "remove" })}
-                    color="danger"
+                    color="danger:base"
                 >Remove</Button>
             </div>}
         </div>

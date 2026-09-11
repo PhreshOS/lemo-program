@@ -43,7 +43,7 @@ function InteractivePrompt({ tool, snapshot, request }: Readonly<{
             </div>
 
             <Button size="small"
-                color="danger"
+                color="danger:base"
                 type="button"
                 disabled={snapshot.isResponding}
                 onPress={cancel}

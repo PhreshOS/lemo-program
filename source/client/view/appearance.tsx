@@ -24,11 +24,11 @@ function ResolvedAppearance({ children }: Readonly<{ children: ReactNode }>) {
 function DocumentAppearance({ children }: Readonly<{ children: ReactNode }>) {
     const appearance = useSystemAppearance()
     const { theme } = useDesktopPreferences()
-    const foreground = useResolveTheme(appearance.foreground)
-    const primary = useResolveTheme(appearance.primary)
-    const success = useResolveTheme(appearance.success)
-    const warning = useResolveTheme(appearance.warning)
-    const danger = useResolveTheme(appearance.danger)
+    const foreground = useResolveTheme(appearance.colors.foreground)
+    const primary = useResolveTheme(appearance.colors.primary)
+    const success = useResolveTheme(appearance.colors.success)
+    const warning = useResolveTheme(appearance.colors.warning)
+    const danger = useResolveTheme(appearance.colors.danger)
     const spacing = useResolveTheme(appearance.spacing)
 
     useEffect(() => {

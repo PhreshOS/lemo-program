@@ -38,7 +38,7 @@ export default function ApprovalView({ tool, snapshot }: Readonly<{
 
         <div className="prompt-approval-actions">
             <Button size="small"
-                color="danger"
+                color="danger:base"
                 type="button"
                 disabled={snapshot.isResponding}
                 onPress={() => respond("deny")}

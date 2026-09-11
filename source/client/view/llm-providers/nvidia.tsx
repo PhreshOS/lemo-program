@@ -69,7 +69,7 @@ export default function NvidiaConfiguration({ providers, models }: LLMProviderVi
                     type="button"
                     disabled={pending}
                     onPress={() => void mutation.safeExecute({ action: "remove" })}
-                    color="danger"
+                    color="danger:base"
                 >Remove</Button>
             </div>}
         </div>

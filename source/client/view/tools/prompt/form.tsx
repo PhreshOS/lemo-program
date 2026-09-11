@@ -58,7 +58,7 @@ export default function PromptForm({ tool, snapshot, request, report }: Readonly
             />)}
         </div>
 
-        <Button size="small" color="primary" type="submit" disabled={snapshot.isResponding}>
+        <Button size="small" color="primary:base" type="submit" disabled={snapshot.isResponding}>
             {snapshot.isResponding ? "Sending…" : request.submit ?? "Submit"}
         </Button>
     </form>

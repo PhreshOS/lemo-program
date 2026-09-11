@@ -81,7 +81,7 @@ export default function OllamaCloudConfiguration({ providers, models }: LLMProvi
                     type="button"
                     disabled={pending}
                     onPress={() => void mutation.safeExecute({ action: "remove" })}
-                    color="danger"
+                    color="danger:base"
                 >Remove</Button>
             </div>}
         </div>

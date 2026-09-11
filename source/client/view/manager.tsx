@@ -89,7 +89,7 @@ function ManagerView({ manager, providers }: Readonly<{
                 </div>
 
                 <Button size="small"
-                    color="primary"
+                    color="primary:base"
                     type="button"
                     disabled={launch.isPending}
                     onPress={() => void launch.safeExecute()}

@@ -300,7 +300,7 @@ export default function Tasks({ application, models: modelResource }: Properties
                     </span>
 
                     <Button size="small"
-                        color="primary"
+                        color="primary:base"
                         type="submit"
                         disabled={!input.trim() || !model || !taskResource.solve || creation.isPending}
                     >
@@ -335,7 +335,7 @@ function TaskLink({ task, selected, select }: Readonly<{
 
     return <Button size="small"
         className="task-link"
-        color={selected ? "primary" : undefined}
+        color={selected ? "primary:base" : undefined}
         style={{ height: "auto", width: "100%", display: "grid", gridTemplateColumns: "minmax(0, 1fr)", justifyItems: "stretch", paddingBlock: "var(--spacing)", textAlign: "start" }}
         data-status={snapshot.status}
         aria-current={selected ? "page" : undefined}
@@ -516,7 +516,7 @@ function TaskControls({ task, status }: Readonly<{ task: Task; status: Task["sta
             >{continuation.isPending ? "Continuing…" : "▶ Continue"}</Button>}
 
             {(status === "running" || status === "paused") && <Button size="small"
-                color="danger"
+                color="danger:base"
                 type="button"
                 disabled={pending}
                 onPress={() => void cancellation.safeExecute()}
