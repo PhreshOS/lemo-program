@@ -26,7 +26,6 @@ const clientLaunch = z.object({
     size: z.object({ width: value, height: value }).strict().optional(),
     position: z.object({ x: value, y: value }).strict().optional(),
     layer: z.enum(["window", "under", "over"]).optional(),
-    location: z.string().optional(),
     minimize: z.boolean().optional()
 }).strict()
 

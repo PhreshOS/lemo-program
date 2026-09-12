@@ -6,7 +6,8 @@ import serverEvents, { lemoServer, type LemoServer } from "./server-events"
 const fixedLaunch = (program: Program) => Object.freeze({
     name: program.identity,
     server: true,
-    client: false
+    client: false,
+    options: { view: "agent" }
 } as const)
 
 /** Core of the Client-only Lemo Manager route. */

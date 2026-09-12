@@ -103,14 +103,13 @@ async function requiredWindow(process: Process) {
 
 async function snapshot(process: Process, window: Window) {
 
-    const [title, position, size, minimized, front, layer, location] = await Promise.all([
+    const [title, position, size, minimized, front, layer] = await Promise.all([
         window.title(),
         window.position(),
         window.size(),
         window.minimized(),
         window.front(),
-        window.layer(),
-        window.location()
+        window.layer()
     ])
 
     return Object.freeze({
@@ -120,7 +119,6 @@ async function snapshot(process: Process, window: Window) {
         size,
         minimized,
         front,
-        layer,
-        location
+        layer
     })
 }

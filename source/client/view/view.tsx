@@ -1,27 +1,31 @@
 import { useState } from "react"
-import { Redirect, Route, Router, Switch } from "wouter"
+import { context } from "@phreshos/client"
 import Agent from "./agent"
 import Manager from "./manager"
-import { ApplicationBoundary } from "./state"
+import usePromise from "@libs/react-promise"
+import { ApplicationBoundary, StartupState } from "./state"
 import Appearance from "./appearance"
 import "./style.css"
 
-const routerBase = new URL(import.meta.env.BASE_URL, document.baseURI).pathname.replace(/\/$/, "")
-
-/** Routes one Client document between the Lemo Manager and Agent Views. */
+/** Selects the view from the immutable role of this Process. */
 export default function View() {
 
     const [attempt, setAttempt] = useState(0)
 
     return <ApplicationBoundary key={attempt} retry={() => setAttempt(value => value + 1)}>
         <Appearance>
-            <Router base={routerBase}>
-                <Switch>
-                    <Route path="/" component={Manager} />
-                    <Route path="/agent" component={Agent} />
-                    <Route><Redirect to="/" replace /></Route>
-                </Switch>
-            </Router>
+            <ProcessView />
         </Appearance>
     </ApplicationBoundary>
+}
+
+function ProcessView() {
+
+    const role = usePromise(() => context.options<"agent">("view"), [])
+
+    if (role.isPending) return <StartupState title="Opening Lemo…" />
+
+    if (role.exception) return <StartupState title="Lemo could not identify its view" error={role.exception.current} />
+
+    return role.solve === "agent" ? <Agent /> : <Manager />
 }

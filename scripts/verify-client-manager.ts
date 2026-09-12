@@ -85,7 +85,7 @@ const program = {
 
 const manager = await Manager.open(program, managerProcess)
 
-assert.deepEqual(launches, [{ name: "lemo", server: true, client: false }])
+assert.deepEqual(launches, [{ name: "lemo", server: true, client: false, options: { view: "agent" } }])
 assert.equal(await manager.startup(), true)
 
 await manager.enableStartup(false)

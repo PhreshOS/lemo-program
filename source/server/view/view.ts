@@ -184,10 +184,10 @@ export default async function view() {
 
 async function startAgent() {
 
-    if (!await context.client.exists()) await context.client.start({ location: "/agent" })
+    if (!await context.client.exists()) await context.client.start()
 }
 
 function fixedLaunch(identity: string): Launch {
 
-    return Object.freeze({ name: identity, server: true, client: false })
+    return Object.freeze({ name: identity, server: true, client: false, options: { view: "agent" } })
 }
