@@ -7,11 +7,11 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.30.0",
         "@openrouter/sdk": "^1.2.70",
-        "@phreshos/client": "^0.1.39",
-        "@phreshos/core": "^0.1.44",
+        "@phreshos/client": "^0.1.40",
+        "@phreshos/core": "^0.1.45",
         "@phreshos/react": "^0.1.22",
         "@phreshos/react-ui": "^0.1.19",
-        "@phreshos/server": "^0.1.43",
+        "@phreshos/server": "^0.1.44",
         "openai": "^7.13.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
@@ -102,9 +102,9 @@
 
     "@phreshos/cli": ["@phreshos/cli@0.1.55", "", { "dependencies": { "@clack/prompts": "^1.7.0", "@phreshos/core": "^0.1.44", "@phreshos/node": "^0.1.19", "adm-zip": "^0.6.0", "cli-table3": "^0.6.5", "commander": "^15.0.0", "picocolors": "^1.1.1", "string-width": "^4.2.3" }, "bin": { "phresh": "dist/cli.js" } }, "sha512-qS73womWGnHC3qDZaGZ9youmCwmt1XJslc18G64yikojBvatUSgC/5aSMSJzXmDN0W0zQneXKto7r9Q1iVnSpQ=="],
 
-    "@phreshos/client": ["@phreshos/client@0.1.39", "", { "dependencies": { "@the-link/messagepack": "^0.1.0" }, "peerDependencies": { "@phreshos/core": "^0.1.43" } }, "sha512-y4eQM4cSej8uHAxBEBgrk8OgvYmzPMdEzIeCTV90FJN+QCUpEOFcUtNiycFFLSXmWun2w6bENDYplVVzvlCZyw=="],
+    "@phreshos/client": ["@phreshos/client@0.1.40", "", { "dependencies": { "@the-link/messagepack": "^0.1.0" }, "peerDependencies": { "@phreshos/core": "^0.1.45" } }, "sha512-fmfi4Y9vXJ1TOa9WBv6Pwlw3XOhO6wbWQZc7nnmzc9Jyx0V6whv3f+1xX6AT57rn8RkolN7R/aoEtv66bo/Cug=="],
 
-    "@phreshos/core": ["@phreshos/core@0.1.44", "", {}, "sha512-0Qo4SlNg9fi2xfpDMbMucHQrDhzE8hhzOy7n5rQPjpj4UIWPUU5ZuEGEON6bfQM6nKJ4ogNJF7KFp4RhMxf5PA=="],
+    "@phreshos/core": ["@phreshos/core@0.1.45", "", {}, "sha512-u/P6GJynoC8IaOjIHGCzsA1a2Mhwkg5qstuAKN70PsiHQ/ioE2inOUpEuL2JPhmvjcQslZnbLpZhfwMYIUW0+A=="],
 
     "@phreshos/node": ["@phreshos/node@0.1.19", "", { "dependencies": { "@the-link/ipc": "^0.2.1", "@the-link/messagepack": "^0.1.0", "adm-zip": "^0.6.0", "jiti": "^2.7.0" }, "peerDependencies": { "@phreshos/core": "^0.1.44" } }, "sha512-2CQWo4vm/S4tGaCeOwMgF1/QisYegkKdmeAu/L3fK3vHpT4c3iie7kuEw6DX+4BnepmjLwK7BZwHolYcy/fYTQ=="],
 
@@ -112,7 +112,7 @@
 
     "@phreshos/react-ui": ["@phreshos/react-ui@0.1.19", "", { "dependencies": { "@phreshos/core": "^0.1.43", "colorjs.io": "^0.7.1", "motion": "^13.2.0", "react-aria-components": "^1.20.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-F4xiDGvOrgEomSSy3HwieFOI3eiyhDQAbJeQNWHVXXVekT1lUonr86z0crEQigXEIqdFWBQg+GKf9mkcjlYKOw=="],
 
-    "@phreshos/server": ["@phreshos/server@0.1.43", "", { "dependencies": { "@the-link/messagepack": "^0.1.0" }, "peerDependencies": { "@phreshos/core": "^0.1.43" } }, "sha512-Xm35Ec171bTbg4Kj3SD54f3PqlyfW0fDBSyZ5piWbTp0C64eBq9YBez+iaDkwxlJjWKXxXK/MWkCq5cRVPAMUg=="],
+    "@phreshos/server": ["@phreshos/server@0.1.44", "", { "dependencies": { "@the-link/messagepack": "^0.1.0" }, "peerDependencies": { "@phreshos/core": "^0.1.45" } }, "sha512-qSr1OS/q66JLRFF9Wg6riXhOMDLbYXAwjxEsCONqWFrDGl5mKxDNEPEhsOfEZNktaC2tBEl+77oSFgr4o54dAg=="],
 
     "@react-types/shared": ["@react-types/shared@3.36.1", "", { "peerDependencies": { "react": "^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1" } }, "sha512-AzsuD9OfxTOZMMvTRhlN3oHBwOmFN7tDh27LzqmHt4+uOgPhJT7ZM7/kVs/8/o0WxayMUIk3hBmCFRHv1FUoag=="],
 
@@ -779,6 +779,10 @@
     "zod-to-json-schema": ["zod-to-json-schema@3.25.2", "", { "peerDependencies": { "zod": "^3.25.28 || ^4" } }, "sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA=="],
 
     "zwitch": ["zwitch@2.0.4", "", {}, "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="],
+
+    "@phreshos/cli/@phreshos/core": ["@phreshos/core@0.1.44", "", {}, "sha512-0Qo4SlNg9fi2xfpDMbMucHQrDhzE8hhzOy7n5rQPjpj4UIWPUU5ZuEGEON6bfQM6nKJ4ogNJF7KFp4RhMxf5PA=="],
+
+    "@phreshos/react-ui/@phreshos/core": ["@phreshos/core@0.1.44", "", {}, "sha512-0Qo4SlNg9fi2xfpDMbMucHQrDhzE8hhzOy7n5rQPjpj4UIWPUU5ZuEGEON6bfQM6nKJ4ogNJF7KFp4RhMxf5PA=="],
 
     "body-parser/content-type": ["content-type@2.1.0", "", {}, "sha512-mj7UPXE0jaqaOsukNZRUEfEi2AcL7C/vwmwcHV0O97eO1E1pxBZuyjlZrx5seTaNBg1U6+o35wpa35Qfcc+7ag=="],
 

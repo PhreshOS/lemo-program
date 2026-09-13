@@ -90,5 +90,6 @@ User cancellation returns:
 { "type": "cancelled" }
 ```
 
-The call fails when the bounded queue is full, the timeout expires, the Task is
+Runtime accepts up to four pending Client responses and waits two minutes for
+each response. The call fails when that queue is full, the timeout expires, the Task is
 interrupted, or the interactive document fails technically.

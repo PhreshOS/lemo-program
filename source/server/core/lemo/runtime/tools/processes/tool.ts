@@ -5,27 +5,8 @@ import defineTool from "../../define-tool"
 import type { ToolContext } from "../../tool"
 import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
+import { identity, launch } from "../../system-input"
 
-const identity = z.string().trim().min(1)
-const value = z.union([z.number(), z.string().trim().min(1)])
-    .describe("Absolute pixels as a number, or a workspace-relative expression such as 50% or 1/2.")
-const position = z.object({ x: value, y: value }).strict()
-const size = z.object({ width: value, height: value }).strict()
-const serverLaunch = z.object({ service: z.boolean().optional() }).strict()
-const clientLaunch = z.object({
-    service: z.boolean().optional(),
-    title: z.string().optional(),
-    size: size.optional(),
-    position: position.optional(),
-    layer: z.enum(["window", "under", "over"]).optional(),
-    minimize: z.boolean().optional()
-}).strict()
-const launch = z.object({
-    name: identity.optional(),
-    server: z.union([z.boolean(), serverLaunch]).optional(),
-    client: z.union([z.boolean(), clientLaunch]).optional(),
-    options: z.record(z.string(), z.string()).optional()
-}).strict()
 const namedLaunch = launch.extend({ name: identity })
 
 const input = z.discriminatedUnion("action", [

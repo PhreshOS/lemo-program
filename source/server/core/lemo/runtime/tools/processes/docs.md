@@ -12,9 +12,25 @@ agent contract when one exists. A Process can contain a Server Endpoint, a
 Client Endpoint, or both. Use explicit `server` and `client` selections when
 the topology matters. Omitted selections inherit the Program declaration.
 
+`launch.options` contains string values readable by both Endpoints. Explicit
+values override Program defaults. A Client launch may set `service`, `title`,
+`position`, `size`, `layer`, `minimize`, and `maximize`:
+
+```json
+{"action":"create","program":"program-identity","launch":{"client":{"maximize":true},"options":{"document":"notes.txt"}}}
+```
+
+These operations use the supplied Launch and declaration defaults. To open
+using a saved icon launch, obtain it with `programs.getLaunch` and pass it
+explicitly. Each Endpoint's `declared`, `running`, and `service` values in the
+result describe that Endpoint; they are not Process lifecycle states.
+
 `findOrCreate` requires a stable Program-local Process name. If an existing
 Process with that name has a different resolved launch, the operation fails;
 it is never silently reshaped.
 
 Use `wait` at System, Program, or Process scope. System and Program scopes can
 observe `create` and `exit`; an individual Process can observe only `exit`.
+`process` is a global identity, or a Program-local name with `program` supplied.
+Waits observe future events, with a default `timeout` of 10,000 milliseconds.
+Start a wait before the operation that should produce the event.

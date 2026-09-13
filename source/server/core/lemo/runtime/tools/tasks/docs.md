@@ -39,6 +39,7 @@ Use `wait` to wait for the next matching Task event. Optionally restrict it by
 Task identities or event names and provide a timeout in milliseconds. Without
 filters it waits for the next event from any Task. Waiting is cancelled when
 the invoking Task stops.
+The default timeout is 10,000 milliseconds for both `wait` and `wait_message`.
 
 Use `wait_message` with an event to wait for the next message directed to this
 Task with that exact event. This is ordinary Tool execution and is cancelled

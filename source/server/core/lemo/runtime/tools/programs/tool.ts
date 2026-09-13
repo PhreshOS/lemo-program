@@ -4,6 +4,7 @@ import { z } from "zod"
 import defineTool from "../../define-tool"
 import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
+import { launch } from "../../system-input"
 
 const program = z.string().trim().min(1).describe("Program identity.")
 
@@ -17,6 +18,8 @@ const input = z.discriminatedUnion("action", [
     }).strict(),
     z.object({ action: z.literal("inspect"), program }).strict(),
     z.object({ action: z.literal("agent"), program }).strict(),
+    z.object({ action: z.literal("getLaunch"), program }).strict(),
+    z.object({ action: z.literal("setLaunch"), program, launch }).strict(),
     z.object({
         action: z.literal("wait"),
         event: z.enum(["create", "forget", "install", "uninstall"]),
@@ -94,6 +97,13 @@ const programs = defineTool({
 
         if (request.action === "inspect") return details(program, await program.installed())
 
+        if (request.action === "getLaunch") return program.launch.get()
+
+        if (request.action === "setLaunch") {
+            await program.launch.set(request.launch)
+            return program.launch.get()
+        }
+
         const content = await program.agent()
 
         if (content === null) {
@@ -128,23 +138,15 @@ async function details(program: Program, installed: boolean) {
 
     return Object.freeze({
         ...await summary(program, installed),
+        server: program.server,
         client: program.client
-            ? Object.freeze({
-                ...declaration(program.client),
-                title: program.client.title,
-                size: program.client.size,
-                position: program.client.position,
-                layer: program.client.layer,
-                minimize: program.client.minimize
-            })
-            : null
     })
 }
 
 function declaration(endpoint: Program["server"] | Program["client"]) {
 
     return endpoint
-        ? Object.freeze({ start: endpoint.start })
+        ? Object.freeze({ start: endpoint.start, service: endpoint.service } satisfies Program["server"])
         : null
 }
 

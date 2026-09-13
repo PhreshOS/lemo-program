@@ -10,6 +10,8 @@ export default async function waitEvent<Events extends object, Fallback>(
     timeout = defaultEventTimeout
 ) {
 
+    signal.throwIfAborted()
+
     const controller = new AbortController()
     let timedOut = false
     const abort = () => controller.abort(signal.reason)
@@ -21,12 +23,14 @@ export default async function waitEvent<Events extends object, Fallback>(
 
     signal.addEventListener("abort", abort, { once: true })
 
-    const events = (source as unknown as Subscribable).events(event, {
-        capacity: 1,
-        signal: controller.signal
-    })
+    let events: AsyncIterableIterator<unknown> | undefined
 
     try {
+
+        events = (source as unknown as Subscribable).events(event, {
+            capacity: 1,
+            signal: controller.signal
+        })
 
         const result = await events.next()
 
@@ -42,6 +46,6 @@ export default async function waitEvent<Events extends object, Fallback>(
         clearTimeout(timer)
         signal.removeEventListener("abort", abort)
         controller.abort()
-        await events.return?.()
+        await events?.return?.()
     }
 }

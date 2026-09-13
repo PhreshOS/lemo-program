@@ -89,6 +89,6 @@ and the user's home directory cannot be deleted. Once an approved native
 recursive deletion begins, it cannot be paused atomically; cancellation while
 approval is pending still prevents it from starting.
 
-There is deliberately no move operation yet. Reads are not copied into Memory.
+Reads are not copied into Memory.
 Successful create, write, edit, mkdir, copy, and delete operations record only
 a concise fact; raw invocations and results remain in the Task history.

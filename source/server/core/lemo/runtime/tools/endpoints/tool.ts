@@ -4,8 +4,8 @@ import { z } from "zod"
 import defineTool from "../../define-tool"
 import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
+import { identity, serverLaunch, clientLaunch } from "../../system-input"
 
-const identity = z.string().trim().min(1)
 const coordinates = { process: identity, program: identity.optional() }
 const endpoint = z.enum(["server", "client"])
 const timeout = z.number().int().positive().optional()
@@ -17,17 +17,6 @@ const payload = z.union([
     z.boolean(),
     z.null()
 ])
-const serverLaunch = z.object({ service: z.boolean().optional() }).strict()
-const value = z.union([z.number(), z.string().trim().min(1)])
-    .describe("Absolute pixels as a number, or a workspace-relative expression such as 50% or 1/2.")
-const clientLaunch = z.object({
-    service: z.boolean().optional(),
-    title: z.string().optional(),
-    size: z.object({ width: value, height: value }).strict().optional(),
-    position: z.object({ x: value, y: value }).strict().optional(),
-    layer: z.enum(["window", "under", "over"]).optional(),
-    minimize: z.boolean().optional()
-}).strict()
 
 const input = z.union([
     z.object({ action: z.literal("inspect"), ...coordinates, endpoint }).strict(),
