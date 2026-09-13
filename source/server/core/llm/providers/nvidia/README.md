@@ -30,5 +30,5 @@ and malformed Tool calls fail without executing partial calls.
 
 The repository's `verify` command includes the offline Provider checks.
 For an explicit live Tool round trip, provide `NVIDIA_API_KEY` in the environment
-and run `bun run verify:nvidia:live`. It sends two small requests and reports
+and run `bun run test:live -- nvidia`. It sends two small requests and reports
 usage without persisting the key. `NVIDIA_TEST_MODEL` overrides the test Model.

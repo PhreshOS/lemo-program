@@ -1,61 +1,62 @@
 {
-    "name": "lemo-program",
-    "private": true,
-    "version": "0.1.28",
-    "description": "The official PhreshOS agent Program.",
-    "type": "module",
-    "packageManager": "bun@1.3.14",
-    "scripts": {
-        "check": "tsc --noEmit",
-        "build": "vite-node scripts/build.ts",
-        "dev": "phresh dev",
-        "start": "phresh start",
-        "pack": "phresh pack",
-        "verify:nvidia:live": "vite-node scripts/verify-nvidia-live.ts",
-        "verify:web:live": "vite-node scripts/verify-web-live.ts",
-        "verify": "node --run check && node --run build && vite-node scripts/verify-llm-providers.ts && vite-node scripts/verify-client-llm-providers.ts && vite-node scripts/verify-client-manager.ts && vite-node scripts/verify-client-lemo.ts && vite-node scripts/verify-client-ui.tsx && vite-node scripts/verify-lemo.ts && vite-node scripts/verify-files.ts && vite-node scripts/verify-web.ts && vite-node scripts/verify-prompt.ts && vite-node scripts/verify-task-lifecycle.ts && vite-node scripts/verify-system-tools.ts && vite-node scripts/verify-build.ts"
-    },
-    "author": "Zohayr SLILEH",
-    "license": "MIT",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/PhreshOS/lemo-program.git"
-    },
-    "bugs": {
-        "url": "https://github.com/PhreshOS/lemo-program/issues"
-    },
-    "homepage": "https://github.com/PhreshOS/lemo-program#readme",
-    "keywords": [
-        "phreshos",
-        "lemo",
-        "agent"
-    ],
-    "dependencies": {
-        "@modelcontextprotocol/sdk": "^1.30.0",
-        "@openrouter/sdk": "^1.2.70",
-        "@phreshos/client": "^0.1.38",
-        "@phreshos/core": "^0.1.42",
-        "@phreshos/react": "^0.1.21",
-        "@phreshos/react-ui": "^0.1.18",
-        "@phreshos/server": "^0.1.42",
-        "openai": "^7.13.0",
-        "react": "^19.2.8",
-        "react-dom": "^19.2.8",
-        "react-markdown": "^10.1.0",
-        "remark-gfm": "^4.0.1",
-        "zod": "^4.4.3"
-    },
-    "devDependencies": {
-        "@babel/core": "^7.29.7",
-        "@phreshos/cli": "^0.1.53",
-        "@rolldown/plugin-babel": "^0.2.3",
-        "@types/node": "^26.2.0",
-        "@types/react": "^19.2.18",
-        "@types/react-dom": "^19.2.4",
-        "@vitejs/plugin-react": "^6.0.5",
-        "babel-plugin-react-compiler": "^1.0.0",
-        "typescript": "^7.0.2",
-        "vite": "^8.2.1",
-        "vite-node": "^6.0.0"
-    }
+  "name": "lemo-program",
+  "private": true,
+  "version": "0.1.29",
+  "description": "The official PhreshOS agent Program.",
+  "type": "module",
+  "packageManager": "bun@1.3.14",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "build": "vite-node scripts/build.ts",
+    "dev": "phresh dev",
+    "start": "phresh start",
+    "pack": "phresh pack",
+    "verify": "node --run check && node --run build && node --run test",
+    "test": "vitest run --project default",
+    "test:live": "vitest run --project live"
+  },
+  "author": "Zohayr SLILEH",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PhreshOS/lemo-program.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PhreshOS/lemo-program/issues"
+  },
+  "homepage": "https://github.com/PhreshOS/lemo-program#readme",
+  "keywords": [
+    "phreshos",
+    "lemo",
+    "agent"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@openrouter/sdk": "^1.2.70",
+    "@phreshos/client": "^0.1.39",
+    "@phreshos/core": "^0.1.43",
+    "@phreshos/react": "^0.1.22",
+    "@phreshos/react-ui": "^0.1.19",
+    "@phreshos/server": "^0.1.43",
+    "openai": "^7.13.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.7",
+    "@phreshos/cli": "^0.1.54",
+    "@rolldown/plugin-babel": "^0.2.3",
+    "@types/node": "^26.2.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^6.0.5",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
+    "vite-node": "^6.0.0",
+    "vitest": "^4.1.10"
+  }
 }
