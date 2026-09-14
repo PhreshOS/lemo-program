@@ -16,7 +16,7 @@ returned `before` cursor to continue toward older events.
 
 Every truncated block identifies its durable operation and says
 `retrieve="tasks.read_block"`. Use `read_block` with the Task and operation
-identities to read the complete raw operation in bounded token pages. Continue
+identities to read the complete retained operation in bounded token pages. Continue
 from `next` as `offset` until it is `null`.
 
 Use `create` with `input` to start an independent concurrent Task. It inherits

@@ -89,6 +89,7 @@ and the user's home directory cannot be deleted. Once an approved native
 recursive deletion begins, it cannot be paused atomically; cancellation while
 approval is pending still prevents it from starting.
 
-Reads are not copied into Memory.
-Successful create, write, edit, mkdir, copy, and delete operations record only
-a concise fact; raw invocations and results remain in the Task history.
+The Tool retains the requested file page, revision, or mutation receipt.
+Successful create, write, edit, mkdir, copy, and delete operations also record
+a concise fact with its source. Retained pages remain searchable and readable
+through Task history; read the file again for its current contents.

@@ -11,7 +11,7 @@ import { estimatedTokens } from "../source/server/core/lemo/token-budget"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
 import type { ToolContext } from "../source/server/core/lemo/runtime/tool"
-import endpoints, { endpointModelOutput } from "../source/server/core/lemo/runtime/tools/endpoints/tool"
+import endpoints, { retainEndpointResult } from "../source/server/core/lemo/runtime/tools/endpoints/tool"
 import files from "../source/server/core/lemo/runtime/tools/files/tool"
 import memoryTool from "../source/server/core/lemo/runtime/tools/memory/tool"
 import processes from "../source/server/core/lemo/runtime/tools/processes/tool"
@@ -30,17 +30,17 @@ import { test } from "vitest"
 test("lemo contract", async () => {
   assert.deepEqual(await cycleContextBudgets({
       async contextWindow() { return null }
-  }), { perceptualField: 8_000, transcript: 12_000 })
+  }, "ongoing"), { input: 45_875, perceptualField: 8_000, transcript: 37_875 })
 
   const expandedContextBudgets = await cycleContextBudgets({
       async contextWindow() { return 124_000 }
-  })
+  }, "ongoing")
 
-  assert.deepEqual(expandedContextBudgets, { perceptualField: 8_000, transcript: 12_000 })
+  assert.deepEqual(expandedContextBudgets, { input: 86_800, perceptualField: 8_000, transcript: 78_800 })
   assert(Object.isFrozen(expandedContextBudgets))
 
   await assert.rejects(
-      cycleContextBudgets({ async contextWindow() { return 1 } }),
+      cycleContextBudgets({ async contextWindow() { return 1 } }, "ongoing"),
       /invalid context window/
   )
 
@@ -124,7 +124,6 @@ test("lemo contract", async () => {
   ) as Readonly<{ output: Readonly<{ type: string, content: string }> }>
 
   assert.deepEqual(inlineShellResult.output, {
-      type: "inline",
       bytes: 11,
       content: "shell-ready"
   })
@@ -134,13 +133,13 @@ test("lemo contract", async () => {
       shellContext
   ) as Readonly<{ output: Readonly<{ type: string, bytes: number, content: string }> }>
 
-  assert.equal(largeShellResult.output.type, "stored")
   assert.equal(largeShellResult.output.bytes, 20_000)
   assert.equal(largeShellResult.output.content.length, 20_000)
-  assert.equal(
-      (shellTool.modelOutput?.(largeShellResult) as { output: { content?: string } }).output.content,
-      undefined
-  )
+  const retainedShell = shellTool.retain(largeShellResult, {}) as {
+      output: { content: string, truncated: boolean }
+  }
+  assert(retainedShell.output.truncated)
+  assert(estimatedTokens(retainedShell.output.content) <= 2_048)
 
   const immediateEvents = {
       async *events() { yield Object.freeze({ value: "received" }) }
@@ -242,7 +241,7 @@ test("lemo contract", async () => {
       payload: null
   })
 
-  assert.deepEqual(endpointModelOutput({
+  assert.deepEqual(retainEndpointResult({
       id: "snapshot",
       image: "A".repeat(10_000),
       title: "PhreshOS"
@@ -251,7 +250,7 @@ test("lemo contract", async () => {
       image: {
           kind: "binary",
           characters: 10_000,
-          note: "Binary content is retained in the database but omitted from text Model context."
+          note: "Only binary content metadata is retained."
       },
       title: "PhreshOS"
   })
@@ -418,7 +417,7 @@ test("lemo contract", async () => {
 
           if (input === "inspect unique task failure evidence") {
 
-              assert(!snapshot.content.includes("Task failed: unique task failure evidence"))
+              assert(snapshot.content.includes("unique task failure evidence"))
 
               yield { type: "text" as const, content: "task-failure:recalled" }
 
@@ -444,8 +443,8 @@ test("lemo contract", async () => {
 
           if (input === "inspect missing capability failure") {
 
-              assert(!snapshot.content.includes('tool="missing-capability"'))
-              assert(!snapshot.content.includes('call="missing-capability-call"'))
+              assert(snapshot.content.includes('tool="missing-capability"'))
+              assert(snapshot.content.includes('call="missing-capability-call"'))
 
               yield { type: "text" as const, content: "tool-failure:recalled" }
 
@@ -681,21 +680,8 @@ test("lemo contract", async () => {
 
   const memoryPayload = memoryResult.payload as Record<string, unknown>
 
-  assert(Array.isArray(memoryPayload.output))
-
-  assert(memoryPayload.output.every(item => (
-      typeof item === "object"
-      && item !== null
-      && "kind" in item
-      && "selection" in item
-      && item.selection === "relevant"
-  )))
-
-  assert(memoryPayload.output.reduce((size, item) => (
-      typeof item === "object" && item !== null && "content" in item
-          ? size + estimatedTokens(String(item.content)) + 96
-          : size
-  ), 0) <= 1_000)
+  // The Model consumed recall results, but the Tool retains only their source references.
+  assert.equal(memoryPayload.output, null)
 
   const observationTask = await lemo.task({ input: "repeat observation", model })
 
@@ -706,7 +692,7 @@ test("lemo contract", async () => {
   const repeatedObservation = observationResults.at(-1)?.payload as Record<string, unknown> | undefined
 
   assert.equal(
-      (repeatedObservation?.modelOutput as Record<string, unknown> | undefined)?.status,
+      (repeatedObservation?.notice as Record<string, unknown> | undefined)?.status,
       "no-progress"
   )
   assert.equal(
@@ -865,7 +851,7 @@ test("lemo contract", async () => {
       error: "Recorded mistake"
   })
 
-  const transcript = await transcriptDatabase.transcriptOperations("transcript", 512)
+  const transcript = await transcriptDatabase.transcriptOperations("transcript")
 
   assert.deepEqual(transcript.map(operation => operation.kind), ["model.message", "tool.result"])
   assert.equal(transcript.some(operation => operation.kind === "model.event"), false)

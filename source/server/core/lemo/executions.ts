@@ -22,6 +22,7 @@ type Active = {
 export default class Executions {
 
     private readonly active = new Map<string, Active>()
+    private readonly workingResults = new Map<string, Map<string, Operation>>()
     private readonly transitions = new Map<string, Promise<void>>()
 
     public constructor(
@@ -82,7 +83,11 @@ export default class Executions {
 
             const current = await this.requireTask(task)
 
-            if (current.status !== "running") return
+            if (current.status !== "running") {
+                // Completion can win the race with a pause request.
+                if (current.status !== "paused") this.workingResults.delete(task)
+                return
+            }
 
             await this.database.appendToTask(task, "task.paused", {
                 run: await this.currentRun(task),
@@ -103,6 +108,7 @@ export default class Executions {
             }
 
             await this.stopActive(task, "Task cancelled")
+            this.workingResults.delete(task)
 
             const settled = (await this.requireTask(task)).status
 
@@ -168,6 +174,8 @@ export default class Executions {
     private async execute(run: TaskRun, model: LLMModel) {
 
         try {
+            const results = this.workingResults.get(run.task) ?? new Map<string, Operation>()
+            this.workingResults.set(run.task, results)
             while (true) {
 
                 assertRunning(run.signal)
@@ -177,14 +185,15 @@ export default class Executions {
                     this.memory,
                     run,
                     model,
-                    await this.runtime.definitions(run.task)
+                    await this.runtime.definitions(run.task),
+                    [...results.values()]
                 )
 
                 assertRunning(run.signal)
 
                 if (cycle.toolCalls.length) {
 
-                    await this.runtime.execute(run, model, cycle.toolCalls)
+                    await this.runtime.execute(run, model, cycle.toolCalls, result => results.set(result.id, result))
 
                     continue
                 }
@@ -215,6 +224,9 @@ export default class Executions {
                     "The Task failed and Lemo could not record its failure"
                 )
             }
+        } finally {
+            // Pausing preserves the Task's live context. Terminal outcomes release it.
+            if (!run.signal.aborted) this.workingResults.delete(run.task)
         }
     }
 

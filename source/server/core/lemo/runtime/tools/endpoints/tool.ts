@@ -154,13 +154,13 @@ const endpoints = defineTool({
 
         return result
     },
-    modelOutput: endpointModelOutput
+    retain: retainEndpointResult
 })
 
 export default endpoints
 
-/** Owns the bounded representation of Endpoint results used in Model context. */
-export function endpointModelOutput(output: unknown): unknown {
+/** Selects useful text and metadata from Endpoint results for durable retention. */
+export function retainEndpointResult(output: unknown): unknown {
 
     const compact = compactValue(output)
     const serialized = JSON.stringify(compact)
@@ -172,7 +172,7 @@ export function endpointModelOutput(output: unknown): unknown {
         originalCharacters: JSON.stringify(output).length,
         contextCharacters: serialized.length,
         preview: serialized.slice(0, 16_000),
-        note: "The raw result remains in the Task database; this bounded preview is only for Model context."
+        note: "Retained text excerpt; request a narrower result for additional details."
     })
 }
 
@@ -244,7 +244,7 @@ function compactValue(value: unknown, key = ""): unknown {
             return Object.freeze({
                 kind: "binary",
                 characters: value.length,
-                note: "Binary content is retained in the database but omitted from text Model context."
+                note: "Only binary content metadata is retained."
             })
         }
 

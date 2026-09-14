@@ -35,17 +35,12 @@ includes resolved defaults. `content` preserves the complete text returned by
 Exa, including its source URLs and any reported absence of results. Lemo does
 not reinterpret the provider's text formatting as a second result schema.
 
-Runtime stores this result in the Task's raw Tool-result operation. Model
-context receives a preview of at most 2,048 estimated tokens, with `truncated`,
-`tokens`, and `totalTokens`. If truncated, use the operation identity supplied
-by Runtime to retrieve the stored result:
-
-```json
-{ "action": "read_block", "task": "task-id", "operation": "operation-id", "offset": 0, "tokens": 2048 }
-```
-
-That request belongs to `tasks`. Continue from `next` until it is `null`.
-The stored result is what Exa returned, not any page content Exa omitted.
+The Tool retains the request, provider, and a content excerpt of at most 2,048
+estimated tokens, with `truncated`, `tokens`, and `totalTokens`. The live result
+stays available in the active Task within its context budget. `tasks.read_block`
+can page through the retained excerpt and metadata. For other details, make a
+focused search or read the source again; the retained record is not a full-page
+archive.
 
 Each invocation has a 45-second total deadline. Task pause or cancellation
 aborts its connection. Transport failures, provider errors, empty responses,

@@ -24,21 +24,12 @@ default shell is used:
 }
 ```
 
-Standard output and standard error are combined in their observed order. Up to
-16 KiB is returned inline. Larger output is persisted in full as part of the
-raw Tool-result operation in Lemo's database. The immediate Model context sees
-only a bounded preview and a durable operation identity. Read the complete
-result lazily with the `tasks` tool:
-
-```json
-{
-  "action": "read_block",
-  "task": "task-id",
-  "operation": "operation-id",
-  "offset": 0,
-  "tokens": 2048
-}
-```
-
-Continue from `next` until it is `null`. No temporary output file is created.
+Standard output and standard error are combined in their observed order. The
+live result includes the command, directory, shell, exit code, signal, and
+`output: { bytes, content }`. The Tool retains that metadata and up to 2,048
+estimated tokens of output, with `truncated`, `tokens`, and `totalTokens`.
+The active Task keeps the live result within its context budget.
+`tasks.read_block` reads only the retained record. Prefer targeted commands for
+large output; repeat only safe observations to obtain other details, never a
+mutation merely to recreate its output. No temporary output file is created.
 Pausing or cancelling the Task terminates its command and child process group.

@@ -7,7 +7,7 @@ import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
 import { identity, launch } from "../../system-input"
 
-const namedLaunch = launch.extend({ name: identity })
+const namedLaunch = launch.safeExtend({ name: identity })
 
 const input = z.discriminatedUnion("action", [
     z.object({
@@ -40,6 +40,8 @@ const processes = defineTool({
     docs,
     input,
     name: "processes",
+    // Keep the selected Process snapshots and lifecycle receipts.
+    retain: output => output,
     description: "Discover and control live executions of PhreshOS Programs.",
     async execute(request, context) {
 

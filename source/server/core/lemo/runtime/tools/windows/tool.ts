@@ -40,6 +40,8 @@ const windows = defineTool({
     docs,
     input,
     name: "windows",
+    // Window state and geometry event payloads describe the result of this operation.
+    retain: output => output,
     description: "Inspect and control the authoritative Window of a live Client Endpoint.",
     async execute(request, context) {
 

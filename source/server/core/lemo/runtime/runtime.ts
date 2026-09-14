@@ -54,10 +54,15 @@ export default class Runtime {
             .map(tool => tool.definition))
     }
 
-    /** Executes independent tool calls concurrently and records each outcome. */
-    public async execute(run: TaskRun, model: LLMModel, calls: readonly LLMToolCall[]) {
+    /** Persists Tool-selected outcomes and delivers live results to the active Task. */
+    public async execute(run: TaskRun, model: LLMModel, calls: readonly LLMToolCall[], receive?: (result: Operation) => void) {
 
-        await Promise.all(calls.map(call => this.executeCall(run, model, call)))
+        const results = await Promise.all(calls.map(async call => {
+            const result = await this.executeCall(run, model, call)
+            if (result) receive?.(result)
+            return result
+        }))
+        return results.filter((result): result is Operation => result !== undefined)
     }
 
     /** Resolves the live Tool call owned by one Task. */
@@ -70,7 +75,7 @@ export default class Runtime {
         pending.resolve(pending.parse(value))
     }
 
-    private async executeCall(run: TaskRun, model: LLMModel, call: LLMToolCall) {
+    private async executeCall(run: TaskRun, model: LLMModel, call: LLMToolCall): Promise<Operation | undefined> {
 
         const tool = this.tools.get(call.name)
 
@@ -185,12 +190,14 @@ export default class Runtime {
         })
 
         let output: unknown
+        let retained: unknown
         const observation = tool.observation?.(input) === true
             ? await this.previousObservation(run.task, call.name, input)
             : null
 
         try {
             output = await waitForRun(tool.execute(input, context), run.signal)
+            retained = tool.retain(output, input)
         } catch (cause) {
             await appendFailure(run, call, cause)
             return
@@ -200,17 +207,21 @@ export default class Runtime {
             ? await this.recordObservation(run, call, observation, output)
             : null
 
-        await run.append("tool.result", {
+        const result = await run.append("tool.result", {
             call: call.id,
             name: call.name,
             ok: true,
-            output,
-            ...(noProgress
-                ? { modelOutput: noProgress }
-                : tool.modelOutput
-                    ? { modelOutput: tool.modelOutput(output) }
-                    : {})
+            output: retained ?? null,
+            retained: retained !== null && retained !== undefined,
+            ...(noProgress ? { notice: noProgress } : {})
         })
+
+        // The active Task owns this overlay; append and subscribers see only retained data.
+        return Object.freeze({ ...result, payload: {
+            call: call.id, name: call.name, ok: true, output,
+            ...(noProgress ? { notice: noProgress } : {}),
+            transient: true
+        } })
     }
 
     private async previousObservation(task: string, tool: string, input: unknown): Promise<Observation> {

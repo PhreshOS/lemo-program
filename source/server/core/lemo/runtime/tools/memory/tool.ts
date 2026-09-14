@@ -19,6 +19,8 @@ const memory = defineTool({
     docs,
     input,
     name: "memory",
+    // Retrieval already records source identities. Never duplicate recalled content.
+    retain: () => null,
     description: "Recall related durable context from Lemo's shared history. A query is always required.",
     async execute(request, context) {
 

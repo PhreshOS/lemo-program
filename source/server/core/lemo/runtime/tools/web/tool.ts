@@ -12,7 +12,7 @@ const web = defineTool({
     docs,
     observation: () => true,
     execute: (request, context) => exa(request, context.invocation.signal),
-    modelOutput(value) {
+    retain(value) {
 
         const result = webResult.parse(value)
         const preview = tokenSlice(result.content, 2048)

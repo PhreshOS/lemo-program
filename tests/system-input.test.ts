@@ -28,3 +28,12 @@ test("documented tool examples satisfy their executable input contracts", () => 
         }
     }
 })
+
+test("Process replacement preserves Launch validation for creation and named lookup", () => {
+    const value = { name: "editor", replace: true }
+    for (const action of ["create", "findOrCreate"]) {
+        const request = { action, program: "example", launch: value }
+        expect(processes.parse(request).input).toEqual({ ...request, launch: parseLaunch(value) })
+        expect(() => processes.parse({ ...request, launch: { replace: true } })).toThrow()
+    }
+})

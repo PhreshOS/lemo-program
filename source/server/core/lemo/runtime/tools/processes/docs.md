@@ -12,8 +12,8 @@ agent contract when one exists. A Process can contain a Server Endpoint, a
 Client Endpoint, or both. Use explicit `server` and `client` selections when
 the topology matters. Omitted selections inherit the Program declaration.
 
-`launch.options` contains string values readable by both Endpoints. Explicit
-values override Program defaults. A Client launch may set `service`, `title`,
+`launch.options` contains this Process's string values, readable by both
+Endpoints, and defaults to `{}`. A Client launch may set `service`, `title`,
 `position`, `size`, `layer`, `minimize`, and `maximize`:
 
 ```json
@@ -28,6 +28,10 @@ result describe that Endpoint; they are not Process lifecycle states.
 `findOrCreate` requires a stable Program-local Process name. If an existing
 Process with that name has a different resolved launch, the operation fails;
 it is never silently reshaped.
+
+For `create` or `findOrCreate`, `launch: { name: "main", replace: true }`
+ends the existing Process named `main` within the selected Program before
+creating its replacement. Processes belonging to other Programs are unaffected.
 
 Use `wait` at System, Program, or Process scope. System and Program scopes can
 observe `create` and `exit`; an individual Process can observe only `exit`.

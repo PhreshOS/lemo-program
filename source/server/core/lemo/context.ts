@@ -20,15 +20,9 @@ export const minimumMemoryBudget = 256
 export const maximumMemoryBudget = 16_000
 
 const defaultPerceptualFieldTokens = 8_000
-const defaultTranscriptTokens = 12_000
 const defaultSemanticInformationTokens = 6_000
 const defaultInboxTokens = 1_000
-const minimumRequestReserve = 4_096
-const defaultCycleContextTokens = defaultPerceptualFieldTokens + defaultTranscriptTokens
-const defaultCycleContextBudgets = Object.freeze({
-    perceptualField: defaultPerceptualFieldTokens,
-    transcript: defaultTranscriptTokens
-})
+const unknownModelContextTokens = 65_536
 const maximumBlockTokens = 1_024
 const maximumWorkingSignals = 4
 const maximumReinforcedCandidates = 128
@@ -101,30 +95,31 @@ export type OperationBlockPage = Readonly<{
 }>
 
 export type CycleContextBudgets = Readonly<{
+    input: number
     perceptualField: number
     transcript: number
 }>
 
-/** Caps working context independently of capacity, reserving room for instructions, tools and output. */
-export async function cycleContextBudgets(model: Pick<LLMModel, "contextWindow">): Promise<CycleContextBudgets> {
+/** Initial input uses at most 35% of capacity; ongoing Task input uses at most 70%. */
+export async function cycleContextBudgets(
+    model: Pick<LLMModel, "contextWindow">,
+    phase: "initial" | "ongoing",
+    requestOverhead = 0
+): Promise<CycleContextBudgets> {
 
-    const contextWindow = await model.contextWindow()
-
-    if (contextWindow === null) return defaultCycleContextBudgets
+    const contextWindow = await model.contextWindow() ?? unknownModelContextTokens
 
     if (!Number.isSafeInteger(contextWindow) || contextWindow < 2) {
         throw new Error("An LLM Model returned an invalid context window")
     }
 
-    const available = Math.min(defaultCycleContextTokens,
-        contextWindow - Math.max(minimumRequestReserve, Math.ceil(contextWindow / 4))
-    )
+    const input = Math.floor(contextWindow * (phase === "initial" ? 35 : 70) / 100)
+    const available = input - requestOverhead
     if (available < 2) throw new Error("The Model context window leaves no room for working context")
-    const perceptualField = Math.max(1, Math.floor(
-        available * defaultPerceptualFieldTokens / defaultCycleContextTokens
-    ))
+    const perceptualField = Math.max(1, Math.min(defaultPerceptualFieldTokens, Math.floor(available / 4)))
 
     return Object.freeze({
+        input,
         perceptualField,
         transcript: Math.max(1, available - perceptualField)
     })
@@ -215,13 +210,13 @@ export default class Context {
         const operations = input && !page.operations.some(operation => operation.id === input.id)
             ? Object.freeze([input, ...page.operations])
             : page.operations
-        const content = taskHistoryXml(taskState(operations, summary), budget)
+        const history = taskHistoryXml(taskState(operations, summary), budget)
 
         return Object.freeze({
             task: summary,
-            content,
-            before: page.next,
-            tokens: estimatedTokens(content)
+            content: history.content,
+            before: history.before ?? page.next,
+            tokens: estimatedTokens(history.content)
         })
     }
 
@@ -455,29 +450,45 @@ function taskHistoryXml(state: TaskState, budget: number) {
     ]
     const events = state.operations.flatMap(operation => taskHistoryEvents(state.task, operation))
     const selected: string[] = []
+    let oldest: number | null = null
+    let before: number | null = null
     let used = estimatedTokens([...fixed, "  <timeline>", "  </timeline>", "</task_history>"].join("\n"))
 
     for (let index = events.length - 1; index >= 0; index--) {
         const remaining = budget - used
 
-        if (remaining < 32) break
+        if (remaining < 32) {
+            before = oldest
+            break
+        }
 
-        const value = eventXml(events[index]!, Math.min(maximumBlockTokens, remaining), "    ")
+        let allowance = Math.min(maximumBlockTokens, remaining)
+        let value = eventXml(events[index]!, allowance, "    ")
+        // The budget includes XML attributes and escaping, not just event text.
+        while (estimatedTokens(value) > remaining && allowance > 1) {
+            allowance = Math.max(1, Math.floor(allowance / 2))
+            value = eventXml(events[index]!, allowance, "    ")
+        }
         const addition = estimatedTokens(value)
 
-        if (used + addition > budget) continue
+        if (used + addition > budget) {
+            before = oldest
+            break
+        }
 
         selected.unshift(value)
+        oldest = events[index]!.sequence
         used += addition
     }
 
-    return [
+    const content = [
         ...fixed,
         `  <timeline count="${selected.length}" omitted="${events.length - selected.length}">`,
         ...selected,
         "  </timeline>",
         "</task_history>"
     ].join("\n")
+    return { content, before }
 }
 
 function taskHistoryEvents(task: string, operation: Operation): readonly TimelineEvent[] {
@@ -502,16 +513,7 @@ function taskHistoryEvents(task: string, operation: Operation): readonly Timelin
     }
 
     if (operation.kind === "tool.result") {
-        const contextual = payload?.ok === true && "modelOutput" in payload
-            ? {
-                call: payload.call,
-                name: payload.name,
-                ok: true,
-                output: payload.modelOutput
-            }
-            : operation.payload
-
-        return Object.freeze([timelineEvent(task, operation, "tool_result", contextualText(contextual), {
+        return Object.freeze([timelineEvent(task, operation, "tool_result", contextualText(operation.payload), {
             call: text(payload?.call),
             tool: text(payload?.name),
             ok: String(payload?.ok === true)
@@ -798,6 +800,18 @@ function candidate(operation: Operation): readonly Candidate[] {
     const payload = record(operation.payload)
     const memory = record(payload?.record)
 
+    if (operation.kind === "task.input") return createCandidate(operation, payload?.input, "user", "task-input")
+    if (operation.kind === "model.message") return createCandidate(operation, payload?.content, "lemo", "model-message")
+
+    if (operation.kind === "tool.result") {
+        const tool = text(payload?.name) || "unknown"
+        return createCandidate(operation,
+            payload?.ok === true ? payload.output : payload?.error,
+            payload?.ok === true ? `tool:${tool}` : "runtime", "tool-result", tool, text(payload?.call) || null)
+    }
+
+    if (operation.kind === "task.failed") return createCandidate(operation, payload?.message, "lemo", "task-failure")
+
     if (operation.kind === "memory.recorded") return createCandidate(
         operation,
         memory?.content,
@@ -852,7 +866,10 @@ function activation(
         }
     }
 
-    const lexical = available > 0 ? matched / available : 0
+    // Normalize coverage by vocabulary size: a large catalog should not win
+    // merely because it contains many generic query words among unrelated text.
+    const lengthNormalization = Math.sqrt(Math.max(1, found.size / Math.max(1, query.size)))
+    const lexical = available > 0 ? matched / available / lengthNormalization : 0
     const normalized = content.toLocaleLowerCase()
     const phrase = focus.reduce((strongest, signal) => {
         const value = signal.content.trim().toLocaleLowerCase()
@@ -984,7 +1001,8 @@ function tokenBudget(value: number, minimum: number, maximum: number, name: stri
 
 function tokens(value: string) {
 
-    return new Set(value.toLocaleLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [])
+    const normalized = value.toLocaleLowerCase().replace(/([\p{L}\p{N}_])['’]s\b/gu, "$1")
+    return new Set(normalized.match(/[\p{L}\p{N}_]+/gu) ?? [])
 }
 
 function record(value: unknown) {

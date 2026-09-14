@@ -33,12 +33,10 @@ export default interface Tool {
 
     execute(input: unknown, context: ToolContext): Promise<unknown>
 
-    /**
-     * Defines the execution preview used in the current Task's transcript.
-     * Raw output is preserved for inspection. Reusable memory is selected
-     * separately by the Tool through context.memory.record().
+    /** Selects the result data to persist for this call. Null retains no result data.
+     * The live result remains in the active Task's working context without being stored.
      */
-    modelOutput?(output: unknown): unknown
+    retain(output: unknown, input: unknown): unknown
 }
 
 export type ToolInvocation = Readonly<{
@@ -62,7 +60,7 @@ export type ToolContext = Readonly<{
     memory: Readonly<{
         recall(request: MemoryRecallRequest, options?: MemoryRecallOptions): Promise<readonly MemoryResult[]>
         /** Deliberately retains a useful fact, with its source and recording method.
-         * A Tool may record nothing; execution results are not memory contributions.
+         * Supplements the result data selected by the Tool's retention policy.
          */
         record(value: MemoryRecord): Promise<Operation>
     }>

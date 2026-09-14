@@ -78,6 +78,8 @@ const tasks = defineTool({
     docs,
     input,
     name: "tasks",
+    // History pages refer to existing records; state changes and messages are useful outcomes.
+    retain: (output, request) => request.action === "read" || request.action === "read_block" ? null : output,
     description: "Create, find, inspect, message, control, and coordinate Lemo Tasks.",
     async execute(request, context) {
 

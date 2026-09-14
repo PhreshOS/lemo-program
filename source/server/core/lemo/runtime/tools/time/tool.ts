@@ -10,6 +10,8 @@ const time = defineTool({
     docs,
     input,
     name: "time",
+    // Time is useful to the current cycle; subsequent calls obtain a fresh value.
+    retain: () => null,
     description: "Return the current absolute time as ISO 8601 and Unix milliseconds.",
     async execute() {
 

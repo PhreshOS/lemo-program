@@ -5,6 +5,7 @@ import defineTool from "../../define-tool"
 import waitEvent from "../../wait-event"
 import docs from "./docs.md?raw"
 import { launch } from "../../system-input"
+import { tokenSlice } from "../../../token-budget"
 
 const program = z.string().trim().min(1).describe("Program identity.")
 
@@ -17,7 +18,11 @@ const input = z.discriminatedUnion("action", [
         offset: z.number().int().nonnegative().optional()
     }).strict(),
     z.object({ action: z.literal("inspect"), program }).strict(),
-    z.object({ action: z.literal("agent"), program }).strict(),
+    z.object({
+        action: z.literal("agent"), program,
+        offset: z.number().int().nonnegative().optional(),
+        tokens: z.number().int().min(256).max(16_000).optional()
+    }).strict(),
     z.object({ action: z.literal("getLaunch"), program }).strict(),
     z.object({ action: z.literal("setLaunch"), program, launch }).strict(),
     z.object({
@@ -42,6 +47,8 @@ const programs = defineTool({
     docs,
     input,
     name: "programs",
+    // Keep declarations, launch configuration and bounded discovery results.
+    retain: (output, request) => request.action === "agent" ? null : output,
     description: "Discover PhreshOS Programs and their Program-specific agent documentation.",
     async execute(request, context) {
 
@@ -111,9 +118,11 @@ const programs = defineTool({
             throw new Error(`Program "${program.identity}" has no agent documentation`)
         }
 
+        const offset = request.offset ?? 0
+        const page = tokenSlice(content, request.tokens ?? 2_048, offset)
         return Object.freeze({
             program: program.identity,
-            content
+            content: page.content, offset, next: page.next, tokens: page.tokens, totalTokens: page.total
         })
     }
 })
@@ -154,11 +163,11 @@ function registryPayload(event: "create" | "forget" | "install" | "uninstall", v
 
     if (event === "uninstall") {
 
-        const payload = value as { program: Program, everything: boolean }
+        const payload = value as { program: Program, purge: boolean }
 
         return Object.freeze({
             program: eventProgram(payload.program),
-            everything: payload.everything
+            purge: payload.purge
         })
     }
 

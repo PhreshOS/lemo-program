@@ -26,7 +26,8 @@ export const clientLaunch = z.object({
 } satisfies Shape<ClientLaunch>).strict()
 export const launch = z.object({
     name: identity.optional(),
+    replace: z.boolean().optional().describe("Replace the existing Process with this Program-local name. Requires name."),
     server: z.union([z.boolean(), serverLaunch]).optional(),
     client: z.union([z.boolean(), clientLaunch]).optional(),
     options: z.record(z.string(), z.string()).optional()
-} satisfies Shape<Launch>).strict()
+} satisfies Shape<Launch>).strict().refine(value => value.replace === undefined || value.name !== undefined, "Process replacement requires a name")

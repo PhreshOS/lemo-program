@@ -145,14 +145,14 @@ test("web contract", async () => {
 
       const complete = { ...read, content: "Full source 🌍\n".repeat(5000) }
       const original = structuredClone(complete)
-      const preview = web.modelOutput?.(complete) as { content: string, truncated: boolean, tokens: number, totalTokens: number }
+      const preview = web.retain(complete, {}) as { content: string, truncated: boolean, tokens: number, totalTokens: number }
 
       assert.equal(preview.truncated, true)
       assert(preview.tokens <= 2048)
       assert(preview.totalTokens > preview.tokens)
       assert(complete.content.startsWith(preview.content))
       assert.deepEqual(complete, original, "Model projection must not modify the durable result")
-      assert.deepEqual(web.modelOutput?.(read), {
+      assert.deepEqual(web.retain(read, {}), {
           ...read,
           truncated: false,
           tokens: estimatedTokens(read.content),

@@ -17,6 +17,8 @@ const tools = defineTool({
     docs,
     input,
     name: "tools",
+    // Loaded Tool identities are recorded by tools.load; definitions are disposable.
+    retain: () => null,
     description: "Discover and load Runtime tools for later Model cycles; never pass another Tool's input here.",
     async execute(request, context) {
 

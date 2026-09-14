@@ -15,7 +15,7 @@ import { assertRunning, waitForRun, type TaskRun } from "./executions"
 import { estimatedTokens, tokenSlice } from "./token-budget"
 import system from "./system.md?raw"
 
-/** One disposable Model cycle reconstructed entirely from durable operations. */
+/** One disposable Model cycle built from retained history and the active Task's live results. */
 export default class Cycle {
 
     public static async run(
@@ -23,7 +23,8 @@ export default class Cycle {
         memory: Memory,
         run: TaskRun,
         model: LLMModel,
-        tools: readonly LLMToolDefinition[]
+        tools: readonly LLMToolDefinition[],
+        liveResults: readonly Operation[] = []
     ): Promise<CycleResult> {
 
         const started = await run.append("cycle.started", {
@@ -35,14 +36,23 @@ export default class Cycle {
         })
 
         try {
-            const budgets = await cycleContextBudgets(model)
+            const overhead = estimatedTokens(JSON.stringify({ system, tools })) + 1_024
+            const previousResponse = await database.firstOperation(run.task, "model.message")
+            const budgets = await cycleContextBudgets(model, previousResponse ? "ongoing" : "initial", overhead)
             const history = await cycleHistory(database, run.task)
-            const transcript = await cycleTranscript(database, run.task, budgets.transcript)
-            const request = modelRequest(
-                transcript,
-                await memory.context(history, budgets.perceptualField),
+            const transcript = await cycleTranscript(database, run.task, budgets.transcript, liveResults)
+            const request: LLMModelRequest = Object.freeze({
+                messages: Object.freeze([
+                    { role: "system" as const, content: system.trim() },
+                    { role: "user" as const, content: await memory.context(history, budgets.perceptualField) },
+                    ...transcript
+                ]),
                 tools
-            )
+            })
+
+            if (estimatedTokens(JSON.stringify(request)) > budgets.input) {
+                throw new Error("The Model request exceeds the Task's context budget")
+            }
 
             let output = ""
             const toolCalls: LLMToolCall[] = []
@@ -111,16 +121,12 @@ export default class Cycle {
     }
 }
 
-function modelRequest(
+function transcriptMessages(
     operations: readonly Operation[],
-    memory: string,
-    tools: readonly LLMToolDefinition[]
-): LLMModelRequest {
+    blockTokens: number
+): readonly LLMMessage[] {
 
-    const messages: LLMMessage[] = [
-        { role: "system", content: system.trim() },
-        { role: "user", content: memory }
-    ]
+    const messages: LLMMessage[] = []
     const calls = new Set<string>()
 
     for (const operation of operations) {
@@ -134,13 +140,15 @@ function modelRequest(
 
         if (operation.kind === "model.message" && typeof payload?.content === "string") {
 
-            const requested = toolCalls(payload.toolCalls)
+            const requested = toolCalls(payload.toolCalls)?.map(call => ({
+                ...call, input: boundedValue(call.input, operation, blockTokens)
+            }))
 
             for (const call of requested ?? []) calls.add(call.id)
 
             messages.push({
                 role: "assistant",
-                content: modelMessageContent(payload.content, operation),
+                content: payload.content,
                 toolCalls: requested
             })
         }
@@ -158,7 +166,7 @@ function modelRequest(
                 role: "tool",
                 call: payload.call,
                 name: payload.name,
-                content: JSON.stringify(modelToolResult(payload, operation))
+                content: JSON.stringify(modelToolResult(payload, operation, blockTokens))
             })
         }
     }
@@ -168,45 +176,32 @@ function modelRequest(
         throw new Error("A Task has no valid input operation")
     }
 
-    return Object.freeze({
-        messages: Object.freeze(messages.map(message => Object.freeze(message))),
-        tools
-    })
+    return Object.freeze(messages.map(message => Object.freeze(message)))
 }
 
-async function cycleTranscript(database: LemoDatabase, task: string, maximumTokens: number) {
+async function cycleTranscript(database: LemoDatabase, task: string, maximumTokens: number, liveResults: readonly Operation[]) {
 
-    const available = await database.transcriptOperations(task, maximumTranscriptOperations)
+    const live = new Map(liveResults.map(result => [result.id, result]))
+    const available = (await database.transcriptOperations(task))
+        .map(operation => live.get(operation.id) ?? operation)
     const input = await database.firstOperation(task, "task.input")
 
     if (!input) throw new Error("A Task has no input operation")
 
-    // An assistant turn and its Tool results are one protocol unit. Never
-    // trim a call away while keeping its result, or keep a call without results.
-    const turns: Operation[][] = []
-    for (const operation of available) {
-        if (operation.kind === "model.message") turns.push([operation])
-        else turns.at(-1)?.push(operation)
+    // Keep the objective, reasoning and every call/result pair. Only payloads
+    // become explicit excerpts when the actual Model capacity requires it.
+    const transcript = [input, ...available]
+    let blockTokens = maximumTokens
+    let messages = transcriptMessages(transcript, blockTokens)
+
+    while (estimatedTokens(JSON.stringify(messages)) > maximumTokens && blockTokens > 8) {
+        blockTokens = Math.max(8, Math.floor(blockTokens / 2))
+        messages = transcriptMessages(transcript, blockTokens)
     }
-    const transcript: Operation[] = []
-    let tokens = estimatedTokens(JSON.stringify(record(input.payload)?.input))
-
-    for (let index = turns.length - 1; index >= 0; index--) {
-        const turn = turns[index]!
-        const messages = modelRequest([input, ...turn], "", []).messages.slice(3)
-        // Measure exactly the projection sent to the Model, including complete
-        // call arguments, rather than assuming every operation is a small block.
-        const addition = estimatedTokens(JSON.stringify(messages))
-
-        if (tokens + addition > maximumTokens && transcript.length) break
-
-        // The latest exchange must survive even when it alone exceeds the
-        // working target; its result is required to continue the current work.
-        transcript.unshift(...turn)
-        tokens += addition
+    if (estimatedTokens(JSON.stringify(messages)) > maximumTokens) {
+        throw new Error("The Task conversation exceeds this Model's available context even with Tool payload excerpts; use a Model with a larger context window")
     }
-
-    return Object.freeze([input, ...transcript])
+    return Object.freeze(messages)
 }
 
 async function cycleHistory(database: LemoDatabase, task: string) {
@@ -237,22 +232,23 @@ async function cycleHistory(database: LemoDatabase, task: string) {
         : Object.freeze(operations)
 }
 
-const maximumTranscriptOperations = 512
-const maximumTranscriptBlockTokens = 2_048
 const taskCycleOperationLimit = 1_024
 
-function modelToolResult(payload: Record<string, unknown>, operation: Operation) {
+function modelToolResult(payload: Record<string, unknown>, operation: Operation, maximum: number) {
+    const value = {
+        call: payload.call, name: payload.name, ok: payload.ok,
+        ...(payload.ok === true ? { output: payload.notice ?? payload.output } : { error: payload.error }),
+        ...(payload.retained === false && payload.transient !== true ? {
+            notice: "This result was not saved by the Tool and its live context is unavailable. Read it again when needed; null is not the original result."
+        } : {})
+    }
+    return boundedValue(value, operation, maximum, payload.transient === true)
+}
 
-    const value = payload.ok === true && "modelOutput" in payload
-        ? Object.freeze({
-            call: payload.call,
-            name: payload.name,
-            ok: true,
-            output: payload.modelOutput
-        })
-        : payload
+function boundedValue(value: unknown, operation: Operation, maximum: number, transient = false) {
     const serialized = JSON.stringify(value)
-    const slice = tokenSlice(serialized, maximumTranscriptBlockTokens)
+    if (serialized === undefined) return null
+    const slice = tokenSlice(serialized, maximum)
 
     if (slice.next === null) return value
 
@@ -260,17 +256,11 @@ function modelToolResult(payload: Record<string, unknown>, operation: Operation)
         truncated: true,
         preview: slice.content,
         tokens: slice.total,
-        block: blockReference(operation)
+        ...(transient ? {
+            note: "Live result excerpt. Only Tool-selected data is retained; request a narrower scope for other details.",
+            retainedBlock: blockReference(operation)
+        } : { block: blockReference(operation) })
     })
-}
-
-function modelMessageContent(content: string, operation: Operation) {
-
-    const slice = tokenSlice(content, maximumTranscriptBlockTokens)
-
-    return slice.next === null
-        ? content
-        : `${slice.content}\n\n[truncated; ${slice.total} estimated tokens; retrieve ${JSON.stringify(blockReference(operation))}]`
 }
 
 function blockReference(operation: Operation) {

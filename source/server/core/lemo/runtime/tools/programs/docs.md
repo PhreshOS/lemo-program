@@ -12,6 +12,11 @@ to read that Program's own launches, events, payloads, results, and cleanup
 rules. Those rules belong to the Program; generic Process and Endpoint
 mechanics remain part of PhreshOS.
 
+`agent` reads token-bounded documentation pages from the Program. `tokens`
+defaults to 2,048 estimated tokens and accepts 256–16,000. Continue from the
+returned `next` as `offset` until it is `null`. These pages are delivered live;
+the Tool retains discovery, declaration, and launch results instead.
+
 Inspection includes the resolved Server and Client declarations: `start` and
 `service` defaults, plus the Client's title, size, position, layer, minimize,
 and maximize defaults. These describe launch defaults, not live Endpoint or

@@ -8,6 +8,8 @@ const prompt = defineTool({
     docs,
     input: interactivePromptRequestSchema,
     name: "prompt",
+    // The validated user response is the durable result of the prompt.
+    retain: output => output,
     description: "Present a structured form or interactive HTML document to the user and wait for its result.",
     async execute(request, context) {
 

@@ -459,20 +459,18 @@ export default class LemoDatabase {
         return write
     }
 
-    /** Reconstructs a bounded Model transcript without raw streaming events. */
-    public async transcriptOperations(task: string, limit: number): Promise<readonly Operation[]> {
+    /** Reads a Task's complete transcript; Model context pressure is not an operation-count limit. */
+    public async transcriptOperations(task: string): Promise<readonly Operation[]> {
 
-        const bounded = contextLimit(limit)
         const rows = await this.query<OperationRow>(`
             SELECT sequence, id, task_id, parent_id, kind, payload, created_at
             FROM operations
             WHERE task_id = ?
               AND kind IN ('model.message', 'tool.result')
-            ORDER BY sequence DESC
-            LIMIT ?
-        `, [task, bounded])
+            ORDER BY sequence ASC
+        `, [task])
 
-        return Object.freeze(rows.map(operation).reverse())
+        return Object.freeze(rows.map(operation))
     }
 
     public async appendToTask(task: string, kind: string, payload: unknown): Promise<Operation> {
@@ -1016,7 +1014,7 @@ const lifecycleKinds = [
     "task.failed"
 ] as const
 
-const contextKinds = ["memory.recorded"] as const
+const contextKinds = ["task.input", "model.message", "memory.recorded", "tool.result", "task.failed"] as const
 
 const taskStates = `
     WITH raw_task_states AS (

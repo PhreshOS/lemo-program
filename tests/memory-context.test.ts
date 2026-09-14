@@ -28,19 +28,22 @@ async function remember(memory: Memory, task: string, content: string, source = 
     })
 }
 
-test("model capacity is a ceiling, not a target for context growth", async () => {
-    const normal = { perceptualField: 8_000, transcript: 12_000 }
-    for (const size of [null, 124_000, 1_048_576]) {
-        expect(await cycleContextBudgets({ async contextWindow() { return size } })).toEqual(normal)
+test.each(["initial", "ongoing"] as const)("%s Task context scales with Model capacity and includes request overhead", async phase => {
+    const percentage = phase === "initial" ? 35 : 70
+    for (const capacity of [null, 16_384, 124_000, 1_048_576]) {
+        const budgets = await cycleContextBudgets({ async contextWindow() { return capacity } }, phase, 2_000)
+        const ceiling = Math.floor((capacity ?? 65_536) * percentage / 100)
+        expect(budgets.input).toBe(ceiling)
+        expect(budgets.perceptualField + budgets.transcript + 2_000).toBe(ceiling)
+        expect(budgets.perceptualField).toBeLessThanOrEqual(8_000)
+        expect(budgets.transcript).toBeGreaterThan(0)
     }
-    const smaller = await cycleContextBudgets({ async contextWindow() { return 16_384 } })
-    expect(smaller.perceptualField + smaller.transcript).toBe(12_288)
-    expect(smaller.perceptualField).toBeLessThan(normal.perceptualField)
-    await expect(cycleContextBudgets({ async contextWindow() { return 1 } })).rejects.toThrow("invalid context window")
-    await expect(cycleContextBudgets({ async contextWindow() { return 4_096 } })).rejects.toThrow("no room")
+    await expect(cycleContextBudgets({ async contextWindow() { return 1 } }, phase)).rejects.toThrow("invalid context window")
+    await expect(cycleContextBudgets({ async contextWindow() { return 2 } }, phase)).rejects.toThrow("no room")
+    await expect(cycleContextBudgets({ async contextWindow() { return 16_384 } }, phase, 13_000)).rejects.toThrow("no room")
 })
 
-test("only Tool-selected facts enter recall; execution previews and failures remain history", async () => {
+test("recall searches conversations, retained results, explicit facts and failures", async () => {
     const { database, memory } = await fixture()
     await database.createTask("previous", { input: "needle raw user request" })
     await database.appendToTask("previous", "model.message", { content: "needle raw assistant answer" })
@@ -49,23 +52,25 @@ test("only Tool-selected facts enter recall; execution previews and failures rem
     })
     await database.appendToTask("previous", "tool.result", {
         call: "call", name: "files", ok: true,
-        output: "needle full output", modelOutput: "needle execution preview"
+        output: "needle retained output"
     })
     await database.appendToTask("previous", "tool.result", {
         call: "failed", name: "files", ok: false, error: "needle failure"
     })
     await database.appendToTask("previous", "task.failed", { message: "needle task failure" })
-    expect(await memory.recall({ query: "needle" })).toEqual([])
-
     const fact = await remember(memory, "previous", "needle selected fact")
     const results = await memory.recall({ query: "needle" })
-    expect(results).toHaveLength(1)
-    expect(results[0]).toMatchObject({
+    expect(results).toHaveLength(6)
+    expect(new Set(results.map(result => result.kind))).toEqual(new Set([
+        "task.input", "model.message", "tool.result", "task.failed", "memory.recorded"
+    ]))
+    expect(results.find(result => result.operation === fact.id)).toMatchObject({
         operation: fact.id, content: "needle selected fact", tool: "files",
         source: "filesystem:project", method: "files.write", kind: "memory.recorded"
     })
-    expect((await database.recentContextOperations(100)).map(value => value.id)).toEqual([fact.id])
-    expect((await database.searchContextOperations(["needle"], 100)).map(value => value.id)).toEqual([fact.id])
+    expect((await database.recentContextOperations(100))).toHaveLength(6)
+    expect((await database.searchContextOperations(["needle"], 100))).toHaveLength(6)
+    expect(JSON.stringify(results)).not.toContain("needle raw arguments")
 })
 
 test("large neighbouring histories do not fill a new Task's context", async () => {
@@ -77,7 +82,7 @@ test("large neighbouring histories do not fill a new Task's context", async () =
             await database.appendToTask(task, "model.message", { content: "HISTORY_SENTINEL ".repeat(1_000) })
             await database.appendToTask(task, "tool.result", {
                 call: `call-${turn}`, name: "web", ok: true,
-                output: "RAW_SENTINEL ".repeat(1_000), modelOutput: "PREVIEW_SENTINEL ".repeat(500)
+                output: "RETAINED_SENTINEL ".repeat(1_000)
             })
         }
     }
@@ -86,7 +91,7 @@ test("large neighbouring histories do not fill a new Task's context", async () =
     const operations = (await database.operations("current", { limit: 10, order: "oldest" })).operations
     const context = await memory.context(operations, 845_625)
     expect(estimatedTokens(context)).toBeLessThan(1_000)
-    expect(context).not.toMatch(/HISTORY_SENTINEL|RAW_SENTINEL|PREVIEW_SENTINEL/)
+    expect(context).not.toMatch(/HISTORY_SENTINEL|RETAINED_SENTINEL/)
     expect(context).toContain('budget="8000"')
     expect(Number(source.prepare("SELECT count(*) AS count FROM operations").get()!.count))
         .toBe(Number(before!.count) + 1)
@@ -152,26 +157,25 @@ test("a bounded recall admits small facts and keeps complete records available f
     await expect(memory.recall({ query: "needle", budget: 120 })).rejects.toThrow("Memory recall budget")
 })
 
-test("raw execution results remain inspectable independently of memory", async () => {
+test("complete Tool-retained results stay searchable and accessible through paging", async () => {
     const { database, memory } = await fixture()
     await database.createTask("previous", { input: "Read the workspace" })
     const result = await database.appendToTask("previous", "tool.result", {
         call: "read", name: "files", ok: true,
-        output: { content: "RAW_FILE_SENTINEL ".repeat(2_000) },
-        modelOutput: { content: "short preview" }
+        output: { content: "RETAINED_FILE_SENTINEL ".repeat(2_000) }
     })
-    expect(await memory.recall({ query: "RAW_FILE_SENTINEL" })).toEqual([])
-    expect((await memory.task("previous", 1_000)).content).toContain("short preview")
-    expect((await memory.block("previous", result.id, 0, 256)).content).toContain("RAW_FILE_SENTINEL")
+    expect((await memory.recall({ query: "RETAINED_FILE_SENTINEL" }))[0]).toMatchObject({ operation: result.id, truncated: true })
+    expect((await memory.task("previous", 1_000)).content).toContain("RETAINED_FILE_SENTINEL")
+    expect((await memory.block("previous", result.id, 0, 256)).content).toContain("RETAINED_FILE_SENTINEL")
 })
 
-async function captureCycle(database: LemoDatabase, memory: Memory, task: string) {
+async function captureCycle(database: LemoDatabase, memory: Memory, task: string, capacity = 1_048_576) {
     let captured: LLMModelRequest | undefined
     const model: LLMModel = {
         id: "capture",
         provider: { identity: "test", name: "Test", active: true, async models() { return [model] } },
         reasoning: null,
-        async contextWindow() { return 1_048_576 },
+        async contextWindow() { return capacity },
         async reasoningLevels() { return null },
         async setReasoning() {},
         async *generate(request) { captured = request; return null }
@@ -182,6 +186,39 @@ async function captureCycle(database: LemoDatabase, memory: Memory, task: string
     }, model, [])
     return captured!
 }
+
+test("the first request uses 35%, then the same Task can grow to 70% across runs and reconstruction", async () => {
+    const { source, database, memory } = await fixture()
+    const capacity = 100_000
+    await database.createTask("current", { input: "Keep all decisions" })
+    const initial = await captureCycle(database, memory, "current", capacity)
+    expect(estimatedTokens(JSON.stringify(initial))).toBeLessThanOrEqual(35_000)
+
+    const decision = "Important decision. ".repeat(8_000)
+    await database.appendToTask("current", "model.message", { content: decision })
+    const ongoing = await captureCycle(database, memory, "current", capacity)
+    expect(ongoing.messages.some(message => message.role === "assistant" && message.content === decision)).toBe(true)
+    expect(estimatedTokens(JSON.stringify(ongoing))).toBeGreaterThan(35_000)
+    expect(estimatedTokens(JSON.stringify(ongoing))).toBeLessThanOrEqual(70_000)
+
+    await database.appendToTask("current", "task.paused", { reason: "requested" })
+    await database.appendToTask("current", "task.run.started", { run: "continued-run", reason: "continued" })
+    const reopened = await LemoDatabase.open(source)
+    const continued = await captureCycle(reopened, new Memory(reopened), "current", capacity)
+    expect(continued.messages.some(message => message.role === "assistant" && message.content === decision)).toBe(true)
+    expect(estimatedTokens(JSON.stringify(continued))).toBeGreaterThan(35_000)
+    expect(estimatedTokens(JSON.stringify(continued))).toBeLessThanOrEqual(70_000)
+})
+
+test("a Task without a Model response cannot bypass the initial ceiling by starting another run", async () => {
+    const { database, memory } = await fixture()
+    const input = "x".repeat(150_000)
+    await database.createTask("current", { input })
+    await expect(captureCycle(database, memory, "current", 100_000)).rejects.toThrow("Task conversation exceeds")
+    await database.appendToTask("current", "task.run.started", { run: "retry", reason: "continued" })
+    await expect(captureCycle(database, memory, "current", 100_000)).rejects.toThrow("Task conversation exceeds")
+    expect((await database.firstOperation("current", "task.input"))!.payload).toMatchObject({ input })
+})
 
 test("transcript budgeting counts full arguments and retains complete exchanges", async () => {
     const { database, memory } = await fixture()
@@ -198,27 +235,126 @@ test("transcript budgeting counts full arguments and retains complete exchanges"
     const request = await captureCycle(database, memory, "current")
     const assistants = request.messages.filter(message => message.role === "assistant")
     const results = request.messages.filter(message => message.role === "tool")
-    expect(assistants.length).toBeLessThan(4)
+    expect(assistants).toHaveLength(10)
     expect(results.map(result => result.call)).toEqual(assistants.flatMap(message =>
         message.toolCalls?.map(call => call.id) ?? []))
     expect(results.at(-1)?.call).toBe("call-9")
-    expect(estimatedTokens(JSON.stringify(request.messages.slice(3)))).toBeLessThan(12_000)
+    expect(estimatedTokens(JSON.stringify(request.messages.slice(2)))).toBeGreaterThan(30_000)
 })
 
-test("the latest oversized exchange stays intact without retaining older exchanges", async () => {
+test("oversized arguments are compacted without changing retained history or breaking call/result pairs", async () => {
     const { database, memory } = await fixture()
     await database.createTask("current", { input: "Write the file" })
     await database.appendToTask("current", "model.message", { content: "OLDER_TURN" })
-    await database.appendToTask("current", "model.message", {
+    const call = await database.appendToTask("current", "model.message", {
         content: "Writing",
         toolCalls: [{ id: "large", name: "files", input: { content: "x".repeat(60_000) } }]
     })
     await database.appendToTask("current", "tool.result", {
         call: "large", name: "files", ok: true, output: { saved: true }
     })
-    const request = await captureCycle(database, memory, "current")
+    const request = await captureCycle(database, memory, "current", 16_384)
     const assistants = request.messages.filter(message => message.role === "assistant")
-    expect(assistants).toHaveLength(1)
-    expect(assistants[0]!.toolCalls?.[0]?.input).toEqual({ content: "x".repeat(60_000) })
+    const latest = assistants.at(-1)!
+    expect(latest.toolCalls?.[0]?.input).toMatchObject({ truncated: true, block: { operation: call.id } })
     expect(request.messages.filter(message => message.role === "tool")).toHaveLength(1)
+    expect(estimatedTokens(JSON.stringify(request.messages.slice(2)))).toBeLessThanOrEqual(12_000)
+    expect((await database.operation("current", call.id))!.payload).toMatchObject({
+        toolCalls: [{ input: { content: "x".repeat(60_000) } }]
+    })
+})
+
+test("a user's earlier name remains retrievable in another Task without an explicit memory record", async () => {
+    const { database, memory } = await fixture()
+    const name = await database.createTask("introduction", { input: "My name is Zouhir" })
+    await database.appendToTask("introduction", "model.message", { content: "Hi Zouhir" })
+    await database.createTask("question", { input: "What is my name?" })
+    const results = await memory.recall({ query: "user's name identity" }, { excludeTask: "question" })
+    expect(results.some(result => result.operation === name.id && result.source === "user")).toBe(true)
+    const request = await captureCycle(database, memory, "question")
+    expect(JSON.stringify(request.messages)).toContain("My name is Zouhir")
+})
+
+test("parallel Tool exchanges remain paired when individually large results are compacted", async () => {
+    const { database, memory } = await fixture()
+    await database.createTask("current", { input: "Read the sources" })
+    const calls = Array.from({ length: 24 }, (_, index) => ({ id: `call-${index}`, name: "files", input: { path: `${index}.txt` } }))
+    await database.appendToTask("current", "model.message", { content: "", toolCalls: calls })
+    for (const call of calls) await database.appendToTask("current", "tool.result", {
+        call: call.id, name: call.name, ok: true, output: "x".repeat(60_000)
+    })
+    const request = await captureCycle(database, memory, "current", 24_000)
+    expect(request.messages.filter(value => value.role === "tool").map(value => value.call)).toEqual(calls.map(call => call.id))
+    expect(estimatedTokens(JSON.stringify(request.messages.slice(2)))).toBeLessThanOrEqual(12_000)
+})
+
+test("a Task transcript is not cut off by an arbitrary operation count", async () => {
+    const { database } = await fixture()
+    await database.createTask("current", { input: "Read sources" })
+    const message = await database.appendToTask("current", "model.message", {
+        content: "", toolCalls: Array.from({ length: 5 }, (_, index) => ({ id: `${index}`, name: "files", input: {} }))
+    })
+    for (let index = 0; index < 5; index++) await database.appendToTask("current", "tool.result", {
+        call: `${index}`, name: "files", ok: true, output: index
+    })
+    for (let index = 0; index < 600; index++) await database.appendToTask("current", "model.message", { content: `Decision ${index}` })
+    const operations = await database.transcriptOperations("current")
+    expect(operations[0]!.id).toBe(message.id)
+    expect(operations).toHaveLength(606)
+})
+
+test("the complete user request remains available when the Model has capacity", async () => {
+    const { database, memory } = await fixture()
+    const input = "user content ".repeat(30_000)
+    const operation = await database.createTask("current", { input })
+    const request = await captureCycle(database, memory, "current")
+    expect(request.messages[2]!.content).toBe(input)
+    expect((await database.operation("current", operation.id))!.payload).toMatchObject({ input })
+    await expect(captureCycle(database, memory, "current", 16_384)).rejects.toThrow("Task conversation exceeds")
+})
+
+test("Task history cursors cover records omitted by the token budget", async () => {
+    const { database, memory } = await fixture()
+    await database.createTask("previous", { input: "Read sources" })
+    const identities: string[] = []
+    for (let index = 0; index < 12; index++) {
+        const operation = await database.appendToTask("previous", "tool.result", {
+            call: `${index}`, name: "files", ok: true, output: `source ${index}: ` + "x".repeat(8_000)
+        })
+        identities.push(operation.id)
+    }
+    const seen = new Set<string>()
+    let before: number | undefined
+    for (let page = 0; page < 20; page++) {
+        const history = await memory.task("previous", 1_000, before)
+        for (const identity of identities) if (history.content.includes(identity)) seen.add(identity)
+        if (history.before === null) break
+        expect(history.before).toBeLessThan(before ?? Infinity)
+        before = history.before
+    }
+    expect(seen).toEqual(new Set(identities))
+})
+
+test("focused evidence is not crowded out by large catalogs matching generic query words", async () => {
+    const { database, memory } = await fixture()
+    const statement = await database.createTask("introduction", { input: "My name is Zouhir" })
+    const vocabulary = Array.from({ length: 400 }, (_, index) => `unrelated${index}`).join(" ")
+    for (let index = 0; index < 10; index++) {
+        await database.createTask(`catalog-${index}`, { input: "Discover capabilities" })
+        await database.appendToTask(`catalog-${index}`, "tool.result", {
+            call: `${index}`, name: "programs", ok: true,
+            output: { name: "Program", identity: `${index}`, user: "context", vocabulary }
+        })
+    }
+    const results = await memory.recall({ query: "user's name identity", budget: 1_000 })
+    expect(results[0]!.operation).toBe(statement.id)
+})
+
+test("possessive query syntax does not create an unrelated single-letter match", async () => {
+    const { database, memory } = await fixture()
+    const statement = await database.createTask("introduction", { input: "My name is Zouhir" })
+    await database.createTask("unrelated", { input: "It's ready" })
+    const results = await memory.recall({ query: "user’s name identity" })
+    expect(results.map(result => result.operation)).toEqual([statement.id])
+    expect(results[0]!.matches).toEqual(["name"])
 })

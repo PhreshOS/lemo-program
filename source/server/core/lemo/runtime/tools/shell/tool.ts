@@ -8,8 +8,7 @@ import { tokenSlice } from "../../../token-budget"
 import defineTool from "../../define-tool"
 import docs from "./docs.md?raw"
 
-const inlineOutputLimit = 16 * 1_024
-const modelOutputTokens = 2_048
+const retainedOutputTokens = 2_048
 
 const input = z.discriminatedUnion("action", [
     z.object({ action: z.literal("inspect") }).strict(),
@@ -50,39 +49,31 @@ const shell = defineTool({
             signal: result.signal
         })
 
-        if (result.bytes <= inlineOutputLimit) {
-            return Object.freeze({
-                ...common,
-                output: Object.freeze({ type: "inline", bytes: result.bytes, content: result.output })
-            })
-        }
-
         return Object.freeze({
             ...common,
             output: Object.freeze({
-                type: "stored",
                 bytes: result.bytes,
                 content: result.output
             })
         })
     },
-    modelOutput(output) {
+    retain(output) {
 
         const value = record(output)
         const result = record(value?.output)
 
-        if (result?.type !== "stored" || typeof result.content !== "string") return output
+        if (typeof result?.content !== "string") return output
 
-        const preview = tokenSlice(result.content, modelOutputTokens)
+        const preview = tokenSlice(result.content, retainedOutputTokens)
 
         return Object.freeze({
             ...value,
             output: Object.freeze({
-                type: "stored",
                 bytes: result.bytes,
-                preview: preview.content,
+                content: preview.content,
                 truncated: preview.next !== null,
-                tokens: preview.total
+                tokens: preview.tokens,
+                totalTokens: preview.total
             })
         })
     }

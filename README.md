@@ -24,20 +24,34 @@ Provider implementations. Providers own discovery and transport; Models own
 their context-window and reasoning capabilities.
 
 A Task is durable ordered history. A Cycle is one disposable Model operation
-reconstructed from that history. Tools are discoverable contracts whose input,
+reconstructed from that history and the active Task's live Tool results.
+Tools are discoverable contracts whose input,
 state, and result are validated, executed, recorded, and projected to Clients.
 
-Tools decide which facts to retain through `context.memory.record()`, including
-their source and recording method. A Tool may retain nothing. Its
-`modelOutput()` controls the execution preview for the current Task, independently
-of memory. Complete operation history remains available through `tasks.read`
-and `tasks.read_block`.
+Every Tool defines `retain(output, input)` to select the result data saved for
+each call; returning `null` retains no result data. The live result is available
+throughout the active Task without being persisted. It survives pause/continue
+in the same Lemo process and is released when the Task finishes or is cancelled.
+After a process restart, only Tool-retained data is available; other results are
+explicitly marked unavailable. Tools may also record explicit facts
+through `context.memory.record()`, including their source and recording method.
+Conversation, selected results, explicit facts, and failures remain searchable.
+`tasks.read` and `tasks.read_block` provide bounded access to retained history.
 
-Each Cycle recalls relevant, deduplicated facts within an 8,000 estimated-token
-context budget and a 12,000 estimated-token target for recent transcript.
-The current request and latest complete Tool exchange remain intact even when
-they exceed that working target. Model capacity can reduce these budgets but
-does not expand them. Automatic recall does not reinforce its own selections.
+Each Cycle recalls relevant, deduplicated cross-Task evidence within at most
+8,000 estimated tokens. Initial input is capped at 35% of the Model's context
+window; after the first Model response, ongoing Task input is capped at 70%.
+These ceilings include instructions, Tool definitions, recalled evidence, and
+the Task conversation. Continuing a paused Task with an existing response uses
+the ongoing ceiling. When capacity is unknown, a 65,536-token fallback is used.
+Capacity is a ceiling, not a target to fill with history from other Tasks.
+
+The Task's user request, assistant messages, and call/result pairs remain in
+context. Under capacity pressure, large Tool arguments/results become labelled
+excerpts without rewriting their live or retained records. If the conversation
+itself cannot fit even with excerpts, generation fails explicitly rather than
+silently losing earlier decisions. Token budgets are UTF-8 estimates, not exact
+Model token counts. Automatic recall does not reinforce its own selections.
 
 ## Installation
 

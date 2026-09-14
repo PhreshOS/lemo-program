@@ -69,6 +69,8 @@ const files = defineTool({
     docs,
     input,
     name: "files",
+    // Preserve the requested file page/revision or mutation receipt for later work.
+    retain: output => output,
     description: "Inspect and manage UTF-8 files and directories, starting from the user's home directory.",
     observation: request => request.action === "list" || request.action === "inspect" || request.action === "read",
     approval(request) {
