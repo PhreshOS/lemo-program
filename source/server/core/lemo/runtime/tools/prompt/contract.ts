@@ -4,7 +4,7 @@ const key = z.string().trim().min(1).max(64)
 const label = z.string().trim().min(1).max(160)
 const description = z.string().trim().min(1).max(500).optional()
 
-const option = z.strictObject({
+const option = z.object({
     value: z.string().min(1).max(200),
     label
 })
@@ -17,19 +17,19 @@ const common = {
 }
 
 const field = z.discriminatedUnion("type", [
-    z.strictObject({
+    z.object({
         ...common,
         type: z.literal("text"),
         placeholder: z.string().max(300).optional(),
         value: z.string().max(4_000).optional()
     }),
-    z.strictObject({
+    z.object({
         ...common,
         type: z.literal("textarea"),
         placeholder: z.string().max(300).optional(),
         value: z.string().max(16_000).optional()
     }),
-    z.strictObject({
+    z.object({
         ...common,
         type: z.literal("number"),
         minimum: z.number().finite().optional(),
@@ -39,29 +39,29 @@ const field = z.discriminatedUnion("type", [
     }).refine(value => value.minimum === undefined || value.maximum === undefined || value.minimum <= value.maximum, {
         message: "A number field's minimum cannot exceed its maximum"
     }),
-    z.strictObject({
+    z.object({
         ...common,
         type: z.literal("boolean"),
         value: z.boolean().optional()
     }),
-    z.strictObject({
+    z.object({
         ...common,
         type: z.literal("select"),
         options: z.array(option).min(1).max(100),
         value: z.string().max(200).optional()
     }),
-    z.strictObject({
+    z.object({
         ...common,
         type: z.literal("multi-select"),
         options: z.array(option).min(1).max(100),
         value: z.array(z.string().max(200)).max(100).optional()
     }),
-    z.strictObject({
+    z.object({
         ...common,
         type: z.literal("date"),
         value: z.iso.date().optional()
     }),
-    z.strictObject({
+    z.object({
         ...common,
         type: z.literal("confirmation"),
         value: z.boolean().optional()
@@ -70,7 +70,7 @@ const field = z.discriminatedUnion("type", [
 
 export type PromptField = Readonly<z.infer<typeof field>>
 
-const form = z.strictObject({
+const form = z.object({
     type: z.literal("form"),
     title: z.string().trim().min(1).max(200).optional(),
     content: z.string().trim().min(1).max(4_000).optional(),
@@ -93,7 +93,7 @@ const form = z.strictObject({
     }
 })
 
-const html = z.strictObject({
+const html = z.object({
     type: z.literal("html"),
     title: z.string().trim().min(1).max(200).optional(),
     html: z.string().trim().min(1).max(100_000)
@@ -117,12 +117,12 @@ export const promptValueSchema: z.ZodType<PromptValue> = z.lazy(() => z.union([
 ]))
 
 export const promptResponseSchema = z.discriminatedUnion("type", [
-    z.strictObject({
+    z.object({
         type: z.literal("submitted"),
         values: z.record(z.string().trim().min(1).max(64), promptValueSchema)
     }),
-    z.strictObject({ type: z.literal("cancelled") }),
-    z.strictObject({
+    z.object({ type: z.literal("cancelled") }),
+    z.object({
         type: z.literal("failed"),
         error: z.string().trim().min(1).max(1_000)
     })
@@ -142,15 +142,14 @@ export function parsePromptResponse(request: PromptRequest, value: unknown): Pro
 
     if (request.type === "html") return answer
 
-    const expected = new Map(request.fields.map(item => [item.key, item]))
-
-    for (const key of Object.keys(answer.values)) {
-        if (!expected.has(key)) throw new Error(`Prompt returned unknown field "${key}"`)
-    }
-
     for (const item of request.fields) validateField(item, answer.values[item.key])
 
-    return answer
+    return {
+        ...answer,
+        values: Object.fromEntries(request.fields.flatMap(field => (
+            Object.hasOwn(answer.values, field.key) ? [[field.key, answer.values[field.key]]] : []
+        )))
+    }
 }
 
 export function validatePromptValues(

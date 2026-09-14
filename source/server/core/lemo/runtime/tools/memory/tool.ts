@@ -10,7 +10,7 @@ import docs from "./docs.md?raw"
 const input = z.object({
     query: z.string().trim().min(1).describe("Required semantic query describing the context to recall."),
     budget: z.number().int().min(minimumMemoryBudget).max(maximumMemoryBudget).optional()
-}).strict()
+})
 
 /** Recalls Memory through the invocation's complete Lemo context. */
 const memory = defineTool({

@@ -19,18 +19,18 @@ const payload = z.union([
 ])
 
 const input = z.union([
-    z.object({ action: z.literal("inspect"), ...coordinates, endpoint }).strict(),
-    z.object({ action: z.literal("start"), ...coordinates, endpoint: z.literal("server"), launch: serverLaunch.optional() }).strict(),
-    z.object({ action: z.literal("start"), ...coordinates, endpoint: z.literal("client"), launch: clientLaunch.optional() }).strict(),
-    z.object({ action: z.literal("stop"), ...coordinates, endpoint }).strict(),
-    z.object({ action: z.literal("waitReady"), ...coordinates, endpoint: z.literal("server"), timeout }).strict(),
+    z.object({ action: z.literal("inspect"), ...coordinates, endpoint }),
+    z.object({ action: z.literal("start"), ...coordinates, endpoint: z.literal("server"), launch: serverLaunch.optional() }),
+    z.object({ action: z.literal("start"), ...coordinates, endpoint: z.literal("client"), launch: clientLaunch.optional() }),
+    z.object({ action: z.literal("stop"), ...coordinates, endpoint }),
+    z.object({ action: z.literal("waitReady"), ...coordinates, endpoint: z.literal("server"), timeout }),
     z.object({
         action: z.literal("waitLifecycle"),
         ...coordinates,
         endpoint,
         event: z.enum(["start", "stop"]),
         timeout
-    }).strict(),
+    }),
     z.object({
         action: z.literal("ask"),
         ...coordinates,
@@ -38,15 +38,15 @@ const input = z.union([
         event: identity,
         payload: payload.optional(),
         timeout
-    }).strict(),
+    }),
     z.object({
         action: z.literal("publish"),
         ...coordinates,
         endpoint,
         event: identity,
         payload: payload.optional()
-    }).strict(),
-    z.object({ action: z.literal("wait"), ...coordinates, endpoint, event: identity, timeout }).strict()
+    }),
+    z.object({ action: z.literal("wait"), ...coordinates, endpoint, event: identity, timeout })
 ])
 
 /** Reads and controls individual Process Endpoints. */

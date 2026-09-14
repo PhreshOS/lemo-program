@@ -78,8 +78,6 @@ test("web contract", async () => {
           { action: "search", query: "example", count: 0 },
           { action: "search", query: "example", count: 11 },
           { action: "search", query: "example", count: 1.5 },
-          { action: "search", query: "example", url: "https://example.com" },
-          { action: "read", url: "https://example.com", query: "example" },
           { action: "read", url: "file:///etc/hosts" },
           { action: "read", url: "javascript:alert(1)" },
           { action: "read", url: "ftp://example.com" },
@@ -87,6 +85,13 @@ test("web contract", async () => {
           { action: "read", url: "https://user:secret@example.com" },
           { action: "read", url: "https://example.com", maxCharacters: 100_001 }
       ]) assert.throws(() => web.parse(input))
+
+      assert.deepEqual(web.parse({ action: "search", query: "example", extension: true }).input, {
+          action: "search", query: "example", count: 5
+      })
+      assert.deepEqual(web.parse({ action: "read", url: "https://example.com", extension: true }).input, {
+          action: "read", url: "https://example.com", maxCharacters: 20_000
+      })
 
       const search = await execute({ action: "search", query: "example" })
 

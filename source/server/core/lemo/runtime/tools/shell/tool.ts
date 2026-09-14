@@ -11,7 +11,7 @@ import docs from "./docs.md?raw"
 const retainedOutputTokens = 2_048
 
 const input = z.discriminatedUnion("action", [
-    z.object({ action: z.literal("inspect") }).strict(),
+    z.object({ action: z.literal("inspect") }),
     z.object({
         action: z.literal("run"),
         command: z.string().trim().min(1).max(100_000),
@@ -19,7 +19,7 @@ const input = z.discriminatedUnion("action", [
             .describe("Working directory. Defaults to the user's home directory."),
         shell: z.string().trim().min(1).max(4_096).optional()
             .describe("Available shell name or absolute path returned by inspect.")
-    }).strict()
+    })
 ])
 
 /** Executes bounded, non-interactive shell operations without retaining a session. */

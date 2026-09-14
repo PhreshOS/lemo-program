@@ -134,7 +134,7 @@ assert.deepEqual(generationRequests, [{
 }])
 
 assert.throws(() => openRouterConfiguration({}), ZodError)
-assert.throws(() => openRouterConfiguration({ apiKey: "secret", host: "https://example.com" }), ZodError)
+assert.deepEqual(openRouterConfiguration({ apiKey: "secret", extension: true }), { apiKey: "secret" })
 
 const overflowing = new OpenRouterProvider({ apiKey: "secret" }, true, {
     models: {

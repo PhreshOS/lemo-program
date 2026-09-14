@@ -249,7 +249,7 @@ test("llm providers contract", async () => {
 
   assert.throws(() => ollamaCloudConfiguration({}), ZodError)
 
-  assert.throws(() => ollamaCloudConfiguration({ apiKey: "secret", host: "https://example.com" }), ZodError)
+  assert.deepEqual(ollamaCloudConfiguration({ apiKey: "secret", extension: true }), { apiKey: "secret" })
 
   let inactiveCalled = false
 

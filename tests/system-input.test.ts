@@ -17,7 +17,8 @@ test("Process and Endpoint tools carry complete Core launch values", () => {
     }
     expect(endpoints.parse({ action: "start", process: "process-id", endpoint: "client", launch: value.client }).input)
         .toEqual({ action: "start", process: "process-id", endpoint: "client", launch: value.client })
-    expect(() => endpoints.parse({ action: "start", process: "process-id", endpoint: "server", launch: value.client })).toThrow()
+    expect(endpoints.parse({ action: "start", process: "process-id", endpoint: "server", launch: value.client }).input)
+        .toEqual({ action: "start", process: "process-id", endpoint: "server", launch: { service: true } })
     expect(() => launch.parse({ client: { size: { width: "invalid", height: 100 } } })).toThrow()
 })
 

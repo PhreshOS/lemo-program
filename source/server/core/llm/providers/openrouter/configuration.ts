@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-export const openRouterConfigurationSchema = z.strictObject({
+export const openRouterConfigurationSchema = z.object({
     apiKey: z.string().trim().min(1, "OpenRouter configuration requires an API key")
 })
 

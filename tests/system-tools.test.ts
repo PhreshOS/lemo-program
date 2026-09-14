@@ -21,12 +21,17 @@ test("system tools contract", async () => {
       launch: { service: true }
   })
 
-  assert.throws(() => endpoints.parse({
+  assert.deepEqual(endpoints.parse({
       action: "start",
       process: "1f4b222c-25d7-4ba8-85e5-d5e59cfe0928",
       endpoint: "server",
       launch: { title: "Not a Server setting" }
-  }))
+  }).input, {
+      action: "start",
+      process: "1f4b222c-25d7-4ba8-85e5-d5e59cfe0928",
+      endpoint: "server",
+      launch: {}
+  })
 
   assert.deepEqual(processes.parse({
       action: "create",

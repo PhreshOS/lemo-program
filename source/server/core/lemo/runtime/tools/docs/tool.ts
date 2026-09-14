@@ -7,7 +7,7 @@ const input = z.object({
     name: z.string().trim().min(1).describe("Exact Tool name returned by tools discovery."),
     offset: z.number().int().nonnegative().optional(),
     tokens: z.number().int().min(256).max(16_000).optional()
-}).strict()
+})
 
 /** Reads documentation through the invocation's complete Lemo context. */
 const docs = defineTool({

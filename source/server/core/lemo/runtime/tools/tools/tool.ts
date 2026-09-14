@@ -6,7 +6,7 @@ const input = z.object({
     names: z.array(z.string().trim().min(1)).optional()
         .describe("Exact Tool names to load. This does not invoke those Tools."),
     all: z.boolean().optional().describe("Load every ordinary Tool when true.")
-}).strict().refine(value => value.all === true || Boolean(value.names?.length), {
+}).refine(value => value.all === true || Boolean(value.names?.length), {
     message: "Choose tool names or request all tools"
 })
 

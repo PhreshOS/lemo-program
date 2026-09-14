@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-export const ollamaCloudConfigurationSchema = z.strictObject({
+export const ollamaCloudConfigurationSchema = z.object({
     apiKey: z.string().trim().min(1, "Ollama Cloud configuration requires an API key")
 })
 

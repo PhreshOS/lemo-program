@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-export const nvidiaConfigurationSchema = z.strictObject({
+export const nvidiaConfigurationSchema = z.object({
     apiKey: z.string().trim().min(1, "NVIDIA configuration requires an API key")
 })
 

@@ -16,21 +16,21 @@ const input = z.discriminatedUnion("action", [
         search: z.string().trim().min(1).optional(),
         limit: z.number().int().min(1).max(100).optional(),
         offset: z.number().int().nonnegative().optional()
-    }).strict(),
-    z.object({ action: z.literal("inspect"), program }).strict(),
+    }),
+    z.object({ action: z.literal("inspect"), program }),
     z.object({
         action: z.literal("agent"), program,
         offset: z.number().int().nonnegative().optional(),
         tokens: z.number().int().min(256).max(16_000).optional()
-    }).strict(),
-    z.object({ action: z.literal("getLaunch"), program }).strict(),
-    z.object({ action: z.literal("setLaunch"), program, launch }).strict(),
+    }),
+    z.object({ action: z.literal("getLaunch"), program }),
+    z.object({ action: z.literal("setLaunch"), program, launch }),
     z.object({
         action: z.literal("wait"),
         event: z.enum(["create", "forget", "install", "uninstall"]),
         program: program.optional(),
         timeout: z.number().int().positive().optional()
-    }).strict()
+    })
 ]).superRefine((request, context) => {
     if (request.action !== "wait" || !request.program) return
     if (request.event === "forget" || request.event === "uninstall") return

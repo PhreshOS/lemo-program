@@ -59,6 +59,7 @@ function jsonSchema(schema: z.ZodType): Readonly<Record<string, unknown>> {
 
     const generated = z.toJSONSchema(schema, {
         target: "draft-07",
+        io: "input",
         unrepresentable: "any"
     }) as Readonly<Record<string, unknown>>
 

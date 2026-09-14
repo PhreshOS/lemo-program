@@ -16,18 +16,18 @@ const input = z.discriminatedUnion("action", [
         search: identity.optional(),
         limit: z.number().int().min(1).max(100).optional(),
         offset: z.number().int().nonnegative().optional()
-    }).strict(),
-    z.object({ action: z.literal("inspect"), process: identity, program: identity.optional() }).strict(),
-    z.object({ action: z.literal("exit"), process: identity, program: identity.optional() }).strict(),
-    z.object({ action: z.literal("create"), program: identity, launch: launch.optional() }).strict(),
-    z.object({ action: z.literal("findOrCreate"), program: identity, launch: namedLaunch }).strict(),
+    }),
+    z.object({ action: z.literal("inspect"), process: identity, program: identity.optional() }),
+    z.object({ action: z.literal("exit"), process: identity, program: identity.optional() }),
+    z.object({ action: z.literal("create"), program: identity, launch: launch.optional() }),
+    z.object({ action: z.literal("findOrCreate"), program: identity, launch: namedLaunch }),
     z.object({
         action: z.literal("wait"),
         event: z.enum(["create", "exit"]),
         process: identity.optional(),
         program: identity.optional(),
         timeout: z.number().int().positive().optional()
-    }).strict()
+    })
 ]).superRefine((request, context) => {
     if (request.action !== "wait" || !request.process || request.event !== "create") return
 

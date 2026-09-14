@@ -10,11 +10,11 @@ const value = z.union([z.number(), z.string().trim().min(1)])
     .refine(isRelativeValue, "Expected finite pixels or a workspace-relative expression")
     .describe("Absolute pixels as a number, or a workspace-relative expression such as 50% or 1/2.")
 
-export const position = z.object({ x: value, y: value } satisfies Shape<Position>).strict()
-export const size = z.object({ width: value, height: value } satisfies Shape<Size>).strict()
+export const position = z.object({ x: value, y: value } satisfies Shape<Position>)
+export const size = z.object({ width: value, height: value } satisfies Shape<Size>)
 export const serverLaunch = z.object({
     service: z.boolean().optional()
-} satisfies Shape<ServerLaunch>).strict()
+} satisfies Shape<ServerLaunch>)
 export const clientLaunch = z.object({
     service: z.boolean().optional(),
     title: z.string().optional(),
@@ -23,11 +23,11 @@ export const clientLaunch = z.object({
     layer: z.enum(layers).optional(),
     minimize: z.boolean().optional(),
     maximize: z.boolean().optional()
-} satisfies Shape<ClientLaunch>).strict()
+} satisfies Shape<ClientLaunch>)
 export const launch = z.object({
     name: identity.optional(),
     replace: z.boolean().optional().describe("Replace the existing Process with this Program-local name. Requires name."),
     server: z.union([z.boolean(), serverLaunch]).optional(),
     client: z.union([z.boolean(), clientLaunch]).optional(),
     options: z.record(z.string(), z.string()).optional()
-} satisfies Shape<Launch>).strict().refine(value => value.replace === undefined || value.name !== undefined, "Process replacement requires a name")
+} satisfies Shape<Launch>).refine(value => value.replace === undefined || value.name !== undefined, "Process replacement requires a name")

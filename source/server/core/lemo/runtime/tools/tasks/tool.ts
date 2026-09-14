@@ -28,48 +28,48 @@ const input = z.discriminatedUnion("action", [
     z.object({
         action: z.literal("list"),
         limit: z.number().int().min(1).max(maximumTaskPage).optional(),
-        cursor: z.object({ id: task, createdAt: z.number().int().nonnegative() }).strict().optional(),
+        cursor: z.object({ id: task, createdAt: z.number().int().nonnegative() }).optional(),
         search: z.string().trim().min(1).optional(),
         statuses: z.array(status).min(1).max(5).optional(),
         sourceTask: task.optional(),
         createdAfter: z.number().int().nonnegative().optional(),
         createdBefore: z.number().int().nonnegative().optional(),
         order: z.enum(["newest", "oldest"]).optional()
-    }).strict(),
+    }),
     z.object({
         action: z.literal("read"),
         task,
         tokens: tokenBudget.optional(),
         before: z.number().int().positive().optional()
-    }).strict(),
+    }),
     z.object({
         action: z.literal("read_block"),
         task,
         operation: z.string().trim().min(1),
         offset: z.number().int().nonnegative().optional(),
         tokens: tokenBudget.optional()
-    }).strict(),
-    z.object({ action: z.literal("create"), input: z.string().trim().min(1) }).strict(),
+    }),
+    z.object({ action: z.literal("create"), input: z.string().trim().min(1) }),
     z.object({
         action: z.literal("send"),
         task,
         event: messageEvent,
         message: z.string().trim().min(1)
-    }).strict(),
-    z.object({ action: z.literal("pause"), task }).strict(),
-    z.object({ action: z.literal("continue"), task }).strict(),
-    z.object({ action: z.literal("cancel"), task }).strict(),
+    }),
+    z.object({ action: z.literal("pause"), task }),
+    z.object({ action: z.literal("continue"), task }),
+    z.object({ action: z.literal("cancel"), task }),
     z.object({
         action: z.literal("wait"),
         tasks: z.array(task).min(1).max(maximumTaskPage).optional(),
         events: z.array(event).min(1).max(7).optional(),
         timeout: z.number().int().positive().optional()
-    }).strict(),
+    }),
     z.object({
         action: z.literal("wait_message"),
         event: messageEvent,
         timeout: z.number().int().positive().optional()
-    }).strict()
+    })
 ])
 
 /** Accesses Lemo Tasks through the invocation's ordinary Lemo context. */

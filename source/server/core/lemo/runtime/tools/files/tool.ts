@@ -13,7 +13,7 @@ const change = z.object({
     oldText: z.string().min(1).max(100_000),
     newText: z.string().max(100_000),
     occurrence: z.number().int().positive().optional()
-}).strict()
+})
 
 const input = z.discriminatedUnion("action", [
     z.object({
@@ -21,44 +21,44 @@ const input = z.discriminatedUnion("action", [
         path: path.optional(),
         cursor: z.number().int().nonnegative().optional(),
         limit: z.number().int().positive().max(maximumDirectoryPage).optional()
-    }).strict(),
-    z.object({ action: z.literal("inspect"), path }).strict(),
+    }),
+    z.object({ action: z.literal("inspect"), path }),
     z.object({
         action: z.literal("read"),
         path,
         startLine: z.number().int().positive().optional(),
         lineCount: z.number().int().positive().max(maximumReadLines).optional()
-    }).strict(),
+    }),
     z.object({
         action: z.literal("create"),
         path,
         content: text,
         parents: z.boolean().optional()
-    }).strict(),
+    }),
     z.object({
         action: z.literal("write"),
         path,
         revision: z.string().min(1).describe("Exact revision returned by the latest read."),
         content: text
-    }).strict(),
+    }),
     z.object({
         action: z.literal("edit"),
         path,
         revision: z.string().min(1).describe("Exact revision returned by the latest read."),
         changes: z.array(change).min(1).max(32)
-    }).strict(),
-    z.object({ action: z.literal("mkdir"), path }).strict(),
+    }),
+    z.object({ action: z.literal("mkdir"), path }),
     z.object({
         action: z.literal("delete"),
         path,
         recursive: z.boolean().optional().describe("Set true to delete a non-empty directory tree.")
-    }).strict(),
+    }),
     z.object({
         action: z.literal("copy"),
         source: path,
         destination: path,
         parents: z.boolean().optional()
-    }).strict()
+    })
 ])
 
 const filesystem = new TextFiles()

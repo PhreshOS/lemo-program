@@ -2,7 +2,7 @@ import { z } from "zod"
 import defineTool from "../../define-tool"
 import docs from "./docs.md?raw"
 
-const input = z.object({}).strict()
+const input = z.object({})
 
 /** Returns the Server's current absolute time. */
 const time = defineTool({
