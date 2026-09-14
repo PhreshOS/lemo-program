@@ -34,9 +34,9 @@ export default interface Tool {
     execute(input: unknown, context: ToolContext): Promise<unknown>
 
     /**
-     * Defines the Tool-owned durable representation used in Model context.
-     * The raw output is always preserved independently; omission excludes a
-     * successful result from later associative context.
+     * Defines the execution preview used in the current Task's transcript.
+     * Raw output is preserved for inspection. Reusable memory is selected
+     * separately by the Tool through context.memory.record().
      */
     modelOutput?(output: unknown): unknown
 }
@@ -61,6 +61,9 @@ export type ToolContext = Readonly<{
     }>
     memory: Readonly<{
         recall(request: MemoryRecallRequest, options?: MemoryRecallOptions): Promise<readonly MemoryResult[]>
+        /** Deliberately retains a useful fact, with its source and recording method.
+         * A Tool may record nothing; execution results are not memory contributions.
+         */
         record(value: MemoryRecord): Promise<Operation>
     }>
     tools: Readonly<{

@@ -384,7 +384,7 @@ export default class LemoDatabase {
                 operations.task_id,
                 operations.parent_id,
                 operations.kind,
-                ${contextPayloadExpression("operations.")} AS payload,
+                operations.payload,
                 operations.created_at
             FROM memory_activations
             INNER JOIN operations ON operations.id = memory_activations.operation_id
@@ -473,35 +473,6 @@ export default class LemoDatabase {
         `, [task, bounded])
 
         return Object.freeze(rows.map(operation).reverse())
-    }
-
-    /** Loads the input and latest lifecycle operation for a bounded set of Tasks. */
-    public async taskContextOperations(tasks: readonly string[]): Promise<readonly Operation[]> {
-
-        if (!tasks.length) return Object.freeze([])
-        if (tasks.length > maximumTaskContextBatch) throw new Error("A Task context batch is too large")
-
-        const placeholders = tasks.map(() => "?").join(", ")
-        const rows = await this.query<OperationRow>(`
-            SELECT sequence, id, task_id, parent_id, kind, payload, created_at
-            FROM operations
-            WHERE task_id IN (${placeholders})
-              AND (
-                kind = 'task.input'
-                OR sequence = (
-                    SELECT state.sequence
-                    FROM operations AS state
-                    WHERE state.task_id = operations.task_id
-                      AND state.kind IN (${lifecycleKinds.map(kind => `'${kind}'`).join(", ")})
-                    ORDER BY state.sequence DESC
-                    LIMIT 1
-                )
-              )
-            ORDER BY sequence
-            LIMIT ?
-        `, [...tasks, tasks.length * 2])
-
-        return Object.freeze(rows.map(operation))
     }
 
     public async appendToTask(task: string, kind: string, payload: unknown): Promise<Operation> {
@@ -727,7 +698,7 @@ export default class LemoDatabase {
         values.push(bounded)
 
         const rows = await this.query<OperationRow>(`
-            SELECT sequence, id, task_id, parent_id, kind, ${contextPayload} AS payload, created_at
+            SELECT sequence, id, task_id, parent_id, kind, payload, created_at
             FROM operations
             WHERE ${conditions.join(" AND ")}
             ORDER BY sequence DESC
@@ -860,7 +831,7 @@ export type MemoryRetrievalInput = Readonly<{
     requesterOperation: string | null
     requesterCall: string | null
     source: "context" | "tool" | "memory"
-    selection: "recent" | "relevant" | "reinforced" | "context"
+    selection: "relevant"
     score: number
     retrievedAt: number
 }>
@@ -1024,7 +995,6 @@ export type TaskMessageSubscriber = (message: TaskMessage) => void
 export const maximumTaskPage = 100
 export const maximumOperationPage = 256
 export const maximumContextOperations = 2_048
-export const maximumTaskContextBatch = 100
 export const maximumContextMessages = 10
 export const maximumMemoryRetrievalBatch = 256
 
@@ -1046,14 +1016,7 @@ const lifecycleKinds = [
     "task.failed"
 ] as const
 
-const contextKinds = [
-    "task.input",
-    "model.message",
-    "model.event",
-    "memory.recorded",
-    "tool.result",
-    "task.failed"
-] as const
+const contextKinds = ["memory.recorded"] as const
 
 const taskStates = `
     WITH raw_task_states AS (
@@ -1124,29 +1087,6 @@ const taskStates = `
         FROM raw_task_states
     )
 `
-
-const contextPayload = contextPayloadExpression()
-
-function contextPayloadExpression(prefix = "") {
-
-    const kind = `${prefix}kind`
-    const payload = `${prefix}payload`
-
-    return `
-    CASE
-        WHEN ${kind} = 'tool.result'
-          AND json_extract(${payload}, '$.ok') = 1
-          AND json_type(${payload}, '$.modelOutput') IS NOT NULL
-        THEN json_object(
-            'call', json_extract(${payload}, '$.call'),
-            'name', json_extract(${payload}, '$.name'),
-            'ok', json('true'),
-            'modelOutput', json_extract(${payload}, '$.modelOutput')
-        )
-        ELSE ${payload}
-    END
-`
-}
 
 function decayedStrength(strength: number, strengthAt: number, at: number) {
 

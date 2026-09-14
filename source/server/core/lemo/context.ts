@@ -2,8 +2,7 @@ import type LemoDatabase from "./database"
 import {
     maximumContextOperations,
     maximumMemoryRetrievalBatch,
-    maximumOperationPage,
-    maximumTaskContextBatch
+    maximumOperationPage
 } from "./database"
 import type {
     MemoryActivation,
@@ -20,28 +19,21 @@ export const defaultMemoryBudget = 8_000
 export const minimumMemoryBudget = 256
 export const maximumMemoryBudget = 16_000
 
-const defaultPerceptualFieldTokens = 50_000
+const defaultPerceptualFieldTokens = 8_000
 const defaultTranscriptTokens = 12_000
-const defaultContinuityTokens = 35_000
 const defaultSemanticInformationTokens = 6_000
-const defaultRulesTokens = 4_000
-const defaultInboxTokens = 3_000
+const defaultInboxTokens = 1_000
+const minimumRequestReserve = 4_096
 const defaultCycleContextTokens = defaultPerceptualFieldTokens + defaultTranscriptTokens
 const defaultCycleContextBudgets = Object.freeze({
     perceptualField: defaultPerceptualFieldTokens,
     transcript: defaultTranscriptTokens
 })
 const maximumBlockTokens = 1_024
-const maximumNearbyTasks = 8
-const maximumContinuityTasks = 3
-const maximumNearbyOperations = maximumOperationPage
+const maximumWorkingSignals = 4
 const maximumReinforcedCandidates = 128
-const maximumWorkingSignals = 12
-const reinforcedMemoryThreshold = 0.6
-const episodeReinforcementShare = 0.25
 const taskReadDefaultTokens = 8_000
 const taskReadMaximumTokens = 16_000
-const taskMarkupOverhead = 96
 
 export type MemoryRecallRequest = Readonly<{
     query: string
@@ -79,15 +71,14 @@ export type MemoryResult = Readonly<{
     method: string
     tool: string | null
     call: string | null
-    selection: "recent" | "relevant" | "reinforced" | "context"
-    reason: "semantic-association" | "explicit-recent" | "reinforced-memory" | "episode-context"
+    selection: "relevant"
+    reason: "semantic-association"
     score: number
     association: number | null
     reinforcement: number
     retrievalCount: number
     lastRetrievedAt: number | null
     matches: readonly string[]
-    anchor: string | null
     createdAt: number
 }>
 
@@ -114,7 +105,7 @@ export type CycleContextBudgets = Readonly<{
     transcript: number
 }>
 
-/** Divides one known Model window using Lemo's existing context proportions. */
+/** Caps working context independently of capacity, reserving room for instructions, tools and output. */
 export async function cycleContextBudgets(model: Pick<LLMModel, "contextWindow">): Promise<CycleContextBudgets> {
 
     const contextWindow = await model.contextWindow()
@@ -125,13 +116,17 @@ export async function cycleContextBudgets(model: Pick<LLMModel, "contextWindow">
         throw new Error("An LLM Model returned an invalid context window")
     }
 
+    const available = Math.min(defaultCycleContextTokens,
+        contextWindow - Math.max(minimumRequestReserve, Math.ceil(contextWindow / 4))
+    )
+    if (available < 2) throw new Error("The Model context window leaves no room for working context")
     const perceptualField = Math.max(1, Math.floor(
-        contextWindow * defaultPerceptualFieldTokens / defaultCycleContextTokens
+        available * defaultPerceptualFieldTokens / defaultCycleContextTokens
     ))
 
     return Object.freeze({
         perceptualField,
-        transcript: Math.max(1, contextWindow - perceptualField)
+        transcript: Math.max(1, available - perceptualField)
     })
 }
 
@@ -152,44 +147,19 @@ export default class Context {
         if (!task) throw new Error("A Perceptual Field requires a Task identity")
 
         const budgets = perceptualFieldBudgets(perceptualFieldBudget)
-
         const self = taskState(operations)
-        const [nearby, messages] = await Promise.all([
-            this.nearbyTasks(task),
-            this.database.contextMessages(task)
-        ])
-        const focus = sharedMindFocus(self, nearby)
-        const history = await this.history(self.objective, [], task, focus)
-        const activations = await this.activations(history, now)
+        const messages = await this.database.contextMessages(task)
+        const focus = workingFocus(operations)
+        const history = await this.history(self.objective, task, focus)
         const semantic = retrieve(history, {
             query: self.objective,
             focus,
             budget: budgets.semanticInformation
-        }, "semantic", activations)
-        const semanticOperations = new Set(semantic.map(result => result.operation))
-        const rules = retrieve(history, {
-            query: self.objective,
-            focus,
-            budget: budgets.rules
-        }, "rules", activations).filter(result => !semanticOperations.has(result.operation))
-        const recorded = await this.record([...semantic, ...rules], {
-            task,
-            operation: operations.findLast(operation => operation.kind === "cycle.started")?.id
-                ?? operations.at(-1)?.id
-                ?? null,
-            call: null,
-            source: "context"
-        }, now)
-        const semanticIds = new Set(semantic.map(result => result.operation))
+        }, await this.activations(history, now))
 
-        return perceptualField(
-            self,
-            nearby,
-            recorded.filter(result => semanticIds.has(result.operation)),
-            recorded.filter(result => !semanticIds.has(result.operation)),
-            messages,
-            budgets
-        )
+        // Automatic presentation is not evidence that a memory was useful.
+        // Explicit recall records retrievals; building a cycle does not train recall.
+        return perceptualField(self, semantic, messages, budgets)
     }
 
     public async recall(
@@ -215,14 +185,12 @@ export default class Context {
         const now = Date.now()
         const operations = await this.history(
             validatedRequest.query,
-            [],
             options.excludeTask,
             validatedRequest.focus ?? []
         )
         const results = retrieve(
             operations,
             validatedRequest,
-            "recall",
             await this.activations(operations, now)
         )
 
@@ -284,46 +252,8 @@ export default class Context {
         })
     }
 
-    private async nearbyTasks(self: string): Promise<readonly TaskState[]> {
-
-        const [active, recent] = await Promise.all([
-            this.database.tasks({
-                limit: maximumNearbyTasks + 1,
-                statuses: ["running", "paused"],
-                order: "newest"
-            }),
-            this.database.tasks({ limit: maximumNearbyTasks + 1, order: "newest" })
-        ])
-        const summaries = new Map<string, TaskSummary>()
-
-        for (const summary of [...active.tasks, ...recent.tasks]) {
-            if (summary.id !== self && summaries.size < maximumNearbyTasks) summaries.set(summary.id, summary)
-        }
-
-        const states = await Promise.all([...summaries.values()].map(async summary => {
-            const page = await this.database.operations(summary.id, {
-                limit: maximumNearbyOperations,
-                order: "newest",
-                excludeKinds: ["model.event"]
-            })
-            const input = await this.database.firstOperation(summary.id, "task.input")
-            const operations = input && !page.operations.some(operation => operation.id === input.id)
-                ? Object.freeze([input, ...page.operations])
-                : page.operations
-
-            return taskState(operations, summary)
-        }))
-
-        return Object.freeze(states.sort((left, right) => (
-            executionPriority(left.status) - executionPriority(right.status)
-            || right.updatedAt - left.updatedAt
-            || right.sequence - left.sequence
-        )))
-    }
-
     private async history(
         query: string,
-        retained: readonly Operation[],
         excludeTask?: string,
         focus: readonly MemoryFocus[] = []
     ) {
@@ -337,15 +267,7 @@ export default class Context {
         ])
         const selected = new Map<string, Operation>()
 
-        for (const operation of [...reinforced, ...recent, ...relevant, ...retained]) {
-            selected.set(operation.id, operation)
-        }
-
-        const tasks = [...new Set([...selected.values()].flatMap(operation => (
-            operation.task ? [operation.task] : []
-        )))].slice(0, maximumTaskContextBatch)
-
-        for (const operation of await this.database.taskContextOperations(tasks)) {
+        for (const operation of [...reinforced, ...recent, ...relevant]) {
             selected.set(operation.id, operation)
         }
 
@@ -407,182 +329,61 @@ export default class Context {
 function retrieve(
     operations: readonly Operation[],
     request: MemoryRecallRequest,
-    mode: "semantic" | "rules" | "recall",
     memory: ReadonlyMap<string, MemoryActivation>
 ): readonly MemoryResult[] {
 
     const query = request.query.trim()
-
     if (!query) throw new Error("Memory recall requires a query")
 
-    const budget = tokenBudget(
-        request.budget ?? defaultMemoryBudget,
-        1,
-        Number.MAX_SAFE_INTEGER,
-        "Memory retrieval"
-    )
+    const budget = tokenBudget(request.budget ?? defaultMemoryBudget, 1, maximumMemoryBudget, "Memory retrieval")
     const candidates = operations.flatMap(candidate)
-
     if (!candidates.length) return Object.freeze([])
 
-    const index = contextIndex(operations, candidates)
     const focus = recallFocus(query, request.focus ?? [])
     const queryTokens = weightedTokens(focus)
     const frequencies = documentFrequencies(candidates)
     const latest = candidates.at(-1)!.operation.sequence
-    const scored = candidates.map(value => ({
+    const ranked = candidates.map(value => ({
         value,
-        ...activation(
-            value.content,
-            focus,
-            queryTokens,
-            frequencies,
-            candidates.length,
-            latest - value.operation.sequence,
-            memory.get(value.operation.id)
-        )
-    }))
-    const perceptions = new Map(scored.map(value => [value.value.operation.id, value]))
-    const semantic = scored
-        .filter(value => value.association > 0)
-        .sort((left, right) => (
-            right.semanticScore - left.semanticScore
-            || right.association - left.association
-            || right.value.operation.sequence - left.value.operation.sequence
-        ))
-    const rules = scored
-        .filter(value => value.reinforcement >= reinforcedMemoryThreshold)
-        .sort((left, right) => (
-            right.ruleScore - left.ruleScore
-            || right.reinforcement - left.reinforcement
-            || right.value.operation.sequence - left.value.operation.sequence
-        ))
-    const selected = new Map<string, Selected>()
+        ...activation(value.content, focus, queryTokens, frequencies, candidates.length,
+            latest - value.operation.sequence, memory.get(value.operation.id))
+    })).filter(value => value.association > 0).sort((left, right) => (
+        right.semanticScore - left.semanticScore || right.value.operation.sequence - left.value.operation.sequence
+    ))
+    const selected: MemoryResult[] = []
+    const contents = new Set<string>()
     let used = 0
 
-    const include = (
-        value: Candidate,
-        selection: MemoryResult["selection"],
-        anchor: string | null = null
-    ) => {
-        const existing = selected.get(value.operation.id)
+    for (const entry of ranked) {
+        const { value } = entry
+        const identity = JSON.stringify([value.source, value.method, value.content.trim()])
+        if (contents.has(identity)) continue
 
-        if (existing) {
-            if (existing.selection === "context" && selection !== "context") {
-                selected.set(value.operation.id, selectionPerception(
-                    value,
-                    selection,
-                    perceptions.get(value.operation.id),
-                    anchor,
-                    anchor ? selected.get(anchor)?.score : undefined
-                ))
-            }
-
-            return true
-        }
-
-        const addition = candidateTokens(value)
-
-        if (used + addition > budget) return false
-
-        selected.set(value.operation.id, selectionPerception(
+        const result = memoryResult({
             value,
-            selection,
-            perceptions.get(value.operation.id),
-            anchor,
-            anchor ? selected.get(anchor)?.score : undefined
-        ))
+            selection: "relevant",
+            reason: "semantic-association",
+            score: rounded(entry.semanticScore),
+            association: rounded(entry.association),
+            reinforcement: rounded(entry.reinforcement),
+            retrievalCount: entry.retrievalCount,
+            lastRetrievedAt: entry.lastRetrievedAt,
+            matches: entry.matches
+        })
+        const addition = estimatedTokens(memoryOperation(result))
+        if (used + addition > budget) continue
+
+        selected.push(result)
+        contents.add(identity)
         used += addition
-
-        return true
-    }
-    const collect = (
-        values: readonly (typeof scored)[number][],
-        selection: "relevant" | "reinforced"
-    ) => {
-        for (const value of values) {
-            if (!include(value.value, selection)) continue
-
-            for (const supporting of episodeContext(value.value, index)) {
-                include(supporting, "context", value.value.operation.id)
-            }
-        }
     }
 
-    if (mode === "semantic") collect(semantic, "relevant")
-    else if (mode === "rules") collect(rules, "reinforced")
-    else {
-        collect(semantic, "relevant")
-
-        for (const recent of recentAnchors(index)) include(recent, "recent")
-
-        collect(rules, "reinforced")
-    }
-
-    return Object.freeze([...selected.values()]
-        .sort((left, right) => left.value.operation.sequence - right.value.operation.sequence)
-        .map(value => memoryResult(value)))
-}
-
-function selectionPerception(
-    value: Candidate,
-    selection: MemoryResult["selection"],
-    perception: Activation | undefined,
-    anchor: string | null,
-    anchorScore?: number
-): Selected {
-
-    const reinforcement = rounded(perception?.reinforcement ?? 0)
-    const common = {
-        value,
-        selection,
-        reinforcement,
-        retrievalCount: perception?.retrievalCount ?? 0,
-        lastRetrievedAt: perception?.lastRetrievedAt ?? null
-    }
-
-    if (selection === "relevant") return Object.freeze({
-        ...common,
-        reason: "semantic-association",
-        score: rounded(perception?.semanticScore ?? 0),
-        association: perception ? rounded(perception.association) : null,
-        matches: Object.freeze(perception?.matches ?? []),
-        anchor: null
-    })
-
-    if (selection === "reinforced") return Object.freeze({
-        ...common,
-        reason: "reinforced-memory",
-        score: rounded(perception?.ruleScore ?? 0),
-        association: perception ? rounded(perception.association) : null,
-        matches: Object.freeze(perception?.matches ?? []),
-        anchor: null
-    })
-
-    if (selection === "recent") return Object.freeze({
-        ...common,
-        reason: "explicit-recent",
-        score: rounded(perception?.semanticScore ?? 0),
-        association: null,
-        matches: Object.freeze([]),
-        anchor: null
-    })
-
-    return Object.freeze({
-        ...common,
-        reason: "episode-context",
-        score: rounded((anchorScore ?? perception?.semanticScore ?? 0) * episodeReinforcementShare),
-        association: null,
-        matches: Object.freeze([]),
-        anchor
-    })
+    return Object.freeze(selected)
 }
 
 function perceptualField(
     self: TaskState,
-    nearby: readonly TaskState[],
     semantic: readonly MemoryResult[],
-    rules: readonly MemoryResult[],
     inbox: readonly TaskMessage[],
     budgets: PerceptualFieldBudgets
 ) {
@@ -591,9 +392,7 @@ function perceptualField(
         `<perceptual_field generatedAt="${timestamp(Date.now())}" budget="${budgets.total}" unit="estimated-tokens">`,
         "  <environment runtime=\"PhreshOS\" authority=\"server\" />",
         taskIdentityXml(self),
-        continuityXml(nearby, budgets.continuity),
         memoryXml("semantic_memory", semantic, budgets.semanticInformation),
-        memoryXml("rules", rules, budgets.rules),
         inboxSection(inbox, budgets.inbox),
         "</perceptual_field>"
     ].join("\n")
@@ -601,9 +400,7 @@ function perceptualField(
 
 type PerceptualFieldBudgets = Readonly<{
     total: number
-    continuity: number
     semanticInformation: number
-    rules: number
     inbox: number
 }>
 
@@ -614,17 +411,15 @@ function perceptualFieldBudgets(total: number): PerceptualFieldBudgets {
     }
 
     return Object.freeze({
-        total,
-        continuity: proportionalBudget(total, defaultContinuityTokens),
+        total: Math.min(total, defaultPerceptualFieldTokens),
         semanticInformation: proportionalBudget(total, defaultSemanticInformationTokens),
-        rules: proportionalBudget(total, defaultRulesTokens),
         inbox: proportionalBudget(total, defaultInboxTokens)
     })
 }
 
 function proportionalBudget(total: number, defaultBudget: number) {
 
-    return Math.max(1, Math.floor(total * defaultBudget / defaultPerceptualFieldTokens))
+    return Math.max(1, Math.floor(Math.min(total, defaultPerceptualFieldTokens) * defaultBudget / defaultPerceptualFieldTokens))
 }
 
 function taskIdentityXml(state: TaskState) {
@@ -638,75 +433,6 @@ function taskIdentityXml(state: TaskState) {
         `      <llm_model role="initial" ${modelAttributes(state.initialModel)} />`,
         "    </models>",
         "  </task>"
-    ].join("\n")
-}
-
-function continuityXml(states: readonly TaskState[], budget: number) {
-
-    const descriptors: string[] = []
-    const included: TaskState[] = []
-    let used = estimatedTokens("  <continuity><tasks></tasks><timeline></timeline></continuity>")
-
-    for (const state of states) {
-        const input = state.operations.find(operation => operation.kind === "task.input")
-
-        if (!input) continue
-
-        const remaining = budget - used
-
-        if (remaining < 32) break
-
-        const objective = xmlBlock(
-            input,
-            "objective",
-            state.objective,
-            Math.min(maximumBlockTokens, remaining),
-            "      "
-        )
-        const value = [
-            `    <task ${taskAttributes(state)}>`,
-            `      <origin ${originAttributes(state.origin)} />`,
-            objective,
-            "    </task>"
-        ].join("\n")
-        const addition = estimatedTokens(value)
-
-        if (used + addition > budget) break
-
-        descriptors.push(value)
-        included.push(state)
-        used += addition
-    }
-
-    const events = included
-        .flatMap(state => state.operations.flatMap(operation => continuityEvents(state.task, operation)))
-        .sort((left, right) => left.sequence - right.sequence)
-    const selected: string[] = []
-
-    for (let index = events.length - 1; index >= 0; index--) {
-        const event = events[index]!
-        const remaining = budget - used
-
-        if (remaining < 32) break
-
-        const value = eventXml(event, Math.min(maximumBlockTokens, remaining), "    ")
-        const addition = estimatedTokens(value)
-
-        if (used + addition > budget) continue
-
-        selected.unshift(value)
-        used += addition
-    }
-
-    return [
-        `  <continuity budget="${budget}" unit="estimated-tokens" tasks="${descriptors.length}" events="${selected.length}" omittedTasks="${states.length - descriptors.length}" omittedEvents="${events.length - selected.length}">`,
-        "    <tasks>",
-        ...descriptors,
-        "    </tasks>",
-        "    <timeline>",
-        ...selected,
-        "    </timeline>",
-        "  </continuity>"
     ].join("\n")
 }
 
@@ -727,7 +453,7 @@ function taskHistoryXml(state: TaskState, budget: number) {
         "  </models>",
         objective
     ]
-    const events = state.operations.flatMap(operation => continuityEvents(state.task, operation))
+    const events = state.operations.flatMap(operation => taskHistoryEvents(state.task, operation))
     const selected: string[] = []
     let used = estimatedTokens([...fixed, "  <timeline>", "  </timeline>", "</task_history>"].join("\n"))
 
@@ -754,7 +480,7 @@ function taskHistoryXml(state: TaskState, budget: number) {
     ].join("\n")
 }
 
-function continuityEvents(task: string, operation: Operation): readonly TimelineEvent[] {
+function taskHistoryEvents(task: string, operation: Operation): readonly TimelineEvent[] {
 
     const payload = record(operation.payload)
 
@@ -829,7 +555,7 @@ function eventXml(event: TimelineEvent, budget: number, indentation: string) {
     })
 }
 
-function memoryXml(name: "semantic_memory" | "rules", results: readonly MemoryResult[], budget: number) {
+function memoryXml(name: "semantic_memory", results: readonly MemoryResult[], budget: number) {
 
     const values: string[] = []
     let used = estimatedTokens(`  <${name}></${name}>`)
@@ -844,10 +570,8 @@ function memoryXml(name: "semantic_memory" | "rules", results: readonly MemoryRe
         used += addition
     }
 
-    const selection = name === "semantic_memory" ? "semantic-relevance" : "reinforcement"
-    const ranking = name === "semantic_memory"
-        ? "semantic-relevance+reinforcement+recency"
-        : "reinforcement+semantic-relevance+recency"
+    const selection = "semantic-relevance"
+    const ranking = "semantic-relevance+reinforcement+recency"
 
     return [
         `  <${name} budget="${budget}" unit="estimated-tokens" selection="${selection}" ranking="${ranking}" count="${values.length}" omitted="${results.length - values.length}">`,
@@ -912,7 +636,6 @@ function memoryOperation(result: MemoryResult) {
         ["retrievalCount", String(result.retrievalCount)],
         ["lastRetrievedAt", result.lastRetrievedAt === null ? "" : timestamp(result.lastRetrievedAt)],
         ["matches", result.matches.join(",")],
-        ["anchor", result.anchor ?? ""],
         ["tokens", String(result.tokens)],
         ["truncated", String(result.truncated)]
     ].map(([name, value]) => `${name}="${xml(value)}"`).join(" ")
@@ -1045,35 +768,6 @@ function modelIdentity(value: unknown): ModelIdentity | null {
         : null
 }
 
-function sharedMindFocus(self: TaskState, nearby: readonly TaskState[]): readonly MemoryFocus[] {
-
-    const focus = [...workingFocus(self.operations, 8)]
-    const continuity = [...nearby].sort((left, right) => (
-        right.updatedAt - left.updatedAt || right.sequence - left.sequence
-    ))
-
-    for (
-        let index = 0;
-        index < Math.min(continuity.length, maximumContinuityTasks) && focus.length < maximumWorkingSignals;
-        index++
-    ) {
-        const state = continuity[index]!
-        const weight = 0.75 / (1 + index * 0.25)
-
-        for (const signal of workingFocus(state.operations, 2)) {
-            if (focus.length >= maximumWorkingSignals) break
-
-            focus.push(Object.freeze({
-                source: `nearby-task:${state.task}:${signal.source}`,
-                content: signal.content,
-                weight: signal.weight * weight
-            }))
-        }
-    }
-
-    return Object.freeze(focus)
-}
-
 function workingFocus(
     operations: readonly Operation[],
     maximum = maximumWorkingSignals
@@ -1084,7 +778,10 @@ function workingFocus(
     for (let index = operations.length - 1; index >= 0 && focus.length < maximum; index--) {
         const operation = operations[index]!
 
-        for (const value of candidate(operation)) {
+        const payload = record(operation.payload)
+        const content = operation.kind === "model.message" ? text(payload?.content)
+            : operation.kind === "task.input" ? text(payload?.input) : ""
+        for (const value of createCandidate(operation, tokenSlice(content, 256).content, "task", operation.kind)) {
             focus.push(Object.freeze({
                 source: `${value.source}:${value.method}`,
                 content: value.content,
@@ -1101,9 +798,6 @@ function candidate(operation: Operation): readonly Candidate[] {
     const payload = record(operation.payload)
     const memory = record(payload?.record)
 
-    if (operation.kind === "task.input") return createCandidate(operation, payload?.input, "user", "task-input")
-    if (operation.kind === "model.message") return createCandidate(operation, payload?.content, "lemo", "model-message")
-
     if (operation.kind === "memory.recorded") return createCandidate(
         operation,
         memory?.content,
@@ -1112,39 +806,6 @@ function candidate(operation: Operation): readonly Candidate[] {
         text(payload?.tool) || null,
         text(payload?.call) || null
     )
-
-    if (operation.kind === "tool.result" && payload?.ok === true && "modelOutput" in payload) {
-        const tool = text(payload.name) || "unknown"
-
-        return createCandidate(
-            operation,
-            payload.modelOutput,
-            `tool:${tool}`,
-            "tool-result",
-            tool,
-            text(payload.call) || null
-        )
-    }
-
-    if (operation.kind === "tool.result" && payload?.ok === false) {
-        const tool = text(payload.name) || "unknown"
-        const error = text(payload.error)
-
-        return createCandidate(
-            operation,
-            error ? `Tool ${tool} failed: ${error}` : `Tool ${tool} failed`,
-            "runtime",
-            "tool-result",
-            tool,
-            text(payload.call) || null
-        )
-    }
-
-    if (operation.kind === "task.failed") {
-        const error = text(payload?.message)
-
-        return createCandidate(operation, error ? `Task failed: ${error}` : "Task failed", "lemo", "task-failure")
-    }
 
     return Object.freeze([])
 }
@@ -1161,75 +822,6 @@ function createCandidate(
     const content = contextualText(value)
 
     return content.trim() ? [Object.freeze({ operation, content, source, method, tool, call })] : Object.freeze([])
-}
-
-function contextIndex(operations: readonly Operation[], candidates: readonly Candidate[]): ContextIndex {
-
-    const tasks = new Map<string, Candidate[]>()
-
-    for (const value of candidates) {
-        if (!value.operation.task) continue
-
-        const task = tasks.get(value.operation.task) ?? []
-
-        task.push(value)
-        tasks.set(value.operation.task, task)
-    }
-
-    const toolCalls = new Map<string, Candidate>()
-
-    for (const operation of operations) {
-        const value = toolCall(operation)
-
-        if (value?.call) toolCalls.set(value.call, value)
-    }
-
-    return { tasks, toolCalls }
-}
-
-function episodeContext(anchor: Candidate, index: ContextIndex) {
-
-    const values: Candidate[] = []
-    const task = anchor.operation.task ? index.tasks.get(anchor.operation.task) ?? [] : []
-    const position = task.findIndex(value => value.operation.id === anchor.operation.id)
-
-    add(values, task.find(value => value.method === "task-input"))
-    add(values, task[position - 1])
-    add(values, task[position + 1])
-
-    if (anchor.call) add(values, index.toolCalls.get(anchor.call))
-
-    return values.filter(value => value.operation.id !== anchor.operation.id)
-}
-
-function toolCall(operation: Operation): Candidate | null {
-
-    if (operation.kind !== "model.event") return null
-
-    const payload = record(operation.payload)
-
-    if (payload?.type !== "tool-call") return null
-
-    const call = record(payload.call)
-    const id = text(call?.id)
-    const tool = text(call?.name)
-
-    return id && tool ? Object.freeze({
-        operation,
-        content: `Tool ${tool} requested with input: ${contextualText(call?.input)}`,
-        source: "lemo",
-        method: "tool-call",
-        tool,
-        call: id
-    }) : null
-}
-
-function recentAnchors(index: ContextIndex) {
-
-    return [...index.tasks.values()]
-        .map(task => task.at(-1))
-        .filter((value): value is Candidate => value !== undefined)
-        .sort((left, right) => right.operation.sequence - left.operation.sequence)
 }
 
 function activation(
@@ -1280,7 +872,6 @@ function activation(
         retrievalCount: memory?.retrievalCount ?? 0,
         lastRetrievedAt: memory?.lastRetrievedAt ?? null,
         semanticScore: association + reinforcement * 0.25 + temporal * 0.15,
-        ruleScore: reinforcement + association * 0.25 + temporal * 0.15,
         matches: Object.freeze(matches)
     })
 }
@@ -1314,7 +905,6 @@ function memoryResult(selected: Selected): MemoryResult {
         retrievalCount: selected.retrievalCount,
         lastRetrievedAt: selected.lastRetrievedAt,
         matches: selected.matches,
-        anchor: selected.anchor,
         createdAt: operation.createdAt
     })
 }
@@ -1358,11 +948,6 @@ function documentFrequencies(candidates: readonly Candidate[]) {
     return frequencies
 }
 
-function candidateTokens(candidate: Candidate) {
-
-    return Math.min(maximumBlockTokens, estimatedTokens(candidate.content)) + taskMarkupOverhead
-}
-
 function operationContent(operation: Operation) {
 
     return JSON.stringify({
@@ -1395,16 +980,6 @@ function tokenBudget(value: number, minimum: number, maximum: number, name: stri
     }
 
     return value
-}
-
-function executionPriority(status: TaskStatus) {
-
-    return status === "running" ? 0 : status === "paused" ? 1 : 2
-}
-
-function add(values: Candidate[], value: Candidate | undefined) {
-
-    if (value && !values.some(candidate => candidate.operation.id === value.operation.id)) values.push(value)
 }
 
 function tokens(value: string) {
@@ -1460,7 +1035,6 @@ type Activation = Readonly<{
     retrievalCount: number
     lastRetrievedAt: number | null
     semanticScore: number
-    ruleScore: number
     matches: readonly string[]
 }>
 
@@ -1474,12 +1048,6 @@ type Selected = Readonly<{
     retrievalCount: number
     lastRetrievedAt: number | null
     matches: readonly string[]
-    anchor: string | null
-}>
-
-type ContextIndex = Readonly<{
-    tasks: ReadonlyMap<string, readonly Candidate[]>
-    toolCalls: ReadonlyMap<string, Candidate>
 }>
 
 type TaskState = Readonly<{

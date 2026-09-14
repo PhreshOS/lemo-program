@@ -27,6 +27,18 @@ A Task is durable ordered history. A Cycle is one disposable Model operation
 reconstructed from that history. Tools are discoverable contracts whose input,
 state, and result are validated, executed, recorded, and projected to Clients.
 
+Tools decide which facts to retain through `context.memory.record()`, including
+their source and recording method. A Tool may retain nothing. Its
+`modelOutput()` controls the execution preview for the current Task, independently
+of memory. Complete operation history remains available through `tasks.read`
+and `tasks.read_block`.
+
+Each Cycle recalls relevant, deduplicated facts within an 8,000 estimated-token
+context budget and a 12,000 estimated-token target for recent transcript.
+The current request and latest complete Tool exchange remain intact even when
+they exceed that working target. Model capacity can reduce these budgets but
+does not expand them. Automatic recall does not reinforce its own selections.
+
 ## Installation
 
 ```sh

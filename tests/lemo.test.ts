@@ -2,8 +2,7 @@ import assert from "node:assert/strict"
 import { DatabaseSync } from "node:sqlite"
 import type { Subscribable } from "@phreshos/core"
 import LemoDatabase, {
-    maximumContextMessages,
-    memoryReinforcementHalfLife
+    maximumContextMessages
 } from "../source/server/core/lemo/database"
 import { cycleContextBudgets } from "../source/server/core/lemo/context"
 import Lemo from "../source/server/core/lemo/lemo"
@@ -31,13 +30,13 @@ import { test } from "vitest"
 test("lemo contract", async () => {
   assert.deepEqual(await cycleContextBudgets({
       async contextWindow() { return null }
-  }), { perceptualField: 50_000, transcript: 12_000 })
+  }), { perceptualField: 8_000, transcript: 12_000 })
 
   const expandedContextBudgets = await cycleContextBudgets({
       async contextWindow() { return 124_000 }
   })
 
-  assert.deepEqual(expandedContextBudgets, { perceptualField: 100_000, transcript: 24_000 })
+  assert.deepEqual(expandedContextBudgets, { perceptualField: 8_000, transcript: 12_000 })
   assert(Object.isFrozen(expandedContextBudgets))
 
   await assert.rejects(
@@ -331,9 +330,7 @@ test("lemo contract", async () => {
           assert.match(snapshot.content, /<execution run="[^"]+" reason="(?:created|continued)" startedAt="[^"]+" cycle="[^"]+" cycleStartedAt="[^"]+" \/>/)
           assert(snapshot.content.includes('<llm_model role="active" provider="test" id="test-model" />'))
           assert(snapshot.content.includes('<llm_model role="initial" provider="test" id="test-model" />'))
-          assert(snapshot.content.includes('<continuity budget='))
           assert(snapshot.content.includes('<semantic_memory budget='))
-          assert(snapshot.content.includes('<rules budget='))
           assert(snapshot.content.includes('<inbox budget='))
           assert(!snapshot.content.includes('<system>'))
           assert(!snapshot.content.includes('<current_task'))
@@ -421,9 +418,7 @@ test("lemo contract", async () => {
 
           if (input === "inspect unique task failure evidence") {
 
-              assert(snapshot.content.includes('kind="task.failed"'))
-              assert(snapshot.content.includes('method="task-failure"'))
-              assert(snapshot.content.includes("Task failed: unique task failure evidence"))
+              assert(!snapshot.content.includes("Task failed: unique task failure evidence"))
 
               yield { type: "text" as const, content: "task-failure:recalled" }
 
@@ -449,10 +444,8 @@ test("lemo contract", async () => {
 
           if (input === "inspect missing capability failure") {
 
-              assert(snapshot.content.includes('kind="tool.result"'))
-              assert(snapshot.content.includes('method="tool-result"'))
-              assert(snapshot.content.includes('tool="missing-capability"'))
-              assert(snapshot.content.includes('call="missing-capability-call"'))
+              assert(!snapshot.content.includes('tool="missing-capability"'))
+              assert(!snapshot.content.includes('call="missing-capability-call"'))
 
               yield { type: "text" as const, content: "tool-failure:recalled" }
 
@@ -462,7 +455,7 @@ test("lemo contract", async () => {
           if (input === "delegated child") {
 
               assert.match(snapshot.content, /<origin type="task" task="[^"]+" call="create-child" \/>/)
-              assert.match(snapshot.content, /<objective operation="[^"]+" sequence="\d+" kind="task.input"/)
+              assert(request.messages.some(message => message.role === "user" && message.content === "delegated child"))
 
               yield { type: "text" as const, content: "delegated child:complete" }
 
@@ -655,8 +648,8 @@ test("lemo contract", async () => {
       const recalled = snapshots.get(input)
 
       assert(recalled?.length)
-      assert(recalled.every(snapshot => !snapshot.includes(`<episode task="${task.id}">`)))
-      assert(recalled.some(snapshot => snapshot.includes('tool="tools"')))
+      assert(recalled.every(snapshot => snapshot.includes(`<task id="${task.id}"`)))
+      assert(recalled.every(snapshot => !snapshot.includes('tool="tools"')))
   }
 
   const recordedInput = operations.find(operation => operation.task_id === firstTask.id)
@@ -669,6 +662,10 @@ test("lemo contract", async () => {
 
   assert(!operations.some(operation => operation.kind === "model.request"))
   assert(!operations.some(operation => String(operation.payload).includes("<perceptual_field")))
+
+  await new Memory(await LemoDatabase.open(database)).record({
+      task: firstTask.id, tool: "files", call: "retained-first"
+  }, { content: "first task produced its requested file", source: "filesystem:first", method: "files.write" })
 
   const memoryTask = await lemo.task({ input: "recall first", model })
 
@@ -691,7 +688,7 @@ test("lemo contract", async () => {
       && item !== null
       && "kind" in item
       && "selection" in item
-      && ["recent", "relevant", "reinforced", "context"].includes(String(item.selection))
+      && item.selection === "relevant"
   )))
 
   assert(memoryPayload.output.reduce((size, item) => (
@@ -755,356 +752,6 @@ test("lemo contract", async () => {
   )
 
   assert.equal(await restarted.findTask("unknown"), null)
-
-  const compactSource = new DatabaseSync(":memory:")
-  const compactDatabase = await LemoDatabase.open(compactSource)
-
-  for (let index = 0; index < 20; index++) {
-
-      await compactDatabase.createTask(`compact-${index}`, { input: `compact fact ${index}` })
-  }
-
-  const compact = await new Memory(compactDatabase).recall({ query: "compact", budget: 1_000 })
-
-  const largeSource = new DatabaseSync(":memory:")
-  const largeDatabase = await LemoDatabase.open(largeSource)
-
-  for (let index = 0; index < 5; index++) {
-
-      await largeDatabase.createTask(`large-${index}`, {
-          input: `large fact ${index} ${"content ".repeat(100)}`
-      })
-  }
-
-  const large = await new Memory(largeDatabase).recall({ query: "large", budget: 1_000 })
-
-  assert(compact.length > large.length)
-
-  const retrievalBatchSource = new DatabaseSync(":memory:")
-  const retrievalBatchDatabase = await LemoDatabase.open(retrievalBatchSource)
-
-  for (let index = 0; index < 300; index++) {
-      await retrievalBatchDatabase.createTask(`retrieval-batch-${index}`, {
-          input: `shared memory ${index}`
-      })
-  }
-
-  await retrievalBatchDatabase.createTask("retrieval-batch-current", { input: "shared memory" })
-  await retrievalBatchDatabase.appendToTask("retrieval-batch-current", "task.run.started", {
-      run: "retrieval-batch-run"
-  })
-
-  const retrievalBatchOperations = (await retrievalBatchDatabase.operations("retrieval-batch-current", {
-      limit: 10,
-      order: "oldest"
-  })).operations
-
-  await new Memory(retrievalBatchDatabase).context(retrievalBatchOperations, 300_000)
-
-  const recordedRetrievals = retrievalBatchSource.prepare(
-      "SELECT COUNT(*) AS count FROM memory_retrievals"
-  ).get() as { count: number }
-
-  assert(recordedRetrievals.count > 256)
-
-  const continuitySource = new DatabaseSync(":memory:")
-  const continuityDatabase = await LemoDatabase.open(continuitySource)
-
-  await continuityDatabase.createTask("identity", { input: "My name is Zohayr" })
-  await continuityDatabase.appendToTask("identity", "model.message", {
-      content: "Your name is Zohayr"
-  })
-
-  await continuityDatabase.createTask("long-operation", { input: "Open a browser" })
-
-  for (let index = 0; index < 12; index++) {
-
-      await continuityDatabase.appendToTask("long-operation", "model.message", {
-          content: `Browser operation ${index} ${"working ".repeat(30)}`
-      })
-  }
-
-  const continuity = await new Memory(continuityDatabase).recall({
-      query: "an unrelated follow-up",
-      budget: 2_000
-  })
-
-  assert(continuity.some(result => result.task === "long-operation"))
-  assert(continuity.some(result => result.task === "identity"))
-
-  const fittingSource = new DatabaseSync(":memory:")
-  const fittingDatabase = await LemoDatabase.open(fittingSource)
-
-  await fittingDatabase.createTask("small", { input: "needle remains accessible" })
-  await fittingDatabase.createTask("oversized", { input: "large ".repeat(300) })
-
-  const fitting = await new Memory(fittingDatabase).recall({ query: "needle", budget: 1_000 })
-
-  assert(fitting.some(result => result.task === "small"))
-  assert(fitting.reduce((size, result) => (
-      size + estimatedTokens(result.content) + 96
-  ), 0) <= 1_000)
-
-  const activationSource = new DatabaseSync(":memory:")
-  const activationDatabase = await LemoDatabase.open(activationSource)
-
-  await activationDatabase.createTask("recovery", {
-      input: "Recover the browser after a websocket transport timeout"
-  })
-  await activationDatabase.createTask("recent-unrelated", {
-      input: "Change the wallpaper color"
-  })
-
-  const activated = await new Memory(activationDatabase).recall({
-      query: "Investigate the current failure",
-      focus: [{
-          source: "tool-result:endpoints",
-          content: "The websocket transport timed out while opening the browser",
-          weight: 2.4
-      }],
-      budget: 1_000
-  })
-
-  assert(activated.some(result => result.task === "recovery" && result.selection === "relevant"))
-
-  const reinforcementSource = new DatabaseSync(":memory:")
-  const reinforcementDatabase = await LemoDatabase.open(reinforcementSource)
-  const learnedRule = await reinforcementDatabase.createTask("learned-rule", {
-      input: "Always ask for approval before deleting a user file"
-  })
-  const reinforcementMemory = new Memory(reinforcementDatabase)
-  const reinforcementScores: number[] = []
-
-  for (let index = 0; index < 6; index++) {
-
-      const result = await reinforcementMemory.recall({
-          query: "approval before deleting a user file",
-          budget: 1_000
-      })
-
-      const selected = result.find(value => value.operation === learnedRule.id)
-
-      assert(selected)
-      assert(selected.score > 0)
-      reinforcementScores.push(selected.score)
-  }
-
-  assert(reinforcementScores.at(-1)! > reinforcementScores[0]!)
-
-  const learnedActivation = (await reinforcementDatabase.memoryActivations([learnedRule.id]))
-      .get(learnedRule.id)
-
-  assert(learnedActivation)
-  assert(learnedActivation.strength >= 0.6)
-  assert.equal(learnedActivation.retrievalCount, 6)
-
-  for (let index = 0; index < 4; index++) {
-
-      const task = `reinforcement-distance-${index}`
-
-      await reinforcementDatabase.createTask(task, { input: `Unrelated arithmetic ${index}` })
-      await reinforcementDatabase.appendToTask(task, "task.completed", { output: String(index) })
-  }
-
-  await reinforcementDatabase.createTask("reinforcement-self", {
-      input: "Calculate an unrelated arithmetic result"
-  })
-
-  const reinforcedSnapshot = await reinforcementMemory.context(
-      (await reinforcementDatabase.operations("reinforcement-self", {
-          limit: 10,
-          order: "oldest"
-      })).operations
-  )
-
-  assert(reinforcedSnapshot.includes('reason="reinforced-memory"'))
-  assert(reinforcedSnapshot.includes('selection="reinforced"'))
-  assert(reinforcedSnapshot.includes("Always ask for approval before deleting a user file"))
-  assert.match(reinforcedSnapshot, /retrievalCount="7"/)
-  assert.match(reinforcedSnapshot, /lastRetrievedAt="\d{4}-\d{2}-\d{2}T/)
-
-  const refreshedActivation = (await reinforcementDatabase.memoryActivations([learnedRule.id]))
-      .get(learnedRule.id)
-
-  assert(refreshedActivation)
-
-  const fadedActivation = (await reinforcementDatabase.memoryActivations(
-      [learnedRule.id],
-      refreshedActivation.lastRetrievedAt + memoryReinforcementHalfLife
-  )).get(learnedRule.id)
-
-  assert(fadedActivation)
-  assert(Math.abs(fadedActivation.strength - refreshedActivation.strength / 2) < 0.000_001)
-
-  const retrievalObservations = reinforcementSource.prepare(`
-      SELECT source, score, retrieved_at
-      FROM memory_retrievals
-      WHERE operation_id = ?
-      ORDER BY sequence
-  `).all(learnedRule.id)
-
-  assert.equal(retrievalObservations.length, 7)
-  assert(retrievalObservations.every(value => Number(value.score) > 0))
-  assert(retrievalObservations.every(value => Number.isInteger(value.retrieved_at)))
-  assert.equal(retrievalObservations.at(-1)?.source, "context")
-
-  const toolResultSource = new DatabaseSync(":memory:")
-  const toolResultDatabase = await LemoDatabase.open(toolResultSource)
-  const workspaceIdentity = "bd4e05ac-b3bd-4f53-83b0-d641f717ed19"
-
-  await toolResultDatabase.createTask("workspace-history", { input: "Inspect old browser workspaces" })
-  await toolResultDatabase.appendToTask("workspace-history", "tool.result", {
-      call: "workspace-list",
-      name: "endpoints",
-      ok: true,
-      output: { workspaces: [{ workspace: workspaceIdentity }], transport: "raw-preserved" },
-      modelOutput: { workspaces: [{ workspace: workspaceIdentity }] }
-  })
-
-  const toolResultContext = await new Memory(toolResultDatabase).recall({
-      query: "Find the old browser workspace",
-      budget: 1_000
-  })
-
-  assert(toolResultContext.some(result => (
-      result.method === "tool-result"
-      && result.tool === "endpoints"
-      && result.content.includes(workspaceIdentity)
-  )))
-
-  const storedToolResult = (await toolResultDatabase.operations("workspace-history", {
-      limit: 10,
-      order: "oldest"
-  })).operations.find(operation => operation.kind === "tool.result")
-
-  assert.deepEqual((storedToolResult?.payload as Record<string, unknown>).output, {
-      workspaces: [{ workspace: workspaceIdentity }],
-      transport: "raw-preserved"
-  })
-
-  assert(storedToolResult)
-
-  const toolResultMemory = new Memory(toolResultDatabase)
-  const reconstructedTask = await toolResultMemory.task("workspace-history", 1_000)
-  const reconstructedBlock = await toolResultMemory.block(
-      "workspace-history",
-      storedToolResult.id,
-      0,
-      256
-  )
-
-  assert(reconstructedTask.content.includes('<task_history id="workspace-history"'))
-  assert(reconstructedBlock.content.includes(workspaceIdentity))
-  assert.equal(reconstructedBlock.next, null)
-
-  const longBlock = await toolResultDatabase.appendToTask("workspace-history", "tool.result", {
-      call: "long-output",
-      name: "shell",
-      ok: true,
-      output: { content: "durable-output ".repeat(2_000) },
-      modelOutput: { preview: "durable-output", truncated: true }
-  })
-  const firstBlockPage = await toolResultMemory.block("workspace-history", longBlock.id, 0, 256)
-
-  assert(firstBlockPage.next !== null)
-  assert(firstBlockPage.totalTokens > firstBlockPage.tokens)
-
-  const secondBlockPage = await toolResultMemory.block(
-      "workspace-history",
-      longBlock.id,
-      firstBlockPage.next,
-      256
-  )
-
-  assert.equal(secondBlockPage.offset, firstBlockPage.next)
-
-  const mindSource = new DatabaseSync(":memory:")
-  const mindDatabase = await LemoDatabase.open(mindSource)
-
-  await mindDatabase.createTask("self", {
-      input: "Recover the browser workspace",
-      source: { type: "user" },
-      model: { provider: "test", id: "test-model" }
-  })
-  await mindDatabase.appendToTask("self", "task.run.started", {
-      run: "self-run",
-      reason: "created",
-      model: { provider: "test", id: "test-model" }
-  })
-  await mindDatabase.appendToTask("self", "cycle.started", {
-      run: "self-run",
-      model: { provider: "test", id: "test-model" }
-  })
-  await mindDatabase.createTask("running-related", { input: "Monitor browser workspace changes" })
-  await mindDatabase.appendToTask("running-related", "task.run.started", { run: "related-run" })
-  await mindDatabase.appendToTask("running-related", "model.message", {
-      content: "Waiting for the browser workspace event"
-  })
-  await mindDatabase.appendToTask("running-related", "model.message", {
-      content: "The browser workspace event has now arrived"
-  })
-  await mindDatabase.createTask("running-unrelated", { input: "Compose a short song" })
-  await mindDatabase.appendToTask("running-unrelated", "task.run.started", { run: "unrelated-run" })
-  await mindDatabase.appendToTask("running-unrelated", "model.message", {
-      content: "Choosing the song melody"
-  })
-  await mindDatabase.createTask("completed-related", { input: "Browser workspace recovery" })
-  await mindDatabase.appendToTask("completed-related", "model.message", {
-      content: "The browser workspace was restored from its durable identity"
-  })
-  await mindDatabase.appendToTask("completed-related", "task.completed", { output: "restored" })
-  await mindDatabase.createTask("completed-noise", { input: "hhhhhh" })
-  await mindDatabase.appendToTask("completed-noise", "model.message", { content: "A generic greeting" })
-  await mindDatabase.appendToTask("completed-noise", "task.completed", { output: "done" })
-
-  const mindSnapshot = await new Memory(mindDatabase).context(
-      (await mindDatabase.operations("self", { limit: 10, order: "oldest" })).operations
-  )
-
-  assert(mindSnapshot.includes('<task id="self" status="running"'))
-  assert(mindSnapshot.includes('<origin type="user" task="" call="" />'))
-  assert(mindSnapshot.includes('<execution run="self-run" reason="created"'))
-  assert(mindSnapshot.includes('<llm_model role="active" provider="test" id="test-model" />'))
-  assert(mindSnapshot.includes('<task id="running-related" status="running"'))
-  assert(mindSnapshot.includes('<task id="running-unrelated" status="running"'))
-  assert(mindSnapshot.includes("Waiting for the browser workspace event"))
-  assert(mindSnapshot.includes("The browser workspace event has now arrived"))
-  assert(mindSnapshot.includes('<task id="completed-related" status="completed"'))
-  assert(mindSnapshot.includes('source="lemo" method="model-message"'))
-  assert.match(mindSnapshot, /generatedAt="\d{4}-\d{2}-\d{2}T/)
-  assert(mindSnapshot.includes('<semantic_memory budget='))
-  assert(mindSnapshot.includes('<continuity budget='))
-  assert(!mindSnapshot.includes("Recover the browser workspace"))
-
-  const sharedMindSource = new DatabaseSync(":memory:")
-  const sharedMindDatabase = await LemoDatabase.open(sharedMindSource)
-
-  await sharedMindDatabase.createTask("continuity-history", {
-      input: "Repair the amber payload decoder"
-  })
-  await sharedMindDatabase.appendToTask("continuity-history", "model.message", {
-      content: "The amber payload decoder must preserve nested objects"
-  })
-  await sharedMindDatabase.appendToTask("continuity-history", "task.completed", { output: "recorded" })
-  await sharedMindDatabase.createTask("continuity-nearby", {
-      input: "Continue investigating the amber payload decoder"
-  })
-  await sharedMindDatabase.appendToTask("continuity-nearby", "model.message", {
-      content: "The amber payload decoder still needs verification"
-  })
-  await sharedMindDatabase.createTask("continuity-self", { input: "try again" })
-
-  const sharedMindSnapshot = await new Memory(sharedMindDatabase).context(
-      (await sharedMindDatabase.operations("continuity-self", {
-          limit: 10,
-          order: "oldest"
-      })).operations
-  )
-
-  assert.match(
-      sharedMindSnapshot,
-      /<semantic_memory[\s\S]*<information[^>]*task="continuity-history"/
-  )
 
   const messageSource = new DatabaseSync(":memory:")
   const messageDatabase = await LemoDatabase.open(messageSource)
@@ -1198,55 +845,6 @@ test("lemo contract", async () => {
       message: "This should not be accepted"
   }), /cannot send a message to itself/)
 
-  const perceptualSource = new DatabaseSync(":memory:")
-  const continuityMindDatabase = await LemoDatabase.open(perceptualSource)
-
-  for (const [task, input, output] of [
-      ["older-association", "Try again to open YouTube", "youtube opened"],
-      ["recent-background-a", "Inspect the current wallpaper", "wallpaper inspected"],
-      ["recent-background-b", "Check the current clock", "clock checked"],
-      ["recent-background-c", "Read the current battery level", "battery inspected"],
-      ["recent-background-d", "Check the current network", "network inspected"],
-      ["recent-background-e", "Inspect the taskbar", "taskbar inspected"],
-      ["immediate", "Wait for the Lemo window to minimize", "window wait completed"]
-  ] as const) {
-
-      await continuityMindDatabase.createTask(task, { input })
-      await continuityMindDatabase.appendToTask(task, "model.message", { content: output })
-      await continuityMindDatabase.appendToTask(task, "task.completed", { output })
-  }
-
-  await continuityMindDatabase.createTask("follow-up", { input: "Yes, try again" })
-  await continuityMindDatabase.appendToTask("follow-up", "task.run.started", { run: "follow-up-run" })
-
-  const continuitySnapshot = await new Memory(continuityMindDatabase).context(
-      (await continuityMindDatabase.operations("follow-up", { limit: 10, order: "oldest" })).operations
-  )
-
-  assert(continuitySnapshot.includes(
-      '<task id="immediate" status="completed"'
-  ))
-  assert(continuitySnapshot.includes(
-      '<task id="recent-background-a" status="completed"'
-  ))
-  assert(continuitySnapshot.includes(
-      '<task id="older-association" status="completed"'
-  ))
-  assert(continuitySnapshot.includes('<semantic_memory budget='))
-  assert(continuitySnapshot.indexOf('id="immediate"') < continuitySnapshot.indexOf('id="older-association"'))
-
-  const compactPerceptualField = await new Memory(continuityMindDatabase).context(
-      (await continuityMindDatabase.operations("follow-up", { limit: 10, order: "oldest" })).operations,
-      1_000
-  )
-
-  assert(compactPerceptualField.includes('<semantic_memory budget="120"'))
-  assert(compactPerceptualField.includes('<rules budget="80"'))
-  await assert.rejects(
-      new Memory(continuityMindDatabase).recall({ query: "YouTube", budget: 120 }),
-      /Memory recall budget must be between 256 and 16000 estimated tokens/
-  )
-
   const transcriptSource = new DatabaseSync(":memory:")
   const transcriptDatabase = await LemoDatabase.open(transcriptSource)
 
@@ -1273,17 +871,7 @@ test("lemo contract", async () => {
   assert.equal(transcript.some(operation => operation.kind === "model.event"), false)
 
   database.close()
-  compactSource.close()
-  largeSource.close()
-  retrievalBatchSource.close()
-  perceptualSource.close()
-  fittingSource.close()
-  activationSource.close()
-  reinforcementSource.close()
-  toolResultSource.close()
-  mindSource.close()
   messageSource.close()
-  continuitySource.close()
   transcriptSource.close()
 
   function deferred() {

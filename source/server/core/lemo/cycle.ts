@@ -177,25 +177,34 @@ function modelRequest(
 async function cycleTranscript(database: LemoDatabase, task: string, maximumTokens: number) {
 
     const available = await database.transcriptOperations(task, maximumTranscriptOperations)
-    const transcript: Operation[] = []
-    let tokens = 0
-
-    for (let index = available.length - 1; index >= 0; index--) {
-        const operation = available[index]!
-        const addition = Math.min(
-            estimatedTokens(JSON.stringify(operation.payload)),
-            maximumTranscriptBlockTokens
-        ) + transcriptOperationOverhead
-
-        if (tokens + addition > maximumTokens && transcript.length) break
-
-        transcript.unshift(operation)
-        tokens += addition
-    }
-
     const input = await database.firstOperation(task, "task.input")
 
     if (!input) throw new Error("A Task has no input operation")
+
+    // An assistant turn and its Tool results are one protocol unit. Never
+    // trim a call away while keeping its result, or keep a call without results.
+    const turns: Operation[][] = []
+    for (const operation of available) {
+        if (operation.kind === "model.message") turns.push([operation])
+        else turns.at(-1)?.push(operation)
+    }
+    const transcript: Operation[] = []
+    let tokens = estimatedTokens(JSON.stringify(record(input.payload)?.input))
+
+    for (let index = turns.length - 1; index >= 0; index--) {
+        const turn = turns[index]!
+        const messages = modelRequest([input, ...turn], "", []).messages.slice(3)
+        // Measure exactly the projection sent to the Model, including complete
+        // call arguments, rather than assuming every operation is a small block.
+        const addition = estimatedTokens(JSON.stringify(messages))
+
+        if (tokens + addition > maximumTokens && transcript.length) break
+
+        // The latest exchange must survive even when it alone exceeds the
+        // working target; its result is required to continue the current work.
+        transcript.unshift(...turn)
+        tokens += addition
+    }
 
     return Object.freeze([input, ...transcript])
 }
@@ -229,7 +238,6 @@ async function cycleHistory(database: LemoDatabase, task: string) {
 }
 
 const maximumTranscriptOperations = 512
-const transcriptOperationOverhead = 48
 const maximumTranscriptBlockTokens = 2_048
 const taskCycleOperationLimit = 1_024
 
