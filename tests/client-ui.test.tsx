@@ -28,7 +28,7 @@ test("client ui contract", async () => {
       for (const isResponding of [false, true]) {
           const form = <PromptForm tool={tool} request={request}
               snapshot={{ ...tool.snapshot(), isResponding }} report={assert.fail} />
-          const html = renderToStaticMarkup(<AppearanceProvider appearance={defaultAppearance} theme={theme}>
+          const html = renderToStaticMarkup(<AppearanceProvider appearance={defaultAppearance} preferences={{ theme, animations: true }}>
               {form}{form}
           </AppearanceProvider>)
 
@@ -53,7 +53,7 @@ test("client ui contract", async () => {
       }
   }
 
-  const reasoning = renderToStaticMarkup(<AppearanceProvider appearance={defaultAppearance} theme="light">
+  const reasoning = renderToStaticMarkup(<AppearanceProvider appearance={defaultAppearance} preferences={{ theme: "light", animations: true }}>
       <Select aria-label="Reasoning level" value="" options={[
           { value: "", label: "Default reasoning" },
           { value: "high", label: "High" }

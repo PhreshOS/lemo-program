@@ -15,8 +15,8 @@ export default function Appearance({ children }: Readonly<{ children: ReactNode 
 
 function ResolvedAppearance({ children }: Readonly<{ children: ReactNode }>) {
     const appearance = useSystemAppearance()
-    const { theme } = useDesktopPreferences()
-    return <AppearanceProvider appearance={appearance} theme={theme}>
+    const preferences = useDesktopPreferences()
+    return <AppearanceProvider appearance={appearance} preferences={preferences}>
         <DocumentAppearance>{children}</DocumentAppearance>
     </AppearanceProvider>
 }
