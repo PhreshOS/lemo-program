@@ -75,13 +75,11 @@ test("client manager contract", async () => {
 
   const program = {
       identity: "lemo",
-      process: {
-          async findOrCreate(launch: unknown) {
+      async findOrCreateProcess(launch: unknown) {
 
-              launches.push(launch)
+          launches.push(launch)
 
-              return process
-          }
+          return process
       }
   } as unknown as Program
 

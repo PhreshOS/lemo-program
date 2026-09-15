@@ -102,7 +102,7 @@ export default class Manager {
         let process = this.process
 
         if (!process || await process.exited()) {
-            process = await this.program.process.findOrCreate(fixedLaunch(this.program))
+            process = await this.program.findOrCreateProcess(fixedLaunch(this.program))
             this.followProcess(process)
         }
 

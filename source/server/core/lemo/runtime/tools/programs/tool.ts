@@ -1,5 +1,5 @@
 import { system } from "@phreshos/server"
-import type { Program } from "@phreshos/core"
+import type { Process, Program, ProgramProcessExit } from "@phreshos/core"
 import { z } from "zod"
 import defineTool from "../../define-tool"
 import waitEvent from "../../wait-event"
@@ -27,18 +27,20 @@ const input = z.discriminatedUnion("action", [
     z.object({ action: z.literal("setLaunch"), program, launch }),
     z.object({
         action: z.literal("wait"),
-        event: z.enum(["create", "forget", "install", "uninstall"]),
+        event: z.enum(["create", "forget", "install", "uninstall", "processCreate", "processExit"]),
         program: program.optional(),
         timeout: z.number().int().positive().optional()
     })
 ]).superRefine((request, context) => {
-    if (request.action !== "wait" || !request.program) return
-    if (request.event === "forget" || request.event === "uninstall") return
+    if (request.action !== "wait") return
 
-    context.addIssue({
-        code: "custom",
-        message: "An individual Program emits only forget and uninstall"
-    })
+    if (request.program && (request.event === "create" || request.event === "install")) {
+        context.addIssue({ code: "custom", message: `An individual Program does not emit ${request.event}` })
+    }
+
+    if (!request.program && (request.event === "processCreate" || request.event === "processExit")) {
+        context.addIssue({ code: "custom", message: `${request.event} belongs to an individual Program` })
+    }
 })
 
 /** Reads installed Program and Endpoint declarations from the authoritative Host. */
@@ -56,17 +58,23 @@ const programs = defineTool({
 
             if (request.program) {
 
+                if (request.event === "create" || request.event === "install") throw new Error(`${request.event} belongs to the Program registry`)
+
                 const program = await system.program.find(request.program)
 
                 if (!program) throw new Error(`Unknown Program "${request.program}"`)
+
+                const payload = await waitEvent(program, request.event, context.invocation.signal, request.timeout)
 
                 return Object.freeze({
                     scope: "program",
                     program: eventProgram(program),
                     event: request.event,
-                    payload: await waitEvent(program, request.event, context.invocation.signal, request.timeout)
+                    payload: await programPayload(request.event, payload)
                 })
             }
+
+            if (request.event === "processCreate" || request.event === "processExit") throw new Error(`${request.event} belongs to an individual Program`)
 
             const payload = await waitEvent(system.program, request.event, context.invocation.signal, request.timeout)
 
@@ -172,6 +180,29 @@ function registryPayload(event: "create" | "forget" | "install" | "uninstall", v
     }
 
     return eventProgram(value as Program)
+}
+
+async function programPayload(event: "forget" | "uninstall" | "processCreate" | "processExit", value: unknown) {
+
+    if (event === "processCreate") return processPayload(value as Process)
+
+    if (event === "processExit") {
+        const payload = value as ProgramProcessExit
+        return Object.freeze({ process: await processPayload(payload.process), status: payload.status, code: payload.code, signal: payload.signal })
+    }
+
+    if (event === "uninstall") return Object.freeze({ purge: (value as { purge: boolean }).purge })
+
+    return undefined
+}
+
+async function processPayload(process: Process) {
+    return Object.freeze({
+        identity: process.identity,
+        name: process.name,
+        program: (await process.program()).identity,
+        startedAt: process.startedAt.toISOString()
+    })
 }
 
 function eventProgram(program: Program) {

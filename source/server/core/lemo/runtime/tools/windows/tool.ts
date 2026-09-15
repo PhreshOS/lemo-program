@@ -92,7 +92,7 @@ async function requiredProcess(identityOrName: string, programIdentity?: string)
 
     if (!program) throw new Error(`Unknown Program "${programIdentity}"`)
 
-    const process = await program.process.find(identityOrName)
+    const process = await program.findProcess(identityOrName)
 
     if (!process) throw new Error(`Unknown Process "${identityOrName}" in Program "${programIdentity}"`)
 

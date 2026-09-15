@@ -41,7 +41,7 @@ function fixture(layer: WindowState["layer"]) {
     const process = { identity: "process-id", program: async () => program, client: { window, exists } }
     vi.spyOn(system.process, "find").mockResolvedValue(process as unknown as Process)
     const findLocal = vi.fn(async () => process)
-    vi.spyOn(system.program, "find").mockResolvedValue({ process: { find: findLocal } } as unknown as Program)
+    vi.spyOn(system.program, "find").mockResolvedValue({ findProcess: findLocal } as unknown as Program)
     const context = { invocation: { signal: new AbortController().signal } } as ToolContext
     const invoke = (request: Record<string, unknown>) => windows.execute(windows.parse({ process: "process-id", ...request }).input, context)
     return { invoke, operations, exists, program, events, close, findLocal }

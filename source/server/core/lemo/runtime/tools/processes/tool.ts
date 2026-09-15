@@ -54,8 +54,8 @@ const processes = defineTool({
                 ? await waitEvent(scoped, request.event, context.invocation.signal, request.timeout)
                 : request.program
                     ? await waitEvent(
-                        (await requiredProgram(request.program)).process,
-                        request.event,
+                        await requiredProgram(request.program),
+                        request.event === "create" ? "processCreate" : "processExit",
                         context.invocation.signal,
                         request.timeout
                     )
@@ -73,7 +73,7 @@ const processes = defineTool({
         if (request.action === "list") {
 
             const found = request.program
-                ? await (await requiredProgram(request.program)).process.list()
+                ? await (await requiredProgram(request.program)).processes()
                 : await system.process.list()
 
             const query = request.search?.toLocaleLowerCase()
@@ -114,8 +114,8 @@ const processes = defineTool({
         const program = await requiredProgram(request.program)
 
         const process = request.action === "create"
-            ? await program.process.create(request.launch)
-            : await program.process.findOrCreate(request.launch)
+            ? await program.createProcess(request.launch)
+            : await program.findOrCreateProcess(request.launch)
 
         const result = await snapshot(process)
 
@@ -144,7 +144,7 @@ async function requiredProgram(identity: string) {
 async function requiredProcess(identityOrName: string, programIdentity?: string) {
 
     const process = programIdentity
-        ? await (await requiredProgram(programIdentity)).process.find(identityOrName)
+        ? await (await requiredProgram(programIdentity)).findProcess(identityOrName)
         : await system.process.find(identityOrName)
 
     if (!process) {

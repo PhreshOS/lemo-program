@@ -18,7 +18,7 @@ test("Program inspection preserves endpoint declarations and saved launches stay
         identity: "example", name: "Example", version: null, description: null,
         hasAgent: false, installed: async () => true,
         client: declaration, server: { start: false, service: true },
-        process: { create }, launch: { get: async () => saved, set }
+        createProcess: create, launch: { get: async () => saved, set }
     }
     vi.spyOn(system.program, "find").mockResolvedValue(program as unknown as Program)
     const invoke = (request: Record<string, unknown>) => programs.execute(programs.parse({ program: "example", ...request }).input, {} as ToolContext)

@@ -37,8 +37,8 @@ accepts an object; `{}` selects declaration defaults when that launch is used.
 
 Use `wait` for one Program registry event. A wait on the complete registry can
 observe `create`, `forget`, `install`, or `uninstall`. A wait scoped to one
-Program can observe only `forget` or `uninstall`, because those are the events
-emitted by an existing Program handle.
+Program can observe `processCreate`, `processExit`, `forget`, or `uninstall`
+from that existing Program handle.
 
 Waits observe future events. Start the wait before the operation that should
 produce the event. `timeout` is milliseconds and defaults to 10,000.
