@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { renderToStaticMarkup } from "react-dom/server"
 import { defaultAppearance } from "@phreshos/core"
-import { AppearanceProvider, Select } from "@phreshos/react-ui"
+import { UIProvider, Select } from "@phreshos/react-ui"
 import Tool from "../source/client/core/lemo/tool"
 import PromptForm from "../source/client/view/tools/prompt/form"
 import type { PromptRequest } from "../source/server/core/lemo/runtime/tools/prompt/contract"
@@ -28,9 +28,9 @@ test("client ui contract", async () => {
       for (const isResponding of [false, true]) {
           const form = <PromptForm tool={tool} request={request}
               snapshot={{ ...tool.snapshot(), isResponding }} report={assert.fail} />
-          const html = renderToStaticMarkup(<AppearanceProvider appearance={defaultAppearance} preferences={{ theme, animations: true }}>
+          const html = renderToStaticMarkup(<UIProvider appearance={defaultAppearance} preferences={{ theme, animations: true }}>
               {form}{form}
-          </AppearanceProvider>)
+          </UIProvider>)
 
           // Check rendered native semantics, not source-code spelling or CSS classes.
           const ids = [...html.matchAll(/\bid="([^"]+)"/g)].map(match => match[1])
@@ -53,12 +53,12 @@ test("client ui contract", async () => {
       }
   }
 
-  const reasoning = renderToStaticMarkup(<AppearanceProvider appearance={defaultAppearance} preferences={{ theme: "light", animations: true }}>
+  const reasoning = renderToStaticMarkup(<UIProvider appearance={defaultAppearance} preferences={{ theme: "light", animations: true }}>
       <Select aria-label="Reasoning level" value="" options={[
           { value: "", label: "Default reasoning" },
           { value: "high", label: "High" }
       ]} />
-  </AppearanceProvider>)
+  </UIProvider>)
   assert.ok(reasoning.includes("Default reasoning"), "Empty-string default reasoning remains a selectable value")
 
   console.log("Client UI rendering verified: prompt fields, constraints, selection, disabled states, unique IDs, and reasoning default")
