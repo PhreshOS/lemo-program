@@ -10,12 +10,16 @@ export default defineConfig({
     keywords: ["agent", "tasks", "memory", "tools"],
     website: "https://github.com/PhreshOS/lemo-program",
     buildCommand: "vite-node scripts/build.ts",
+    permissions: {
+        programs: true,
+        layers: true
+    },
     server: {
         start: false,
         location: "dist/server",
-        entryFile: "main.js",
+        worker: "main.js",
         development: {
-            startCommand: "vite-node source/server/main.ts"
+            command: "vite-node source/server/main.ts"
         }
     },
     client: {

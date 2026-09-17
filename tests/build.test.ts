@@ -13,7 +13,7 @@ test("build contract", async () => {
 
   assert.equal(config.server?.location, "dist/server")
 
-  assert.equal(config.server?.entryFile, "main.js")
+  assert.equal(config.server?.worker, "main.js")
 
   assert.equal(config.server?.start, false)
 
