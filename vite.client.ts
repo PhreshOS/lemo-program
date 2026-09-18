@@ -8,8 +8,7 @@ export default defineConfig({
     plugins: [react(), babel({ presets: [reactCompilerPreset()] })],
     base: process.env.PHRESHOS_CLIENT_BASE ?? "./",
     resolve: {
-        tsconfigPaths: true,
-        dedupe: ["react"]
+        tsconfigPaths: true
     },
     server: {
         port: Number(process.env.PHRESHOS_CLIENT_PORT ?? "5200"),
