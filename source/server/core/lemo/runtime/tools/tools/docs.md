@@ -6,7 +6,7 @@ Tools.
 Pass exact Tool names when the required capabilities are known:
 
 ```json
-{ "names": ["programs", "processes"] }
+{ "names": ["system", "tasks"] }
 ```
 
 Use `{ "all": true }` only when broad discovery is genuinely necessary. The

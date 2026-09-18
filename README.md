@@ -27,6 +27,9 @@ A Task is durable ordered history. A Cycle is one disposable Model operation
 reconstructed from that history and the active Task's live Tool results.
 Tools are discoverable contracts whose input,
 state, and result are validated, executed, recorded, and projected to Clients.
+The `system` Tool is Lemo's single PhreshOS interface. It consumes Core's
+Execute contract directly, while Tasks, files, shell access, and other
+Lemo-owned capabilities remain independent Tools.
 
 Every Tool defines `retain(output, input)` to select the result data saved for
 each call; returning `null` retains no result data. The live result is available

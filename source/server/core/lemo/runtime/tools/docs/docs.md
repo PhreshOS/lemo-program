@@ -3,7 +3,7 @@
 Reads documentation owned by one Runtime Tool in token-bounded pages:
 
 ```json
-{ "name": "processes" }
+{ "name": "system" }
 ```
 
 Pass an exact name returned by `tools`. Documentation explains semantics that

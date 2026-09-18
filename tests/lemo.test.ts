@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
 import { DatabaseSync } from "node:sqlite"
-import type { Subscribable } from "@phreshos/core"
 import LemoDatabase, {
     maximumContextMessages
 } from "../source/server/core/lemo/database"
@@ -11,20 +10,17 @@ import { estimatedTokens } from "../source/server/core/lemo/token-budget"
 import type LLMModel from "../source/server/core/llm/model"
 import type LLMProvider from "../source/server/core/llm/provider"
 import type { ToolContext } from "../source/server/core/lemo/runtime/tool"
-import endpoints, { retainEndpointResult } from "../source/server/core/lemo/runtime/tools/endpoints/tool"
 import files from "../source/server/core/lemo/runtime/tools/files/tool"
 import memoryTool from "../source/server/core/lemo/runtime/tools/memory/tool"
-import processes from "../source/server/core/lemo/runtime/tools/processes/tool"
-import programs from "../source/server/core/lemo/runtime/tools/programs/tool"
 import promptTool from "../source/server/core/lemo/runtime/tools/prompt/tool"
 import shellTool from "../source/server/core/lemo/runtime/tools/shell/tool"
+import retainSystemResult from "../source/server/core/lemo/runtime/tools/system/retention"
+import systemTool from "../source/server/core/lemo/runtime/tools/system/tool"
 import tasks from "../source/server/core/lemo/runtime/tools/tasks/tool"
 import timeTool from "../source/server/core/lemo/runtime/tools/time/tool"
 import toolsTool from "../source/server/core/lemo/runtime/tools/tools/tool"
-import windows from "../source/server/core/lemo/runtime/tools/windows/tool"
 import web from "../source/server/core/lemo/runtime/tools/web/tool"
 import toolInput from "../source/server/core/lemo/runtime/tool-input"
-import waitEvent from "../source/server/core/lemo/runtime/wait-event"
 import { test } from "vitest"
 
 test("lemo contract", async () => {
@@ -44,13 +40,9 @@ test("lemo contract", async () => {
       /invalid context window/
   )
 
-  assert.match(windows.docs, /Geometry numbers are absolute pixels/i)
-  assert.match(JSON.stringify(windows.definition.parameters), /Absolute pixels as a number/i)
-  assert.match(windows.docs, /"size":\{"width":"50%","height":"100%"\}/)
-  assert.match(JSON.stringify(programs.definition.parameters), /"const":"wait"/)
-  assert.match(JSON.stringify(processes.definition.parameters), /"const":"wait"/)
-  assert.match(JSON.stringify(endpoints.definition.parameters), /"const":"wait"/)
-  assert.match(JSON.stringify(windows.definition.parameters), /"const":"wait"/)
+  assert.match(systemTool.docs, /single interface to PhreshOS/i)
+  assert.match(JSON.stringify(systemTool.definition.parameters), /"const":"wait"/)
+  assert.match(JSON.stringify(systemTool.definition.parameters), /"const":"setGeometry"/)
   assert.match(JSON.stringify(tasks.definition.parameters), /"const":"send"/)
   assert.match(JSON.stringify(tasks.definition.parameters), /"const":"read_block"/)
   assert.match(JSON.stringify(tasks.definition.parameters), /"const":"wait_message"/)
@@ -60,12 +52,9 @@ test("lemo contract", async () => {
       memoryTool,
       timeTool,
       tasks,
-      programs,
-      processes,
+      systemTool,
       promptTool,
       shellTool,
-      endpoints,
-      windows,
       web,
       files
   ]) {
@@ -76,34 +65,38 @@ test("lemo contract", async () => {
           `${tool.definition.name} must derive approval from the shared Tool template`)
   }
 
-  assert.deepEqual(processes.parse({
-      action: "create",
+  assert.deepEqual(systemTool.parse({
+      $domain: "process",
+      $operation: "create",
       program: "phresh",
       launch: "{\"server\":true,\"client\":true}",
       approval: "true"
   }), {
       approval: true,
       input: {
-          action: "create",
+          $domain: "process",
+          $operation: "create",
           program: "phresh",
           launch: { server: true, client: true }
       }
   })
 
-  assert.deepEqual(endpoints.parse({
-      action: "ask",
+  assert.deepEqual(systemTool.parse({
+      $domain: "endpoint",
+      $operation: "ask",
       process: "browser-server",
       endpoint: "server",
       event: "workspace.create",
-      payload: "{\"client\":true}"
+      input: { client: true }
   }), {
       approval: false,
       input: {
-          action: "ask",
+          $domain: "endpoint",
+          $operation: "ask",
           process: "browser-server",
           endpoint: "server",
           event: "workspace.create",
-          payload: { client: true }
+          input: { client: true }
       }
   })
 
@@ -141,37 +134,15 @@ test("lemo contract", async () => {
   assert(retainedShell.output.truncated)
   assert(estimatedTokens(retainedShell.output.content) <= 2_048)
 
-  const immediateEvents = {
-      async *events() { yield Object.freeze({ value: "received" }) }
-  } as unknown as Subscribable
-
-  assert.deepEqual(
-      await waitEvent(immediateEvents, "change", new AbortController().signal, 100),
-      { value: "received" }
-  )
-
-  const idleEvents = {
-      async *events(_event: string, options: { signal?: AbortSignal } = {}) {
-
-          await new Promise<void>(resolve => {
-
-              if (options.signal?.aborted) resolve()
-              else options.signal?.addEventListener("abort", () => resolve(), { once: true })
-          })
-      }
-  } as unknown as Subscribable
-
-  await assert.rejects(
-      waitEvent(idleEvents, "change", new AbortController().signal, 5),
-      /timeout 5ms/
-  )
   assert.deepEqual(toolInput({
-      action: "setGeometry",
+      $domain: "window",
+      $operation: "setGeometry",
       process: "lemo-process",
       position: "{\"x\":0,\"y\":0}",
       size: "{\"width\":\"50%\",\"height\":\"100%\"}"
-  }, windows.definition.parameters), {
-      action: "setGeometry",
+  }, systemTool.definition.parameters), {
+      $domain: "window",
+      $operation: "setGeometry",
       process: "lemo-process",
       position: { x: 0, y: 0 },
       size: { width: "50%", height: "100%" }
@@ -241,10 +212,16 @@ test("lemo contract", async () => {
       payload: null
   })
 
-  assert.deepEqual(retainEndpointResult({
+  assert.deepEqual(retainSystemResult({
       id: "snapshot",
       image: "A".repeat(10_000),
       title: "PhreshOS"
+  }, {
+      $domain: "endpoint",
+      $operation: "ask",
+      process: "main",
+      endpoint: "server",
+      event: "snapshot"
   }), {
       id: "snapshot",
       image: {
@@ -529,7 +506,7 @@ test("lemo contract", async () => {
                       id: `${input}-tools`,
                       name: "tools",
                       input: {
-                          names: ["time", "tasks", "programs", "processes", "endpoints", "windows"]
+                          names: ["time", "tasks", "system"]
                       }
                   }
               }
@@ -545,10 +522,7 @@ test("lemo contract", async () => {
                   "memory",
                   "time",
                   "tasks",
-                  "programs",
-                  "processes",
-                  "endpoints",
-                  "windows"
+                  "system"
               ])
 
               assert(request.messages.some(message => message.role === "tool" && message.name === "tools"))
@@ -872,7 +846,7 @@ test("lemo contract", async () => {
       return { promise, resolve }
   }
 
-  function schemaBranches(schema: Readonly<Record<string, unknown>>) {
+  function schemaBranches(schema: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>>[] {
 
       const branches = Array.isArray(schema.oneOf)
           ? schema.oneOf
@@ -881,7 +855,10 @@ test("lemo contract", async () => {
               : null
 
       return branches
-          ? branches.map(schemaRecord).filter((branch): branch is Readonly<Record<string, unknown>> => branch !== null)
+          ? branches
+              .map(schemaRecord)
+              .filter((branch): branch is Readonly<Record<string, unknown>> => branch !== null)
+              .flatMap((branch: Readonly<Record<string, unknown>>) => schemaBranches(branch))
           : [schema]
   }
 

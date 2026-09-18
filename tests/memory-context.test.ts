@@ -342,7 +342,7 @@ test("focused evidence is not crowded out by large catalogs matching generic que
     for (let index = 0; index < 10; index++) {
         await database.createTask(`catalog-${index}`, { input: "Discover capabilities" })
         await database.appendToTask(`catalog-${index}`, "tool.result", {
-            call: `${index}`, name: "programs", ok: true,
+            call: `${index}`, name: "system", ok: true,
             output: { name: "Program", identity: `${index}`, user: "context", vocabulary }
         })
     }

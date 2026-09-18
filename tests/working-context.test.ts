@@ -3,12 +3,12 @@ import { expect, test } from "vitest"
 import Lemo from "../source/server/core/lemo/lemo"
 import type LLMModel from "../source/server/core/llm/model"
 import type { LLMModelRequest } from "../source/server/core/llm/model"
-import windows from "../source/server/core/lemo/runtime/tools/windows/tool"
+import systemTool from "../source/server/core/lemo/runtime/tools/system/tool"
 
 function documentation(request: LLMModelRequest, call = "window-docs") {
     const result = request.messages.find(message => message.role === "tool" && message.call === call)
     expect(result).toBeDefined()
-    expect(JSON.parse(result!.content).output.docs).toBe(windows.docs)
+    expect(JSON.parse(result!.content).output.docs).toBe(systemTool.docs)
 }
 
 test.each([false, true])("Tool documentation survives multiple cycles; pause/continue=%s", async pause => {
@@ -24,7 +24,7 @@ test.each([false, true])("Tool documentation survives multiple cycles; pause/con
         async *generate(request) {
             cycle++
             if (cycle === 1) {
-                yield { type: "tool-call", call: { id: "window-docs", name: "docs", input: { name: "windows" } } }
+                yield { type: "tool-call", call: { id: "window-docs", name: "docs", input: { name: "system" } } }
                 yield { type: "tool-call", call: { id: "load-time", name: "tools", input: { names: ["time"] } } }
                 return null
             }
@@ -38,10 +38,10 @@ test.each([false, true])("Tool documentation survives multiple cycles; pause/con
                 return null
             }
             // The contract needed for the final step is still available after intervening calls.
-            expect(windows.parse({
-                action: "setGeometry", process: "example",
+            expect(systemTool.parse({
+                $domain: "window", $operation: "setGeometry", process: "example",
                 position: { x: 0, y: 0 }, size: { width: "50%", height: "100%" }
-            }).input).toMatchObject({ action: "setGeometry" })
+            }).input).toMatchObject({ $domain: "window", $operation: "setGeometry" })
             yield { type: "text", content: "complete" }
             return null
         }
@@ -59,7 +59,7 @@ test.each([false, true])("Tool documentation survives multiple cycles; pause/con
         const result = (await task.operations()).find(operation =>
             operation.kind === "tool.result" && (operation.payload as { call: string }).call === "window-docs")
         expect(result?.payload).toMatchObject({ output: null, retained: false })
-        expect(JSON.stringify(source.prepare("SELECT payload FROM operations").all())).not.toContain(windows.docs)
+        expect(JSON.stringify(source.prepare("SELECT payload FROM operations").all())).not.toContain(systemTool.docs)
 
         const other = await lemo.task({ input: "Independent task", model: {
             ...model,
@@ -90,7 +90,7 @@ test("completed parallel results survive pausing a different unfinished Tool", a
             if (cycle === 1) {
                 yield { type: "tool-call", call: { id: "load", name: "tools", input: { names: ["tasks"] } } }
             } else if (cycle === 2) {
-                yield { type: "tool-call", call: { id: "parallel-docs", name: "docs", input: { name: "windows" } } }
+                yield { type: "tool-call", call: { id: "parallel-docs", name: "docs", input: { name: "system" } } }
                 yield { type: "tool-call", call: { id: "wait", name: "tasks", input: { action: "wait_message", event: "never", timeout: 60_000 } } }
             } else {
                 documentation(request, "parallel-docs")
