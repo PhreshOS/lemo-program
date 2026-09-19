@@ -8,9 +8,9 @@
         "@modelcontextprotocol/sdk": "^1.30.0",
         "@openrouter/sdk": "^1.2.70",
         "@phreshos/client": "^0.1.46",
-        "@phreshos/core": "^0.1.53",
+        "@phreshos/core": "^0.1.54",
         "@phreshos/react": "^0.1.28",
-        "@phreshos/react-ui": "^0.1.28",
+        "@phreshos/react-ui": "^0.1.29",
         "@phreshos/server": "^0.1.50",
         "openai": "^7.13.0",
         "react": "^19.2.8",
@@ -21,7 +21,7 @@
       },
       "devDependencies": {
         "@babel/core": "^7.29.7",
-        "@phreshos/cli": "^0.1.63",
+        "@phreshos/cli": "^0.1.64",
         "@rolldown/plugin-babel": "^0.2.3",
         "@types/node": "^26.2.0",
         "@types/react": "^19.2.18",
@@ -112,17 +112,17 @@
 
     "@oxc-project/types": ["@oxc-project/types@0.147.0", "", {}, "sha512-IJ3s6ltHLp45S0bh7phkX+gJO7A1Wuz2EaqpAhb8WjqDwbzMiWKHhyyT42tskaWjEYXtHtVCPpnBJVT9+dcRLg=="],
 
-    "@phreshos/cli": ["@phreshos/cli@0.1.63", "", { "dependencies": { "@clack/prompts": "^1.7.0", "@phreshos/core": "^0.1.53", "@phreshos/node": "^0.1.26", "adm-zip": "^0.6.0", "commander": "^15.0.0", "picocolors": "^1.1.1" }, "bin": { "phresh": "dist/cli.js" } }, "sha512-GLUuwnLtGRSAgKHecDpju0W0b+kJkUa+9/gvmsdKpzA3tAt0qU5rwSlfNA+IPTqo9MkScFugyLq6hhLHO86VQQ=="],
+    "@phreshos/cli": ["@phreshos/cli@0.1.64", "", { "dependencies": { "@clack/prompts": "^1.7.0", "@phreshos/core": "^0.1.54", "@phreshos/node": "^0.1.27", "adm-zip": "^0.6.0", "commander": "^15.0.0", "picocolors": "^1.1.1" }, "bin": { "phresh": "dist/cli.js" } }, "sha512-pWf0K40FIO0bs+hK8UJXf2bLHrOfqlrBhQmzSG2HiXQ8lSZDGh4B0HbGiE3ENsbx32YatRZ6U4BbinEd4ZS7hQ=="],
 
     "@phreshos/client": ["@phreshos/client@0.1.46", "", { "dependencies": { "@the-link/messagepack": "^0.1.0" }, "peerDependencies": { "@phreshos/core": "^0.1.53" } }, "sha512-YLFxXAdkiw5ASRpjJGYLn0jkWiF6k+Pj/azsNrI0V9s9af0bUx3z/GOlQKS9t42HQhySylO0e6r8wUNnp2X/jw=="],
 
-    "@phreshos/core": ["@phreshos/core@0.1.53", "", { "dependencies": { "zod": "^4.6.5" } }, "sha512-6PQJA5paERMN2FVl13yDklJFV4xbqbiTFoVwfVSP3QqLniQ2rstqHehdCpV6a4TjOk+yH2u5hYbE18t3IqWWqw=="],
+    "@phreshos/core": ["@phreshos/core@0.1.54", "", { "dependencies": { "zod": "^4.6.5" } }, "sha512-A0idbkbSkAOXaW0m6LL8VT3YhZUFV1VZkQaDYkSaRZ/cDIME2NdI59gK6RBe08RGOLA+hVZD6DQsMiLC9ehu9A=="],
 
-    "@phreshos/node": ["@phreshos/node@0.1.26", "", { "dependencies": { "@the-link/ipc": "^0.2.1", "@the-link/messagepack": "^0.1.0", "adm-zip": "^0.6.0", "jiti": "^2.7.0" }, "peerDependencies": { "@phreshos/core": "^0.1.53" } }, "sha512-WleivlyemO+ugC3LrZ5OlaXY/VxvRXzgctYxRJbrC646H4EPlEGO3jejJuwODJquou4Jf6+AKrV5XJTXc7Uq1A=="],
+    "@phreshos/node": ["@phreshos/node@0.1.27", "", { "dependencies": { "@the-link/ipc": "^0.2.1", "@the-link/messagepack": "^0.1.0", "adm-zip": "^0.6.0", "jiti": "^2.7.0" }, "peerDependencies": { "@phreshos/core": "^0.1.54" } }, "sha512-VQzDD50JJwSIAcbfsRtOpoWM/jZ17EkelMvMZmfwZ087tcrSgong1bZ5IlZUMvuqx7E5vfTmMTpq+R+Z54SUXA=="],
 
     "@phreshos/react": ["@phreshos/react@0.1.28", "", { "peerDependencies": { "@phreshos/core": "^0.1.53", "react": "^19.2.0" } }, "sha512-Qbno72k9FAQcdpRSwS4Wjfle43sQi79A0UZHZcZSZLp0uUOVMQJC8NvCFA5e5xJIUDCAYbnY+lNybILHH6MOsA=="],
 
-    "@phreshos/react-ui": ["@phreshos/react-ui@0.1.28", "", { "dependencies": { "@base-ui/react": "^1.7.0", "@phreshos/core": "^0.1.53", "colorjs.io": "^0.7.1", "motion": "^13.2.0", "react-aria-components": "^1.20.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-hOlIWdEDHzvymAhS9FR5Tty0ya+WJBJBBZRgheJoRUWqp1U6K3ChN79NjWr2yS3Iotp4264hXkpZsSNebifTGg=="],
+    "@phreshos/react-ui": ["@phreshos/react-ui@0.1.29", "", { "dependencies": { "@base-ui/react": "^1.7.0", "@phreshos/core": "^0.1.54", "colorjs.io": "^0.7.1", "motion": "^13.2.0", "react-aria-components": "^1.20.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-tx6Qld7NLwqQ4hSArmtIfi66elqRBTIPwe2emSPuezp2x5Udc+twX0KHbHWrzBZeEGjkUnoOw/mKsOYrxt0I4Q=="],
 
     "@phreshos/server": ["@phreshos/server@0.1.50", "", { "dependencies": { "@the-link/messagepack": "^0.1.0" }, "peerDependencies": { "@phreshos/core": "^0.1.53" } }, "sha512-6gGhcyzIN7tnRssJOOPKC9aEc4ioVf3lRrt7CmY5K/2at4dq75EVAhNear+Zczd4mXb4RXhk//qgK/Wcjamz7g=="],
 
