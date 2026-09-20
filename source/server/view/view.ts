@@ -184,7 +184,7 @@ export default async function view() {
 
 async function startAgent() {
 
-    if (!await context.client.exists()) await context.client.start()
+    if (!await context.client.running()) await context.client.start()
 }
 
 function fixedLaunch(identity: string): Launch {

@@ -7,11 +7,11 @@
       "dependencies": {
         "@modelcontextprotocol/sdk": "^1.30.0",
         "@openrouter/sdk": "^1.2.70",
-        "@phreshos/client": "^0.1.46",
-        "@phreshos/core": "^0.1.54",
-        "@phreshos/react": "^0.1.28",
-        "@phreshos/react-ui": "^0.1.29",
-        "@phreshos/server": "^0.1.50",
+        "@phreshos/client": "^0.1.47",
+        "@phreshos/core": "^0.1.55",
+        "@phreshos/react": "^0.1.29",
+        "@phreshos/react-ui": "^0.1.30",
+        "@phreshos/server": "^0.1.51",
         "openai": "^7.13.0",
         "react": "^19.2.8",
         "react-dom": "^19.2.8",
@@ -21,7 +21,7 @@
       },
       "devDependencies": {
         "@babel/core": "^7.29.7",
-        "@phreshos/cli": "^0.1.65",
+        "@phreshos/cli": "^0.1.66",
         "@rolldown/plugin-babel": "^0.2.3",
         "@types/node": "^26.2.0",
         "@types/react": "^19.2.18",
@@ -112,19 +112,19 @@
 
     "@oxc-project/types": ["@oxc-project/types@0.147.0", "", {}, "sha512-IJ3s6ltHLp45S0bh7phkX+gJO7A1Wuz2EaqpAhb8WjqDwbzMiWKHhyyT42tskaWjEYXtHtVCPpnBJVT9+dcRLg=="],
 
-    "@phreshos/cli": ["@phreshos/cli@0.1.65", "", { "dependencies": { "@clack/prompts": "^1.7.0", "@phreshos/core": "^0.1.54", "@phreshos/node": "^0.1.27", "adm-zip": "^0.6.0", "commander": "^15.0.0", "picocolors": "^1.1.1" }, "bin": { "phresh": "dist/cli.js" } }, "sha512-C0j/Wv4bqnBkUxIeBs4mFLZAyDBunJBTGjWBdt9NJO0fQ8nTX5GF/MwalGukl0xdB33iNNFVB2Ds+1CFRAbtnQ=="],
+    "@phreshos/cli": ["@phreshos/cli@0.1.66", "", { "dependencies": { "@clack/prompts": "^1.7.0", "@phreshos/core": "^0.1.55", "@phreshos/node": "^0.1.28", "adm-zip": "^0.6.0", "commander": "^15.0.0", "picocolors": "^1.1.1" }, "bin": { "phresh": "dist/cli.js" } }, "sha512-jDbJpqP0HtdWLyxRDvy4NNg2LcHx469h4zEi+L2v3NTS8OJVSsTFEbBygN01xLbL/R5cRxstUMnwOzsG3hBfgg=="],
 
-    "@phreshos/client": ["@phreshos/client@0.1.46", "", { "dependencies": { "@the-link/messagepack": "^0.1.0" }, "peerDependencies": { "@phreshos/core": "^0.1.53" } }, "sha512-YLFxXAdkiw5ASRpjJGYLn0jkWiF6k+Pj/azsNrI0V9s9af0bUx3z/GOlQKS9t42HQhySylO0e6r8wUNnp2X/jw=="],
+    "@phreshos/client": ["@phreshos/client@0.1.47", "", { "dependencies": { "@the-link/messagepack": "^0.1.0" }, "peerDependencies": { "@phreshos/core": "^0.1.55" } }, "sha512-C/xOPlK36+DnplLTfCLtslUrDIct1GLrKCK7Dk2WOUBxQfl9MO+8X9tltwnuOuyW12H6m3RddgU+heuDl7K8Ig=="],
 
-    "@phreshos/core": ["@phreshos/core@0.1.54", "", { "dependencies": { "zod": "^4.6.5" } }, "sha512-A0idbkbSkAOXaW0m6LL8VT3YhZUFV1VZkQaDYkSaRZ/cDIME2NdI59gK6RBe08RGOLA+hVZD6DQsMiLC9ehu9A=="],
+    "@phreshos/core": ["@phreshos/core@0.1.55", "", { "dependencies": { "zod": "^4.6.5" } }, "sha512-xY957bQO7+/8syaaHhlWThouRU7QDzaL5HWdcV30JbuKCn9GBSkWFwanMFEIB/PQmbbD+xswFNGuXKU295GxpQ=="],
 
-    "@phreshos/node": ["@phreshos/node@0.1.27", "", { "dependencies": { "@the-link/ipc": "^0.2.1", "@the-link/messagepack": "^0.1.0", "adm-zip": "^0.6.0", "jiti": "^2.7.0" }, "peerDependencies": { "@phreshos/core": "^0.1.54" } }, "sha512-VQzDD50JJwSIAcbfsRtOpoWM/jZ17EkelMvMZmfwZ087tcrSgong1bZ5IlZUMvuqx7E5vfTmMTpq+R+Z54SUXA=="],
+    "@phreshos/node": ["@phreshos/node@0.1.28", "", { "dependencies": { "@the-link/ipc": "^0.2.1", "@the-link/messagepack": "^0.1.0", "adm-zip": "^0.6.0", "jiti": "^2.7.0" }, "peerDependencies": { "@phreshos/core": "^0.1.55" } }, "sha512-gkDEvCx9boI6mLq9Ao1hFCdZvelw5r0WNPxdhNFDfFh3kXawlVyOcmBJXA72/a0gRPRrlKNgbzRPv0wTAq2Izw=="],
 
-    "@phreshos/react": ["@phreshos/react@0.1.28", "", { "peerDependencies": { "@phreshos/core": "^0.1.53", "react": "^19.2.0" } }, "sha512-Qbno72k9FAQcdpRSwS4Wjfle43sQi79A0UZHZcZSZLp0uUOVMQJC8NvCFA5e5xJIUDCAYbnY+lNybILHH6MOsA=="],
+    "@phreshos/react": ["@phreshos/react@0.1.29", "", { "peerDependencies": { "@phreshos/core": "^0.1.55", "react": "^19.2.0" } }, "sha512-NAi5eOViVBdn3csjIYoyD1ircblFrc4kFOYfBqLW9/kzxz6UQkGGPDHZ4MFAB/fRBt+Q4N83/4H7FZr9xNM4dA=="],
 
-    "@phreshos/react-ui": ["@phreshos/react-ui@0.1.29", "", { "dependencies": { "@base-ui/react": "^1.7.0", "@phreshos/core": "^0.1.54", "colorjs.io": "^0.7.1", "motion": "^13.2.0", "react-aria-components": "^1.20.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-tx6Qld7NLwqQ4hSArmtIfi66elqRBTIPwe2emSPuezp2x5Udc+twX0KHbHWrzBZeEGjkUnoOw/mKsOYrxt0I4Q=="],
+    "@phreshos/react-ui": ["@phreshos/react-ui@0.1.30", "", { "dependencies": { "@base-ui/react": "^1.7.0", "@phreshos/core": "^0.1.55", "colorjs.io": "^0.7.1", "motion": "^13.2.0", "react-aria-components": "^1.20.0" }, "peerDependencies": { "react": "^19.2.0", "react-dom": "^19.2.0" } }, "sha512-44UVKpJB/l8U4w+FzZs10oA/ce15+f5Onfejj9O4pB4QOWfSaJmevMbUali6/3s8Q7tTTYPXJDDbFDO1baSrNA=="],
 
-    "@phreshos/server": ["@phreshos/server@0.1.50", "", { "dependencies": { "@the-link/messagepack": "^0.1.0" }, "peerDependencies": { "@phreshos/core": "^0.1.53" } }, "sha512-6gGhcyzIN7tnRssJOOPKC9aEc4ioVf3lRrt7CmY5K/2at4dq75EVAhNear+Zczd4mXb4RXhk//qgK/Wcjamz7g=="],
+    "@phreshos/server": ["@phreshos/server@0.1.51", "", { "dependencies": { "@the-link/messagepack": "^0.1.0" }, "peerDependencies": { "@phreshos/core": "^0.1.55" } }, "sha512-999zmKpZ2EcPANFdiE5VhzIi+pnVr3hHFFQbXgUdj7C+44aIo48ZxZdv2vm8fW0pqKMSuyhWsfsI2iUWOafvCA=="],
 
     "@react-types/shared": ["@react-types/shared@3.36.1", "", { "peerDependencies": { "react": "^16.8.0 || ^17.0.0-rc.1 || ^18.0.0 || ^19.0.0-rc.1" } }, "sha512-AzsuD9OfxTOZMMvTRhlN3oHBwOmFN7tDh27LzqmHt4+uOgPhJT7ZM7/kVs/8/o0WxayMUIk3hBmCFRHv1FUoag=="],
 

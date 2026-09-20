@@ -40,7 +40,7 @@ test.each([false, true])("Tool documentation survives multiple cycles; pause/con
             // The contract needed for the final step is still available after intervening calls.
             expect(systemTool.parse({
                 $domain: "window", $operation: "setGeometry", process: "example",
-                position: { x: 0, y: 0 }, size: { width: "50%", height: "100%" }
+                x: 0, y: 0, width: "50%", height: "100%"
             }).input).toMatchObject({ $domain: "window", $operation: "setGeometry" })
             yield { type: "text", content: "complete" }
             return null

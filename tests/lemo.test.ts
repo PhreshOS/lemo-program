@@ -138,14 +138,18 @@ test("lemo contract", async () => {
       $domain: "window",
       $operation: "setGeometry",
       process: "lemo-process",
-      position: "{\"x\":0,\"y\":0}",
-      size: "{\"width\":\"50%\",\"height\":\"100%\"}"
+      x: 0,
+      y: 0,
+      width: "50%",
+      height: "100%"
   }, systemTool.definition.parameters), {
       $domain: "window",
       $operation: "setGeometry",
       process: "lemo-process",
-      position: { x: 0, y: 0 },
-      size: { width: "50%", height: "100%" }
+      x: 0,
+      y: 0,
+      width: "50%",
+      height: "100%"
   })
 
   assert.deepEqual(toolInput({

@@ -64,7 +64,7 @@ export default class Manager {
 
         await process.server.waitReady()
 
-        if (!await process.client.exists()) {
+        if (!await process.client.running()) {
             throw new Error("Lemo Server is ready but its Agent Client did not start")
         }
 

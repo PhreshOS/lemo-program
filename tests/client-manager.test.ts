@@ -56,7 +56,7 @@ test("client manager contract", async () => {
           return () => subscribers.delete(subscriber)
       },
       client: {
-          async exists() { return true },
+          async running() { return true },
           window: {
               async minimize(value: boolean) {
 
