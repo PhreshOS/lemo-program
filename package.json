@@ -37,7 +37,7 @@
     "@phreshos/core": "^0.1.56",
     "@phreshos/react": "^0.1.29",
     "@phreshos/react-ui": "^0.1.32",
-    "@phreshos/server": "^0.1.52",
+    "@phreshos/server": "^0.1.53",
     "openai": "^7.13.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
