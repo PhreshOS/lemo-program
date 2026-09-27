@@ -90,8 +90,9 @@ function PromptFieldView({ field, value, disabled, change }: Readonly<{
 
     if (field.type === "select") {
         return <Select {...shared} value={typeof value === "string" ? value : null}
-            placeholder="Select…" options={field.options}
-            onChange={value => change(value || undefined)} />
+            placeholder="Select…" onChange={value => change(value || undefined)}>
+            {field.options.map(option => <Select.Item key={option.value} id={option.value}>{option.label}</Select.Item>)}
+        </Select>
     }
 
     if (field.type === "text") {

@@ -54,10 +54,10 @@ test("client ui contract", async () => {
   }
 
   const reasoning = renderToStaticMarkup(<UIProvider appearance={defaultAppearance} preferences={{ theme: "light", animations: true }}>
-      <Select aria-label="Reasoning level" value="" options={[
-          { value: "", label: "Default reasoning" },
-          { value: "high", label: "High" }
-      ]} />
+      <Select aria-label="Reasoning level" value="">
+          <Select.Item id="">Default reasoning</Select.Item>
+          <Select.Item id="high">High</Select.Item>
+      </Select>
   </UIProvider>)
   assert.ok(reasoning.includes("Default reasoning"), "Empty-string default reasoning remains a selectable value")
 

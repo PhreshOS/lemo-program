@@ -278,8 +278,9 @@ export default function Tasks({ application, models: modelResource }: Properties
                                 setSelectedModel(value ?? "")
                                 setModelSearch("")
                             }}
-                            options={visibleModels.map(candidate => ({ value: modelKey(candidate), label: `${candidate.provider.name} · ${candidate.id}` }))}
-                        />
+                        >
+                            {visibleModels.map(candidate => <Select.Item key={modelKey(candidate)} id={modelKey(candidate)}>{candidate.provider.name} · {candidate.id}</Select.Item>)}
+                        </Select>
 
                         {reasoning && <Select
                             size="small"
@@ -288,11 +289,10 @@ export default function Tasks({ application, models: modelResource }: Properties
                             value={selectedReasoning ?? ""}
                             disabled={reasoningMutation.isPending}
                             onChange={value => void changeReasoning(value || null)}
-                            options={[
-                                { value: "", label: reasoning.default ? `Default · ${reasoning.default}` : "Default reasoning" },
-                                ...reasoning.levels.map(level => ({ value: level, label: level }))
-                            ]}
-                        />}
+                        >
+                            <Select.Item id="">{reasoning.default ? `Default · ${reasoning.default}` : "Default reasoning"}</Select.Item>
+                            {reasoning.levels.map(level => <Select.Item key={level} id={level}>{level}</Select.Item>)}
+                        </Select>}
                     </div>
 
                     <span className="composer-hint">
