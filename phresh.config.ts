@@ -4,7 +4,7 @@ export default defineConfig({
     identity: "lemo",
     name: "Lemo",
     description: "The official PhreshOS agent.",
-  version: "0.1.45",
+  version: "0.1.46",
     icon: "icon.png",
     categories: ["Productivity", "AI"],
     keywords: ["agent", "tasks", "memory", "tools"],
@@ -23,7 +23,6 @@ export default defineConfig({
     client: {
         location: "dist/client",
         title: "Lemo",
-        size: { width: 600, height: 500 },
         devCommand: "vite --config vite.client.ts"
     }
 })

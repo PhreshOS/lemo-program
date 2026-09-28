@@ -153,12 +153,39 @@ for (const value of ["catalog-error", "invalid-catalog"]) {
 assert.throws(() => nvidiaConfiguration({ apiKey: " " }))
 
 const values = new Map<string, unknown>()
+const subscribers = new Map<string, Set<(value: unknown) => void>>()
+const publish = (key: string) => { for (const subscriber of subscribers.get(key) ?? []) subscriber(values.get(key)) }
 const store: ProgramStore = {
     async get<Value>(key: string) { return values.get(key) as Value | undefined },
-    async set(key, value) { values.set(key, value); return true },
-    async delete(key) { return (Array.isArray(key) ? key : [key]).map(value => values.delete(value)).some(Boolean) },
+    async set(key, value) { values.set(key, value); publish(key); return true },
+    async getOrSet<Value>(key: string, initial: Value) {
+        if (values.has(key)) return values.get(key) as Value
+        values.set(key, initial); publish(key); return initial
+    },
+    async update<Value>(key: string, updater: (current: Value | undefined) => Value) {
+        const next = updater(values.get(key) as Value | undefined)
+        values.set(key, next); publish(key); return next
+    },
+    async delete(key) {
+        const keys = Array.isArray(key) ? key : [key]
+        let changed = false
+        for (const item of keys) if (values.delete(item)) { changed = true; publish(item) }
+        return changed
+    },
     async has(key) { return values.has(key) },
-    async clear() { values.clear() }
+    async clear() {
+        const keys = [...values.keys()]
+        values.clear()
+        for (const key of keys) publish(key)
+    },
+    subscribe<Value>(key: string, subscriber: (value: Value | undefined) => unknown) {
+        const listener = (value: unknown) => { subscriber(value as Value | undefined) }
+        const listeners = subscribers.get(key) ?? new Set()
+        listeners.add(listener)
+        subscribers.set(key, listeners)
+        listener(values.get(key))
+        return () => { listeners.delete(listener); if (!listeners.size) subscribers.delete(key) }
+    }
 }
 const handle = await registration.open(store)
 

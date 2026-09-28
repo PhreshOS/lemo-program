@@ -19,7 +19,6 @@ test("build contract", async () => {
 
   assert.equal(config.client?.location, "dist/client")
 
-  assert.deepEqual(config.client?.size, { width: 600, height: 500 })
 
   assert(readFileSync("dist/client/index.html", "utf8").length > 0)
 
