@@ -13,6 +13,8 @@ export default defineConfig({
         dedupe: ["react", "react-dom"]
     },
     server: {
+        // The address `phresh dev` chose, so it and the System reach this server.
+        host: process.env.PHRESHOS_CLIENT_HOST,
         port: Number(process.env.PHRESHOS_CLIENT_PORT ?? "5200"),
         strictPort: true
     },
