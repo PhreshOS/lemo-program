@@ -43,8 +43,8 @@ export default async function view() {
 
         const enabled = startupConfiguration.parse(payload).enabled
 
-        if (enabled) await program.startup.enable(fixedLaunch(program.identity))
-        else await program.startup.disable()
+        if (enabled) await program.startup.set(fixedLaunch(program.identity))
+        else await program.startup.remove()
 
         context.publish("manager.startup.changed", {
             type: "manager.startup.changed",
