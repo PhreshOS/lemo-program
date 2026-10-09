@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react"
 import { desktop, system } from "@phreshos/client"
-import { DesktopProvider, SystemProvider, useDesktopPreferences, useSystemAppearance } from "@phreshos/react"
+import { DesktopProvider, SystemProvider, useResolvedDesktopPreferences, useSystemAppearance } from "@phreshos/react"
 import { DocumentTheme, UIProvider, useThemedValue } from "@phreshos/react-ui"
 
 /** The System owns Appearance; this View only follows and composes it. */
@@ -15,7 +15,7 @@ export default function Appearance({ children }: Readonly<{ children: ReactNode 
 
 function ResolvedAppearance({ children }: Readonly<{ children: ReactNode }>) {
     const appearance = useSystemAppearance()
-    const preferences = useDesktopPreferences()
+    const preferences = useResolvedDesktopPreferences()
     return <UIProvider appearance={appearance} preferences={preferences}>
         <DocumentTheme />
         <DocumentAppearance>{children}</DocumentAppearance>
